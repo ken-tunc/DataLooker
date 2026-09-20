@@ -13,6 +13,11 @@ code.
 - Comment why, never what. A comment that restates the code becomes noise the moment the
   code changes, so leave out anything a reader gets from the code itself — write one only
   for a reason, a constraint or a workaround the code cannot show.
+- Do not hand-memoize. The React Compiler is on, so `useCallback`, `useMemo` and `memo`
+  only add noise.
+- Tests sit next to the code they cover: `#[cfg(test)]` modules in Rust, `*.test.ts` in
+  TypeScript. When a test would be the only reason to export something, write it in-source
+  behind `import.meta.vitest` instead of widening the API.
 - Validate with `vp check` (format, lint, type check; `--fix` applies fixes) and
   `vp test --run`, plus `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
   and `cargo test` in `src-tauri`. CI runs exactly these.

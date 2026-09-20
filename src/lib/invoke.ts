@@ -50,3 +50,30 @@ export function describeError(
   }
   return error instanceof Error ? error.message : String(error);
 }
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+
+  describe("asAppError", () => {
+    it("accepts a known kind with a string message", () => {
+      expect(asAppError({ kind: "NotFound", message: "connection 7" })).toEqual({
+        kind: "NotFound",
+        message: "connection 7",
+      });
+    });
+
+    it("rejects a kind the bindings do not declare", () => {
+      expect(asAppError({ kind: "Exploded", message: "boom" })).toBeNull();
+    });
+
+    it("rejects a payload whose message is missing or not a string", () => {
+      expect(asAppError({ kind: "Internal" })).toBeNull();
+      expect(asAppError({ kind: "Internal", message: 42 })).toBeNull();
+    });
+
+    it("rejects values that are not objects", () => {
+      expect(asAppError("NotFound")).toBeNull();
+      expect(asAppError(null)).toBeNull();
+    });
+  });
+}

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ToastContext, type ToastVariant } from "./useToast";
 
 type Toast = {
@@ -9,11 +9,14 @@ type Toast = {
 
 const TOAST_DURATION_MS = 4000;
 
-const VARIANT_CLASS: Record<ToastVariant, string> = {
+// daisyUI ships CSS only, so its class names cannot be type-checked against it.
+type AlertModifier = "alert-error" | "alert-info" | "alert-success" | "alert-warning";
+
+const VARIANT_CLASS = {
   success: "alert-success",
   error: "alert-error",
   info: "alert-info",
-};
+} as const satisfies Record<ToastVariant, AlertModifier>;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -28,7 +31,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const show = useCallback((message: string, variant: ToastVariant = "info") => {
+  function show(message: string, variant: ToastVariant = "info") {
     nextId.current += 1;
     const id = nextId.current;
     setToasts((current) => [...current, { id, message, variant }]);
@@ -37,7 +40,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setToasts((current) => current.filter((toast) => toast.id !== id));
     }, TOAST_DURATION_MS);
     timers.current.add(handle);
-  }, []);
+  }
 
   return (
     <ToastContext value={{ show }}>
