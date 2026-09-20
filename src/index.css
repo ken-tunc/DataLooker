@@ -1,8 +1,50 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes:
-    light --default,
-    dark --prefersdark;
+  themes: false;
+}
+
+/* Monokai Pro is a dark palette with no light counterpart, so it is the only
+   theme: `prefersdark` keeps the browser-provided UI dark even when the OS
+   asks for light. The base shades are the palette's own background ramp, so
+   panels sit darker than the page the way its editors shade a sidebar. */
+@plugin "daisyui/theme" {
+  name: "monokai-pro";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #2d2a2e;
+  --color-base-200: #221f22;
+  --color-base-300: #19181a;
+  --color-base-content: #fcfcfa;
+  --color-primary: #78dce8;
+  --color-primary-content: #19181a;
+  --color-secondary: #ff6188;
+  --color-secondary-content: #19181a;
+  --color-accent: #a9dc76;
+  --color-accent-content: #19181a;
+  --color-neutral: #403e41;
+  --color-neutral-content: #fcfcfa;
+  --color-info: #78dce8;
+  --color-info-content: #19181a;
+  --color-success: #a9dc76;
+  --color-success-content: #19181a;
+  --color-warning: #ffd866;
+  --color-warning-content: #19181a;
+  --color-error: #ff6188;
+  --color-error-content: #19181a;
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+
+  --border: 1px;
+
+  --depth: 0;
+  --noise: 0;
 }
 
 html,
