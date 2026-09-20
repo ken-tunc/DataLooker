@@ -37,6 +37,11 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
       if (focused) onActivate(focused.id);
       return;
     }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      onClose(id);
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onActivate(id);
@@ -46,9 +51,9 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
   return (
     <div role="tablist" className="tabs tabs-lift border-base-300 border-b pt-1 pl-1">
       {state.tabs.map((tab) => (
-        // The tab itself is not a button, so that the close button inside it is
-        // neither nested in one nor out of the keyboard's reach. Only the
-        // active tab is in the tab order; the arrows move between them.
+        // Only the active tab is in the tab order; the arrows move between
+        // them, and Delete closes the one in focus — ARIA makes whatever sits
+        // inside a tab presentational, so the ✕ is for the mouse alone.
         <div
           key={tab.id}
           role="tab"
@@ -59,9 +64,9 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
           onKeyDown={(event) => onTabKeyDown(event, tab.id)}
         >
           {tab.title}
-          <button
-            type="button"
-            aria-label={`Close ${tab.title}`}
+          <span
+            aria-hidden="true"
+            title={`Close ${tab.title} (Delete)`}
             className="cursor-pointer opacity-40 hover:opacity-100"
             onClick={(event) => {
               event.stopPropagation();
@@ -69,7 +74,7 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
             }}
           >
             ✕
-          </button>
+          </span>
         </div>
       ))}
       <button
