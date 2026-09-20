@@ -1,13 +1,23 @@
 import { useState } from "react";
-import { activateTab, closeTab, openTab, setSql, shiftTab, type TabsState } from "./tabs";
+import {
+  activateTab,
+  closeTab,
+  openSqlTab,
+  openTableTab,
+  setSql,
+  setTableView,
+  shiftTab,
+  type TableView,
+  type TabsState,
+} from "./tabs";
 
-export type SqlTabsController = ReturnType<typeof useSqlTabs>;
+export type TabsController = ReturnType<typeof useTabs>;
 
 /**
  * The open tabs of every connection. They outlive the window that shows them,
  * so that switching connections and coming back finds the same queries.
  */
-export function useSqlTabs() {
+export function useTabs() {
   const [byConnection, setByConnection] = useState<Record<string, TabsState>>({});
 
   function write(connectionId: string, next: TabsState | null) {
@@ -28,7 +38,12 @@ export function useSqlTabs() {
   return {
     of: (connectionId: string): TabsState | undefined => byConnection[connectionId],
     open: (connectionId: string) =>
-      write(connectionId, openTab(byConnection[connectionId], crypto.randomUUID())),
+      write(connectionId, openSqlTab(byConnection[connectionId], crypto.randomUUID())),
+    openTable: (connectionId: string, schema: string, table: string) =>
+      write(
+        connectionId,
+        openTableTab(byConnection[connectionId], crypto.randomUUID(), schema, table),
+      ),
     close: (connectionId: string, id: string) =>
       change(connectionId, (state) => closeTab(state, id)),
     activate: (connectionId: string, id: string) =>
@@ -37,6 +52,8 @@ export function useSqlTabs() {
       change(connectionId, (state) => shiftTab(state, by)),
     writeSql: (connectionId: string, id: string, sql: string) =>
       change(connectionId, (state) => setSql(state, id, sql)),
+    readTable: (connectionId: string, id: string, view: Partial<TableView>) =>
+      change(connectionId, (state) => setTableView(state, id, view)),
     forget: (connectionId: string) => write(connectionId, null),
   };
 }

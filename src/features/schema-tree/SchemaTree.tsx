@@ -14,7 +14,12 @@ const KIND_LABELS: Record<TableKind, string> = {
 
 const ROW_HEIGHT = 26;
 
-export function SchemaTree({ connectionId }: { connectionId: string }) {
+type Props = {
+  connectionId: string;
+  onOpenTable: (schema: string, table: string) => void;
+};
+
+export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const tree = useSchemaTree(connectionId);
   const refresh = useRefreshSchemaTree(connectionId);
   const scroller = useRef<HTMLDivElement>(null);
@@ -69,7 +74,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
       )}
 
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
-        <Rows rows={rows} scroller={scroller} onToggle={toggle} />
+        <Rows rows={rows} scroller={scroller} onToggle={toggle} onOpenTable={onOpenTable} />
       </div>
     </section>
   );
@@ -79,10 +84,12 @@ function Rows({
   rows,
   scroller,
   onToggle,
+  onOpenTable,
 }: {
   rows: TreeRow[];
   scroller: RefObject<HTMLDivElement | null>;
   onToggle: (id: string) => void;
+  onOpenTable: (schema: string, table: string) => void;
 }) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
@@ -103,7 +110,7 @@ function Rows({
             className="absolute flex w-full items-center"
             style={{ height: item.size, transform: `translateY(${item.start}px)` }}
           >
-            <Row row={row} onToggle={onToggle} />
+            <Row row={row} onToggle={onToggle} onOpenTable={onOpenTable} />
           </li>
         );
       })}
@@ -111,7 +118,15 @@ function Rows({
   );
 }
 
-function Row({ row, onToggle }: { row: TreeRow; onToggle: (id: string) => void }) {
+function Row({
+  row,
+  onToggle,
+  onOpenTable,
+}: {
+  row: TreeRow;
+  onToggle: (id: string) => void;
+  onOpenTable: (schema: string, table: string) => void;
+}) {
   if (row.kind === "column") {
     return (
       <span className="flex w-full items-baseline gap-2 truncate py-0.5 pr-2 pl-10 text-sm">
@@ -124,22 +139,40 @@ function Row({ row, onToggle }: { row: TreeRow; onToggle: (id: string) => void }
     );
   }
 
+  // The chevron and the name are separate controls: expanding a table is not
+  // the same wish as opening it.
   const isSchema = row.kind === "schema";
   return (
-    <button
-      type="button"
-      aria-expanded={row.expanded}
-      className={`hover:bg-base-200 flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-left text-sm ${
+    <span
+      className={`hover:bg-base-200 flex w-full items-baseline gap-1 py-0.5 pr-2 text-sm ${
         isSchema ? "pl-2 font-medium" : "pl-6"
       }`}
-      onClick={() => onToggle(row.id)}
     >
-      <span className="text-base-content/40 w-3 shrink-0 text-xs">{row.expanded ? "▾" : "▸"}</span>
-      <span className="truncate">{row.name}</span>
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`}
+        className="text-base-content/40 w-3 shrink-0 cursor-pointer text-xs"
+        onClick={() => onToggle(row.id)}
+      >
+        {row.expanded ? "▾" : "▸"}
+      </button>
+      {isSchema ? (
+        <span className="truncate">{row.name}</span>
+      ) : (
+        <button
+          type="button"
+          className="cursor-pointer truncate text-left"
+          title={`Open ${row.schema}.${row.name}`}
+          onClick={() => onOpenTable(row.schema, row.name)}
+        >
+          {row.name}
+        </button>
+      )}
       <span className="text-base-content/50 shrink-0 text-xs">
         {isSchema ? row.tables : KIND_LABELS[row.tableKind] || row.columns}
       </span>
-    </button>
+    </span>
   );
 }
 

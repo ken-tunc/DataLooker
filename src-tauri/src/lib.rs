@@ -28,7 +28,8 @@ pub fn run() {
             commands::query::test_connection,
             commands::query::execute_query,
             commands::query::cancel_query,
-            commands::schema::schema_tree
+            commands::schema::schema_tree,
+            commands::preview::preview_table
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

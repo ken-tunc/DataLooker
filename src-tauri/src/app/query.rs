@@ -43,14 +43,15 @@ impl App {
 }
 
 /// The cancellation token of every query currently running, keyed by the id its
-/// caller made up, so that a cancel can reach a query already in flight.
+/// caller made up, so that a cancel can reach a query already in flight. A
+/// table preview registers here too, so one cancel reaches either of them.
 #[derive(Default)]
 pub struct QueryRegistry(Mutex<HashMap<String, CancellationToken>>);
 
 impl QueryRegistry {
     /// Rejects an id already running rather than replacing its token, which
     /// would leave that query with no way to be cancelled.
-    fn register(&self, query_id: &str) -> Result<CancellationToken, AppError> {
+    pub(super) fn register(&self, query_id: &str) -> Result<CancellationToken, AppError> {
         let mut running = self.0.lock().unwrap();
         if running.contains_key(query_id) {
             return Err(AppError::Validation(format!(
@@ -62,7 +63,7 @@ impl QueryRegistry {
         Ok(token)
     }
 
-    fn cancel(&self, query_id: &str) {
+    pub(super) fn cancel(&self, query_id: &str) {
         let token = self.0.lock().unwrap().get(query_id).cloned();
         if let Some(token) = token {
             token.cancel();
@@ -74,9 +75,9 @@ impl QueryRegistry {
     }
 }
 
-struct Registration<'a> {
-    registry: &'a QueryRegistry,
-    query_id: &'a str,
+pub(super) struct Registration<'a> {
+    pub registry: &'a QueryRegistry,
+    pub query_id: &'a str,
 }
 
 impl Drop for Registration<'_> {

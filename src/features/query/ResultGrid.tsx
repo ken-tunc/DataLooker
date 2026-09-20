@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type KeyboardEvent, type PointerEvent, type RefObject, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
+import type { Sort } from "../../bindings/Sort";
 import { formatCell } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
 
@@ -13,7 +14,14 @@ type Cell = { row: number; column: number };
 /** Widths the reader dragged, and the columns they were dragged for. */
 type Dragged = { columns: string; widths: Record<number, number> };
 
-export function ResultGrid({ result }: { result: QueryResult }) {
+type Props = {
+  result: QueryResult;
+  /** Set together: a grid whose columns sort says so in its headers. */
+  sort?: Sort | null;
+  onSortColumn?: (column: string) => void;
+};
+
+export function ResultGrid({ result, sort, onSortColumn }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
@@ -120,12 +128,11 @@ export function ResultGrid({ result }: { result: QueryResult }) {
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
             >
-              <span className="block truncate">
-                {column.name}
-                <span className="text-base-content/40 ml-2 font-normal lowercase">
-                  {column.type_name}
-                </span>
-              </span>
+              <HeaderLabel
+                column={column}
+                sorted={sort?.column === column.name ? sort : null}
+                onSort={onSortColumn}
+              />
               <div
                 role="separator"
                 aria-orientation="vertical"
@@ -147,6 +154,35 @@ export function ResultGrid({ result }: { result: QueryResult }) {
         />
       </div>
     </div>
+  );
+}
+
+function HeaderLabel({
+  column,
+  sorted,
+  onSort,
+}: {
+  column: QueryResult["columns"][number];
+  sorted: Sort | null;
+  onSort?: (column: string) => void;
+}) {
+  const label = (
+    <>
+      {column.name}
+      {sorted && <span className="ml-1">{sorted.descending ? "▾" : "▴"}</span>}
+      <span className="text-base-content/40 ml-2 font-normal lowercase">{column.type_name}</span>
+    </>
+  );
+
+  if (!onSort) return <span className="block truncate">{label}</span>;
+  return (
+    <button
+      type="button"
+      className="block w-full cursor-pointer truncate text-left"
+      onClick={() => onSort(column.name)}
+    >
+      {label}
+    </button>
   );
 }
 

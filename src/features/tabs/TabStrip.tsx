@@ -13,7 +13,7 @@ function focusTabAt(sibling: HTMLElement, index: number): void {
   sibling.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[index]?.focus();
 }
 
-export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
+export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   const strip = useRef<HTMLDivElement>(null);
   // Closing the tab in focus takes the focused element with it, which would
   // otherwise drop focus on the document and end the keyboard's walk here.
