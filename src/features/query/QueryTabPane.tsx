@@ -1,5 +1,4 @@
 import { lazy, Suspense } from "react";
-import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { describeError, IpcError } from "../../lib/invoke";
 import { ResultGrid } from "./ResultGrid";
 import { useQueryRunner } from "./hooks";
@@ -9,14 +8,14 @@ import { useQueryRunner } from "./hooks";
 const SqlEditor = lazy(() => import("../sql-editor/SqlEditor"));
 
 type Props = {
-  connection: ConnectionRecord;
+  connectionId: string;
   sql: string;
   onSqlChange: (sql: string) => void;
   hidden: boolean;
 };
 
-export function QueryTabPane({ connection, sql, onSqlChange, hidden }: Props) {
-  const { run, cancel } = useQueryRunner(connection.id);
+export function QueryTabPane({ connectionId, sql, onSqlChange, hidden }: Props) {
+  const { run, cancel } = useQueryRunner(connectionId);
   const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
 
   function submit() {
