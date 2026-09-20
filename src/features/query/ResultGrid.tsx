@@ -106,22 +106,27 @@ export function ResultGrid({ result }: { result: QueryResult }) {
       <div className="min-w-full" style={{ width: total }}>
         <div className="bg-base-200 sticky top-0 z-10 flex min-w-full" role="row">
           {result.columns.map((column, index) => (
+            // The name truncates, the cell does not: a handle clipped by the
+            // cell it sits in would be unreachable on the last column, where
+            // there is no neighbour to grab instead.
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
-              className="relative shrink-0 truncate px-3 py-1 font-sans font-medium"
+              className="relative shrink-0 px-3 py-1 font-sans font-medium"
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
             >
-              {column.name}
-              <span className="text-base-content/40 ml-2 font-normal lowercase">
-                {column.type_name}
+              <span className="block truncate">
+                {column.name}
+                <span className="text-base-content/40 ml-2 font-normal lowercase">
+                  {column.type_name}
+                </span>
               </span>
               <div
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={`Resize ${column.name}`}
-                className="hover:bg-primary absolute top-0 right-0 h-full w-1 cursor-col-resize"
+                className="hover:bg-primary absolute top-0 -right-1 z-20 h-full w-2 cursor-col-resize"
                 onPointerDown={(event) => resize(event, index)}
                 onDoubleClick={() => resetWidth(index)}
               />
