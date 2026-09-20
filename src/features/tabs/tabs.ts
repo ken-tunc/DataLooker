@@ -49,7 +49,9 @@ export function openTableTab(
   return opened(state, {
     kind: "table",
     id,
-    title: table,
+    // Two schemas can hold a table of the same name, and a tab reading
+    // `people` would not say which one.
+    title: `${schema}.${table}`,
     schema,
     table,
     filter: "",
@@ -130,7 +132,7 @@ if (import.meta.vitest) {
       expect(state.tabs[0]).toEqual({
         kind: "table",
         id: "t1",
-        title: "people",
+        title: "public.people",
         schema: "public",
         table: "people",
         filter: "",
@@ -150,6 +152,7 @@ if (import.meta.vitest) {
       const first = openTableTab(undefined, "t1", "public", "people");
       const second = openTableTab(first, "t2", "analytics", "people");
       expect(ids(second)).toEqual(["t1", "t2"]);
+      expect(second.tabs.map((tab) => tab.title)).toEqual(["public.people", "analytics.people"]);
     });
   });
 

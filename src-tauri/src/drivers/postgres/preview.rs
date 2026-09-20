@@ -42,17 +42,7 @@ pub async fn preview(
         limit: request.limit + 1,
         ..*request
     });
-    eprintln!("[preview] {sql}");
-    let result = query::execute(conn, &sql, request.limit, started).await;
-    match &result {
-        Ok(r) => eprintln!(
-            "[preview] -> {} rows, {} columns",
-            r.rows.len(),
-            r.columns.len()
-        ),
-        Err(e) => eprintln!("[preview] -> error: {e}"),
-    }
-    result
+    query::execute(conn, &sql, request.limit, started).await
 }
 
 /// A double quote inside an identifier is written twice, which is how a name

@@ -197,6 +197,9 @@ function Rows({
     getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
+    // The header sticks over the top of the scroll area, so a row scrolled to
+    // the top would end up underneath it.
+    scrollPaddingStart: ROW_HEIGHT,
   });
 
   // The selected row is the one the arrows just moved to, and the virtualizer
