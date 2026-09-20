@@ -1,4 +1,5 @@
 import type { ConnectionRecord } from "../bindings/ConnectionRecord";
+import type { QueryResult } from "../bindings/QueryResult";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
 import { invoke } from "./invoke";
 
@@ -16,4 +17,22 @@ export function saveConnection(input: SaveConnectionInput): Promise<string> {
 
 export function deleteConnection(id: string): Promise<void> {
   return invoke<void>("delete_connection", { id });
+}
+
+/** Resolves to how long reaching the server took, in milliseconds. */
+export function testConnection(id: string): Promise<number> {
+  return invoke<number>("test_connection", { id });
+}
+
+/** `queryId` is the caller's handle on the running query — `cancelQuery` takes the same one. */
+export function executeQuery(
+  connectionId: string,
+  sql: string,
+  queryId: string,
+): Promise<QueryResult> {
+  return invoke<QueryResult>("execute_query", { connectionId, sql, queryId });
+}
+
+export function cancelQuery(queryId: string): Promise<void> {
+  return invoke<void>("cancel_query", { queryId });
 }
