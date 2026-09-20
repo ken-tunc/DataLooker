@@ -1,4 +1,5 @@
 mod query;
+mod schema;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -8,7 +9,7 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::drivers::QueryResult;
+use crate::drivers::{QueryResult, SchemaTree};
 use crate::error::AppError;
 
 /// Bounds opening a connection, and the whole of `test`: a server that accepts
@@ -60,6 +61,28 @@ impl PostgresSession {
         cancel: &CancellationToken,
     ) -> Result<QueryResult, AppError> {
         let started = Instant::now();
+        self.with_connection(cancel, async |conn| {
+            query::execute(conn, sql, row_limit, started).await
+        })
+        .await
+    }
+
+    /// The tree shares the session, so it waits behind a query already running
+    /// on it — and sees the schemas that query's transaction has created.
+    pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
+        self.with_connection(&CancellationToken::new(), async |conn| {
+            schema::tree(conn).await
+        })
+        .await
+    }
+
+    /// Runs `work` on the session's connection, opening one when the session
+    /// has none.
+    async fn with_connection<T>(
+        &self,
+        cancel: &CancellationToken,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, sqlx::Error>,
+    ) -> Result<T, AppError> {
         let mut held = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -73,16 +96,19 @@ impl PostgresSession {
         let outcome = tokio::select! {
             biased;
             () = cancel.cancelled() => None,
-            result = query::execute(&mut conn, sql, row_limit, started) => Some(result),
+            result = work(&mut conn) => Some(result),
         };
 
+        // Whether the connection goes back in the slot is the whole point of
+        // this function: what it does not keep, it drops, and the next caller
+        // opens a new one.
         match outcome {
-            // The query was abandoned mid-protocol, so what the connection
-            // would read next is anyone's guess.
+            // The work was abandoned mid-protocol, so what the connection would
+            // read next is anyone's guess.
             None => Err(AppError::Cancelled),
-            Some(Ok(result)) => {
+            Some(Ok(value)) => {
                 *held = Some(conn);
-                Ok(result)
+                Ok(value)
             }
             // An open transaction is now aborted, which the user has to see,
             // so an error the server reported keeps the session.

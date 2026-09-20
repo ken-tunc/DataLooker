@@ -1,5 +1,6 @@
 pub mod connections;
 mod query;
+mod schema;
 
 use std::sync::Arc;
 

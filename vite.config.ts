@@ -6,6 +6,9 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 export default defineConfig({
   test: {
     includeSource: ["src/**/*.ts"],
+    // `.claude/worktrees/` holds checkouts of other branches; their tests are
+    // not this one's to run.
+    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
   },
   // Strips the in-source tests from production bundles.
   define: {
