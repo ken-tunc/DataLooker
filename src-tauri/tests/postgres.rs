@@ -392,3 +392,66 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
         .await
         .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_after_a_truncated_one_reads_its_own_rows() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+
+    let truncated = session
+        .execute(
+            "SELECT n FROM generate_series(1, 1000) AS n",
+            5,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(truncated.truncated);
+
+    let after = run(&session, "SELECT 'after' AS marker").await.unwrap();
+
+    assert_eq!(after.columns.len(), 1, "{:?}", after.columns);
+    assert_eq!(after.rows, vec![vec![json!("after")]]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    let session = std::sync::Arc::new(session);
+    let cancel = CancellationToken::new();
+
+    let slow = tokio::spawn({
+        let session = session.clone();
+        let cancel = cancel.clone();
+        async move {
+            session
+                .execute("SELECT pg_sleep(5)", ROW_LIMIT, &cancel)
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let waiting = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .execute(
+                    "SELECT 'behind' AS marker",
+                    ROW_LIMIT,
+                    &CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    cancel.cancel();
+
+    assert!(matches!(
+        slow.await.unwrap().unwrap_err(),
+        AppError::Cancelled
+    ));
+    let behind = waiting.await.unwrap().unwrap();
+    assert_eq!(behind.rows, vec![vec![json!("behind")]]);
+}

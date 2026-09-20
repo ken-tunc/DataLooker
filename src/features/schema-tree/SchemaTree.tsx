@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type RefObject, useRef, useState } from "react";
+import { useState } from "react";
 import { describeError } from "../../lib/invoke";
 import { useRefreshSchemaTree, useSchemaTree } from "./hooks";
 import type { TableKind } from "../../bindings/TableKind";
@@ -22,7 +22,9 @@ type Props = {
 export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const tree = useSchemaTree(connectionId);
   const refresh = useRefreshSchemaTree(connectionId);
-  const scroller = useRef<HTMLDivElement>(null);
+  // In state rather than a ref: a parent's ref is attached after its children
+  // have run their effects, so the rows below would measure nothing.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
@@ -73,7 +75,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
         </p>
       )}
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
+      <div ref={setScroller} className="min-h-0 flex-1 overflow-auto">
         <Rows rows={rows} scroller={scroller} onToggle={toggle} onOpenTable={onOpenTable} />
       </div>
     </section>
@@ -87,14 +89,14 @@ function Rows({
   onOpenTable,
 }: {
   rows: TreeRow[];
-  scroller: RefObject<HTMLDivElement | null>;
+  scroller: HTMLDivElement | null;
   onToggle: (id: string) => void;
   onOpenTable: (schema: string, table: string) => void;
 }) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => scroller.current,
+    getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT,
     overscan: 16,
   });
