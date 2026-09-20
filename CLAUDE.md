@@ -43,6 +43,10 @@ add a separate version manager. Its docs sit in `node_modules/vite-plus/docs`.
 
 ## IPC
 
+A command is an adapter: it extracts state and calls `app::App`, which holds what
+DataLooker can do and knows nothing about Tauri, so that a second caller — an MCP server
+for agents is the one planned — drives the same operations rather than a copy of them.
+
 `src/bindings/` holds the TypeScript types ts-rs generates from the Rust ones; `cargo test`
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
 crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing

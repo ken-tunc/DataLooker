@@ -10,8 +10,6 @@ use sqlx::SqlitePool;
 
 use crate::error::AppError;
 
-pub struct DbState(pub SqlitePool);
-
 pub async fn open(app_data_dir: &Path) -> Result<SqlitePool, AppError> {
     std::fs::create_dir_all(app_data_dir).map_err(|e| AppError::Database(e.to_string()))?;
     let options = SqliteConnectOptions::new()
