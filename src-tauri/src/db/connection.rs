@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Executor, Row, Sqlite, SqlitePool};
 use ts_rs::TS;
 
 use crate::error::AppError;
@@ -43,8 +43,8 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Connection
 }
 
 /// Inserts, or updates everything but `created_at`, which stays at its first value.
-pub async fn upsert(
-    pool: &SqlitePool,
+pub async fn upsert<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
     id: &str,
     label: &str,
     config: &DriverConfig,
@@ -57,15 +57,18 @@ pub async fn upsert(
     .bind(id)
     .bind(label)
     .bind(config)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
 }
 
-pub async fn delete(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+pub async fn delete<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    id: &str,
+) -> Result<(), AppError> {
     sqlx::query("DELETE FROM connections WHERE id = ?1")
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
     Ok(())
 }

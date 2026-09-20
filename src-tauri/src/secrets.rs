@@ -64,21 +64,47 @@ fn register_default_store() -> Result<(), AppError> {
 
 #[cfg(test)]
 #[derive(Default)]
-pub struct InMemorySecretStore(std::sync::Mutex<std::collections::HashMap<String, String>>);
+pub struct InMemorySecretStore {
+    entries: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    writes_fail: bool,
+}
+
+#[cfg(test)]
+impl InMemorySecretStore {
+    /// Stands in for a locked or unavailable keychain.
+    pub fn with_failing_writes() -> Self {
+        Self {
+            writes_fail: true,
+            ..Self::default()
+        }
+    }
+
+    fn guard(&self) -> Result<(), AppError> {
+        if self.writes_fail {
+            return Err(AppError::Secret("keychain unavailable".into()));
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 impl SecretStore for InMemorySecretStore {
     fn get(&self, id: &str) -> Result<Option<String>, AppError> {
-        Ok(self.0.lock().unwrap().get(id).cloned())
+        Ok(self.entries.lock().unwrap().get(id).cloned())
     }
 
     fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
-        self.0.lock().unwrap().insert(id.into(), secret.into());
+        self.guard()?;
+        self.entries
+            .lock()
+            .unwrap()
+            .insert(id.into(), secret.into());
         Ok(())
     }
 
     fn delete(&self, id: &str) -> Result<(), AppError> {
-        self.0.lock().unwrap().remove(id);
+        self.guard()?;
+        self.entries.lock().unwrap().remove(id);
         Ok(())
     }
 }

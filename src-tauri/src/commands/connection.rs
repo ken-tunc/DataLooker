@@ -44,18 +44,14 @@ pub async fn delete_connection(
     delete(&id, &db.0, secrets.0.as_ref()).await
 }
 
-/// Removes the secret first: a keychain entry whose row is gone is invisible
-/// to the user, so it would linger with no way to clear it.
+/// The keychain write sits inside the transaction: if it fails, dropping the
+/// transaction rolls the row back, so the two never disagree about whether the
+/// connection exists.
 async fn delete(id: &str, pool: &SqlitePool, secrets: &dyn SecretStore) -> Result<(), AppError> {
-    let previous = secrets.get(id)?;
+    let mut tx = pool.begin().await?;
+    connection::delete(&mut *tx, id).await?;
     secrets.delete(id)?;
-
-    if let Err(e) = connection::delete(pool, id).await {
-        if let Some(previous) = previous {
-            secrets.set(id, &previous)?;
-        }
-        return Err(e);
-    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -75,26 +71,12 @@ async fn save(
         None => uuid::Uuid::new_v4().to_string(),
     };
 
-    let previous = match &input.secret {
-        Some(secret) => {
-            let previous = secrets.get(&id)?;
-            secrets.set(&id, secret)?;
-            previous
-        }
-        None => None,
-    };
-
-    let written = connection::upsert(pool, &id, input.label.trim(), &input.config).await;
-    if written.is_err() {
-        // The secret is already in the keychain; put back what was there so a
-        // failed edit cannot leave the connection with the new password.
-        match previous {
-            Some(previous) => secrets.set(&id, &previous)?,
-            None if input.secret.is_some() => secrets.delete(&id)?,
-            None => {}
-        }
+    let mut tx = pool.begin().await?;
+    connection::upsert(&mut *tx, &id, input.label.trim(), &input.config).await?;
+    if let Some(secret) = &input.secret {
+        secrets.set(&id, secret)?;
     }
-    written?;
+    tx.commit().await?;
     Ok(id)
 }
 
@@ -200,7 +182,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_write_restores_the_previous_secret() {
+    async fn a_failed_write_leaves_the_stored_secret_alone() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
         let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
@@ -266,7 +248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_delete_puts_the_secret_back() {
+    async fn a_failed_delete_leaves_the_secret_in_place() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
         let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
@@ -276,6 +258,34 @@ mod tests {
 
         assert!(delete(&id, &pool, &secrets).await.is_err());
         assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("hunter2"));
+    }
+
+    #[tokio::test]
+    async fn a_keychain_failure_rolls_the_new_row_back() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::with_failing_writes();
+
+        let err = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Secret(_)));
+        assert!(connection::list_all(&pool).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_keychain_failure_keeps_the_row_on_delete() {
+        let pool = open_in_memory().await.unwrap();
+        let working = InMemorySecretStore::default();
+        let id = save(input(None, "Local", Some("hunter2")), &pool, &working)
+            .await
+            .unwrap();
+        let failing = InMemorySecretStore::with_failing_writes();
+
+        let err = delete(&id, &pool, &failing).await.unwrap_err();
+
+        assert!(matches!(err, AppError::Secret(_)));
+        assert!(connection::find_by_id(&pool, &id).await.unwrap().is_some());
     }
 
     #[tokio::test]
