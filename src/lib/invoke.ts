@@ -26,7 +26,13 @@ export function toIpcError(value: unknown): Error {
   const appError = asAppError(value);
   if (appError) return new IpcError(appError);
   if (value instanceof Error) return value;
-  return new Error(typeof value === "string" ? value : JSON.stringify(value));
+  if (typeof value === "string") return new Error(value);
+  // JSON.stringify returns undefined for undefined and throws on bigint or a cycle.
+  try {
+    return new Error(JSON.stringify(value) ?? String(value));
+  } catch {
+    return new Error("Unknown IPC error");
+  }
 }
 
 export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {

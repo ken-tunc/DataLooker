@@ -19,7 +19,10 @@ function App() {
   return (
     <main className="flex h-full flex-col items-center justify-center gap-4">
       <h1 className="text-2xl font-semibold">DataLooker</h1>
-      <p className="text-sm opacity-70">version {version.data ?? "…"}</p>
+      <p className="text-sm opacity-70">
+        version{" "}
+        {version.isError ? `unavailable: ${describeError(version.error)}` : (version.data ?? "…")}
+      </p>
 
       <form
         className="join"

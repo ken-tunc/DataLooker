@@ -33,3 +33,17 @@ describe("describeError", () => {
     expect(describeError(toIpcError({ kind: "Validation", message: "empty" }))).toBe("empty");
   });
 });
+
+describe("toIpcError fallbacks", () => {
+  it("keeps a message for values JSON.stringify cannot render", () => {
+    // JSON.stringify returns undefined here, and `new Error(undefined)` has no message.
+    expect(toIpcError(undefined).message).toBe("undefined");
+  });
+
+  it("survives values JSON.stringify throws on", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(toIpcError(circular).message).toBe("Unknown IPC error");
+    expect(toIpcError(1n).message).toBe("Unknown IPC error");
+  });
+});
