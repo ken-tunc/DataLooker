@@ -9,6 +9,9 @@ pub enum AppError {
     #[error("Invalid input: {0}")]
     Validation(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Database error: {0}")]
     Database(String),
 

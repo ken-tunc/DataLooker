@@ -3,4 +3,4 @@
 /**
  * `kind` lets the frontend branch on a failure without matching message text.
  */
-export type AppError = { "kind": "Validation", "message": string } | { "kind": "Database", "message": string } | { "kind": "Secret", "message": string };
+export type AppError = { "kind": "Validation", "message": string } | { "kind": "NotFound", "message": string } | { "kind": "Database", "message": string } | { "kind": "Secret", "message": string };

@@ -41,8 +41,22 @@ pub async fn delete_connection(
     db: State<'_, DbState>,
     secrets: State<'_, SecretState>,
 ) -> Result<(), AppError> {
-    connection::delete(&db.0, &id).await?;
-    secrets.0.delete(&id)
+    delete(&id, &db.0, secrets.0.as_ref()).await
+}
+
+/// Removes the secret first: a keychain entry whose row is gone is invisible
+/// to the user, so it would linger with no way to clear it.
+async fn delete(id: &str, pool: &SqlitePool, secrets: &dyn SecretStore) -> Result<(), AppError> {
+    let previous = secrets.get(id)?;
+    secrets.delete(id)?;
+
+    if let Err(e) = connection::delete(pool, id).await {
+        if let Some(previous) = previous {
+            secrets.set(id, &previous)?;
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 async fn save(
@@ -51,10 +65,15 @@ async fn save(
     secrets: &dyn SecretStore,
 ) -> Result<String, AppError> {
     validate(&input)?;
-    let id = input
-        .id
-        .clone()
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let id = match &input.id {
+        // An id the database does not know would otherwise be inserted as a new
+        // row, and the secret requirement only applies to requests without one.
+        Some(id) if connection::find_by_id(pool, id).await?.is_none() => {
+            return Err(AppError::NotFound(id.clone()));
+        }
+        Some(id) => id.clone(),
+        None => uuid::Uuid::new_v4().to_string(),
+    };
 
     let previous = match &input.secret {
         Some(secret) => {
@@ -83,8 +102,14 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
     if input.label.trim().is_empty() {
         return Err(AppError::Validation("label is required".into()));
     }
-    if input.id.is_none() && input.secret.is_none() {
-        return Err(AppError::Validation("password is required".into()));
+    match &input.secret {
+        Some(secret) if secret.is_empty() => {
+            return Err(AppError::Validation("password must not be empty".into()));
+        }
+        None if input.id.is_none() => {
+            return Err(AppError::Validation("password is required".into()));
+        }
+        _ => {}
     }
     let DriverConfig::Postgres {
         host,
@@ -191,6 +216,65 @@ mod tests {
         .await;
 
         assert!(failed.is_err());
+        assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("hunter2"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_id_is_not_an_edit() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+
+        let err = save(input(Some("ghost"), "Local", None), &pool, &secrets)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::NotFound(_)));
+        assert!(connection::find_by_id(&pool, "ghost")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn an_empty_secret_is_rejected() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
+            .await
+            .unwrap();
+
+        let err = save(input(Some(&id), "Local", Some("")), &pool, &secrets)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Validation(_)));
+        assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("hunter2"));
+    }
+
+    #[tokio::test]
+    async fn delete_removes_the_record_and_its_secret() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
+            .await
+            .unwrap();
+
+        delete(&id, &pool, &secrets).await.unwrap();
+
+        assert!(connection::find_by_id(&pool, &id).await.unwrap().is_none());
+        assert_eq!(secrets.get(&id).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_failed_delete_puts_the_secret_back() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        assert!(delete(&id, &pool, &secrets).await.is_err());
         assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("hunter2"));
     }
 
