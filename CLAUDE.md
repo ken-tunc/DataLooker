@@ -14,7 +14,8 @@ code.
   code changes, so leave out anything a reader gets from the code itself — write one only
   for a reason, a constraint or a workaround the code cannot show.
 - Do not hand-memoize. The React Compiler is on, so `useCallback`, `useMemo` and `memo`
-  only add noise.
+  only add noise, and `no-restricted-imports` rejects them. Disable the rule on the line
+  with a reason if a case ever needs one.
 - Tests sit next to the code they cover: `#[cfg(test)]` modules in Rust, `*.test.ts` in
   TypeScript. When a test would be the only reason to export something, write it in-source
   behind `import.meta.vitest` instead of widening the API.
