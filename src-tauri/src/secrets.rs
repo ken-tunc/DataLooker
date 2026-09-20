@@ -61,3 +61,50 @@ fn register_default_store() -> Result<(), AppError> {
         "no credential store for this platform".into(),
     ))
 }
+
+#[cfg(test)]
+#[derive(Default)]
+pub struct InMemorySecretStore {
+    entries: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    writes_fail: bool,
+}
+
+#[cfg(test)]
+impl InMemorySecretStore {
+    /// Stands in for a locked or unavailable keychain.
+    pub fn with_failing_writes() -> Self {
+        Self {
+            writes_fail: true,
+            ..Self::default()
+        }
+    }
+
+    fn guard(&self) -> Result<(), AppError> {
+        if self.writes_fail {
+            return Err(AppError::Secret("keychain unavailable".into()));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl SecretStore for InMemorySecretStore {
+    fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+        Ok(self.entries.lock().unwrap().get(id).cloned())
+    }
+
+    fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
+        self.guard()?;
+        self.entries
+            .lock()
+            .unwrap()
+            .insert(id.into(), secret.into());
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> Result<(), AppError> {
+        self.guard()?;
+        self.entries.lock().unwrap().remove(id);
+        Ok(())
+    }
+}

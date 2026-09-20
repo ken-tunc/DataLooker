@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 DataLooker is a GUI database client for macOS: Tauri 2 (Rust) + React 19. PostgreSQL is the
-first target, BigQuery follows. Only the project scaffold exists so far.
+first target, BigQuery follows. Managing connections is the only feature so far — nothing
+connects to a database yet.
 
 Keep this file short. Document decisions the code cannot show; leave everything else to the
 code.
@@ -46,6 +47,11 @@ add a separate version manager. Its docs sit in `node_modules/vite-plus/docs`.
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
 crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
 else names a command or calls `invoke` directly.
+
+## Agent skills
+
+`skills-lock.json` pins them; the skills themselves are not committed, so run `npx skills
+experimental_install` after cloning. Use the daisyUI skill whenever you touch the UI.
 
 ## Storage
 

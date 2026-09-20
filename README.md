@@ -2,8 +2,9 @@
 
 A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
-> **Status:** early development. The project scaffold runs — an empty window — and nothing
-> else is wired up yet. PostgreSQL support is the first target, BigQuery follows.
+> **Status:** early development. PostgreSQL connections can be created, edited, duplicated
+> and deleted — stored locally, with their passwords in the OS keychain. Nothing connects
+> to a database yet. BigQuery follows PostgreSQL.
 
 ## Prerequisites
 
@@ -27,6 +28,21 @@ vp run tauri dev
 ```
 
 A native window titled "DataLooker" opens.
+
+## Agent skills
+
+`skills-lock.json` pins the agent skills this repository uses. The skills themselves are
+not committed — restore them with:
+
+```sh
+npx skills experimental_install
+```
+
+To add one, which also updates the lockfile:
+
+```sh
+npx skills add saadeghi/daisyui --agent claude-code --yes
+```
 
 ## Scripts
 

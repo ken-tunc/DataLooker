@@ -23,7 +23,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_version,
-            commands::ping
+            commands::connection::list_connections,
+            commands::connection::save_connection,
+            commands::connection::delete_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

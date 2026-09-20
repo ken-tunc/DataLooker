@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Executor, Row, Sqlite, SqlitePool};
 use ts_rs::TS;
 
 use crate::error::AppError;
@@ -42,30 +42,47 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Connection
     row.as_ref().map(row_to_record).transpose()
 }
 
-/// Inserts, or updates everything but `created_at`, which stays at its first value.
-pub async fn upsert(
-    pool: &SqlitePool,
+pub async fn insert<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
     id: &str,
     label: &str,
     config: &DriverConfig,
 ) -> Result<(), AppError> {
-    let config = serde_json::to_string(config).map_err(|e| AppError::Database(e.to_string()))?;
-    sqlx::query(
-        "INSERT INTO connections (id, label, config) VALUES (?1, ?2, ?3)
-         ON CONFLICT(id) DO UPDATE SET label = excluded.label, config = excluded.config",
-    )
-    .bind(id)
-    .bind(label)
-    .bind(config)
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO connections (id, label, config) VALUES (?1, ?2, ?3)")
+        .bind(id)
+        .bind(label)
+        .bind(encode(config)?)
+        .execute(executor)
+        .await?;
     Ok(())
 }
 
-pub async fn delete(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
+pub async fn update<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    id: &str,
+    label: &str,
+    config: &DriverConfig,
+) -> Result<bool, AppError> {
+    let result = sqlx::query("UPDATE connections SET label = ?2, config = ?3 WHERE id = ?1")
+        .bind(id)
+        .bind(label)
+        .bind(encode(config)?)
+        .execute(executor)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+fn encode(config: &DriverConfig) -> Result<String, AppError> {
+    serde_json::to_string(config).map_err(|e| AppError::Database(e.to_string()))
+}
+
+pub async fn delete<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    id: &str,
+) -> Result<(), AppError> {
     sqlx::query("DELETE FROM connections WHERE id = ?1")
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
     Ok(())
 }
@@ -97,7 +114,7 @@ mod tests {
     #[tokio::test]
     async fn round_trips_a_connection() {
         let pool = open_in_memory().await.unwrap();
-        upsert(&pool, "id-1", "Local", &postgres_config())
+        insert(&pool, "id-1", "Local", &postgres_config())
             .await
             .unwrap();
 
@@ -108,21 +125,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_updates_in_place_and_keeps_created_at() {
+    async fn update_keeps_created_at() {
         let pool = open_in_memory().await.unwrap();
-        upsert(&pool, "id-1", "Local", &postgres_config())
+        insert(&pool, "id-1", "Local", &postgres_config())
             .await
             .unwrap();
         let first = find_by_id(&pool, "id-1").await.unwrap().unwrap();
 
-        upsert(&pool, "id-1", "Renamed", &postgres_config())
+        let updated = update(&pool, "id-1", "Renamed", &postgres_config())
             .await
             .unwrap();
 
+        assert!(updated);
         let rows = list_all(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "Renamed");
         assert_eq!(rows[0].created_at, first.created_at);
+    }
+
+    #[tokio::test]
+    async fn update_reports_a_missing_row() {
+        let pool = open_in_memory().await.unwrap();
+        let updated = update(&pool, "ghost", "Local", &postgres_config())
+            .await
+            .unwrap();
+        assert!(!updated);
     }
 
     #[tokio::test]
@@ -134,10 +161,10 @@ mod tests {
     #[tokio::test]
     async fn delete_removes_only_the_named_row() {
         let pool = open_in_memory().await.unwrap();
-        upsert(&pool, "id-1", "One", &postgres_config())
+        insert(&pool, "id-1", "One", &postgres_config())
             .await
             .unwrap();
-        upsert(&pool, "id-2", "Two", &postgres_config())
+        insert(&pool, "id-2", "Two", &postgres_config())
             .await
             .unwrap();
 
