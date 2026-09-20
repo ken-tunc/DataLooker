@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 DataLooker is a GUI database client for macOS: Tauri 2 (Rust) + React 19. PostgreSQL is the
-first target, BigQuery follows. Connections can be managed and SQL can be run against them;
-the editor, the schema tree and table editing are still to come.
+first target, BigQuery follows. Connections can be managed, and SQL can be written and run
+against them; the schema tree and table editing are still to come.
 
 Keep this file short. Document decisions the code cannot show; leave everything else to the
 code.
@@ -82,6 +82,15 @@ the server reported leaves the session usable and keeps it.
 `src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
 --wait`) and each test skips itself when nothing is listening on that port. A server that
 does answer has to work: only absence is a skip, never a failure.
+
+## The editor and the grid
+
+Monaco's own entry point pulls every language and every editor feature it ships with, so
+`features/sql-editor/monaco.ts` lists the ones this editor needs; it loads as a chunk of
+its own the first time a connection is opened. Result rows are plain DOM, virtualized with
+`@tanstack/react-virtual`, which the 5,000-row limit makes practical and which keeps
+daisyUI's styling and real text selection. Virtualized rows get no help from the browser's
+table layout, so `columnWidths` sizes the columns from the first rows.
 
 ## Decisions
 

@@ -3,9 +3,9 @@
 A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
 > **Status:** early development. PostgreSQL connections can be created, edited, duplicated
-> and deleted — stored locally, with their passwords in the OS keychain — and SQL can be
-> run against them from a plain text box, with the results in a table. A SQL editor and a
-> schema tree come next; BigQuery follows PostgreSQL.
+> and deleted — stored locally, with their passwords in the OS keychain — and each one
+> opens a window of SQL tabs: a Monaco editor per tab, the rows in a grid below it. A
+> schema tree comes next; BigQuery follows PostgreSQL.
 
 ## Prerequisites
 

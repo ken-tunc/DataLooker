@@ -1,7 +1,7 @@
-import { ConnectionsPage } from "./features/connections/ConnectionsPage";
+import { AppShell } from "./features/shell/AppShell";
 
 function App() {
-  return <ConnectionsPage />;
+  return <AppShell />;
 }
 
 export default App;
