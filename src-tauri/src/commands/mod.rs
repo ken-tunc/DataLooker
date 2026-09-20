@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod query;
 
 /// Tauri resolves this from `package.json`; `CARGO_PKG_VERSION` is the unused `0.0.0`.
 #[tauri::command]

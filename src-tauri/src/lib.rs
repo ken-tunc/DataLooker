@@ -1,6 +1,6 @@
 mod commands;
 pub mod db;
-mod error;
+pub mod error;
 mod secrets;
 
 use tauri::Manager;
@@ -17,6 +17,9 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;
             app.manage(db::DbState(pool));
 
+            app.manage(db::session::SessionRegistry::default());
+            app.manage(commands::query::QueryRegistry::default());
+
             let service = app.config().identifier.clone();
             app.manage(SecretState(Box::new(KeyringStore::new(service)?)));
             Ok(())
@@ -25,7 +28,10 @@ pub fn run() {
             commands::app_version,
             commands::connection::list_connections,
             commands::connection::save_connection,
-            commands::connection::delete_connection
+            commands::connection::delete_connection,
+            commands::query::test_connection,
+            commands::query::execute_query,
+            commands::query::cancel_query
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

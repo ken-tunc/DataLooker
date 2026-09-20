@@ -3,8 +3,9 @@
 A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
 > **Status:** early development. PostgreSQL connections can be created, edited, duplicated
-> and deleted — stored locally, with their passwords in the OS keychain. Nothing connects
-> to a database yet. BigQuery follows PostgreSQL.
+> and deleted — stored locally, with their passwords in the OS keychain — and SQL can be
+> run against them from a plain text box, with the results in a table. A SQL editor and a
+> schema tree come next; BigQuery follows PostgreSQL.
 
 ## Prerequisites
 
@@ -44,17 +45,29 @@ To add one, which also updates the lockfile:
 npx skills add saadeghi/daisyui --agent claude-code --yes
 ```
 
+## Tests
+
+```sh
+vp test --run                                   # frontend
+docker compose up -d --wait                     # PostgreSQL for the integration tests
+cd src-tauri && cargo test                      # backend
+```
+
+The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
+itself when nothing is listening on its port, so `cargo test` still passes without Docker.
+`--wait` holds until the server is healthy, so the tests do not skip a container that is
+still starting.
+
 ## Scripts
 
 | Command                                                      | What it does                                                |
 | ------------------------------------------------------------ | ----------------------------------------------------------- |
-| `pnpm tauri dev`                                             | Tauri shell with the Vite dev server (the main dev command) |
-| `pnpm dev`                                                   | Vite dev server only, no Tauri shell                        |
-| `pnpm build`                                                 | Type-check and build the frontend bundle                    |
-| `pnpm tauri build`                                           | Build a distributable `.app`                                |
-| `pnpm typecheck`                                             | `tsc --noEmit`                                              |
-| `pnpm lint`                                                  | Biome lint + format + import sort (check only)              |
-| `pnpm format`                                                | The same checks, applying fixes                             |
+| `vp run tauri dev`                                           | Tauri shell with the Vite dev server (the main dev command) |
+| `vp dev`                                                     | Vite dev server only, no Tauri shell                        |
+| `vp build`                                                   | Type-check and build the frontend bundle                    |
+| `vp run tauri build`                                         | Build a distributable `.app`                                |
+| `vp check`                                                   | Format, lint and type check (`--fix` applies fixes)         |
+| `vp test --run`                                              | Frontend tests                                              |
 | `cargo test` (in `src-tauri`)                                | Rust tests                                                  |
 | `cargo clippy --all-targets -- -D warnings` (in `src-tauri`) | Rust linter                                                 |
 | `cargo fmt` (in `src-tauri`)                                 | Rust formatter                                              |

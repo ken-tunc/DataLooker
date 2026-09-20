@@ -1,4 +1,7 @@
 pub mod connection;
+pub mod postgres;
+pub mod query;
+pub mod session;
 
 use std::path::Path;
 

@@ -1,0 +1,17 @@
+# The PostgreSQL the integration tests in `src-tauri/tests/` run against:
+# `docker compose up -d --wait`, then `cargo test` in `src-tauri`. The port
+# avoids the default one so the container cannot be mistaken for a local server.
+services:
+  postgres:
+    image: postgres:18
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_USER: datalooker
+      POSTGRES_PASSWORD: datalooker
+      POSTGRES_DB: datalooker_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datalooker -d datalooker_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15

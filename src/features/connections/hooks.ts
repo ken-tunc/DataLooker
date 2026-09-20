@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteConnection, listConnections, saveConnection } from "../../lib/commands";
+import {
+  deleteConnection,
+  listConnections,
+  saveConnection,
+  testConnection,
+} from "../../lib/commands";
 import { connectionKeys } from "./keys";
 
 export function useConnections() {
@@ -20,4 +25,8 @@ export function useDeleteConnection() {
     mutationFn: deleteConnection,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: connectionKeys.all }),
   });
+}
+
+export function useTestConnection() {
+  return useMutation({ mutationFn: testConnection });
 }

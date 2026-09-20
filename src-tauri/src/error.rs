@@ -17,6 +17,12 @@ pub enum AppError {
 
     #[error("Keychain error: {0}")]
     Secret(String),
+
+    #[error("Cancelled")]
+    Cancelled,
+
+    #[error("Timed out")]
+    Timeout,
 }
 
 impl From<sqlx::Error> for AppError {

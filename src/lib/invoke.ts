@@ -6,18 +6,32 @@ export class IpcError extends Error {
   readonly kind: AppError["kind"];
 
   constructor(error: AppError) {
-    super(error.message);
+    super("message" in error ? error.message : error.kind);
     this.name = "IpcError";
     this.kind = error.kind;
   }
 }
 
-const ERROR_KINDS: ReadonlySet<string> = new Set<AppError["kind"]>(["Validation"]);
+const ERROR_KINDS: ReadonlySet<string> = new Set<AppError["kind"]>([
+  "Validation",
+  "NotFound",
+  "Database",
+  "Secret",
+  "Cancelled",
+  "Timeout",
+]);
+
+/** Variants the Rust enum carries no payload for, so they arrive as `kind` alone. */
+const KINDS_WITHOUT_MESSAGE: ReadonlySet<string> = new Set<AppError["kind"]>([
+  "Cancelled",
+  "Timeout",
+]);
 
 function asAppError(value: unknown): AppError | null {
   if (typeof value !== "object" || value === null) return null;
   const { kind, message } = value as Record<string, unknown>;
   if (typeof kind !== "string" || !ERROR_KINDS.has(kind)) return null;
+  if (KINDS_WITHOUT_MESSAGE.has(kind)) return { kind } as AppError;
   if (typeof message !== "string") return null;
   return { kind, message } as AppError;
 }
@@ -71,6 +85,10 @@ if (import.meta.vitest) {
     it("rejects a payload whose message is missing or not a string", () => {
       expect(asAppError({ kind: "Validation" })).toBeNull();
       expect(asAppError({ kind: "Validation", message: 42 })).toBeNull();
+    });
+
+    it("accepts a kind that carries no message", () => {
+      expect(asAppError({ kind: "Cancelled" })).toEqual({ kind: "Cancelled" });
     });
 
     it("rejects values that are not objects", () => {
