@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { editor as monaco, KeyCode, KeyMod, SQL_LANGUAGE } from "./monaco";
 import { useEditorTheme } from "./theme";
 
@@ -13,9 +13,13 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
   const editor = useRef<monaco.IStandaloneCodeEditor | null>(null);
   const theme = useEditorTheme();
   // Monaco keeps the callback it was handed at mount, so the handlers reach it
-  // through a ref that later renders can update.
+  // through a ref. Writing that ref while rendering would publish handlers from
+  // a render React can still throw away, and a passive effect would leave the
+  // previous ones live until after the browser could dispatch to Monaco.
   const handlers = useRef({ onChange, onSubmit });
-  handlers.current = { onChange, onSubmit };
+  useLayoutEffect(() => {
+    handlers.current = { onChange, onSubmit };
+  });
 
   useEffect(() => {
     const instance = monaco.create(host.current as HTMLElement, {

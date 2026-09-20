@@ -48,14 +48,17 @@ export function AppShell() {
     function onKeyDown(event: KeyboardEvent) {
       if (!selectedId) return;
       const state = tabsByConnection[selectedId];
+      // Opening a tab is what gets a connection out of having none, so it comes
+      // before the shortcuts that need one.
+      if (event.key === "t" && event.metaKey) {
+        event.preventDefault();
+        updateTabs(selectedId, openTab(state, crypto.randomUUID()));
+        return;
+      }
       if (!state) return;
       if (event.key === "Tab" && event.ctrlKey) {
         event.preventDefault();
         updateTabs(selectedId, shiftTab(state, event.shiftKey ? -1 : 1));
-      }
-      if (event.key === "t" && event.metaKey) {
-        event.preventDefault();
-        updateTabs(selectedId, openTab(state, crypto.randomUUID()));
       }
     }
     window.addEventListener("keydown", onKeyDown);

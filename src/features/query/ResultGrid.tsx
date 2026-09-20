@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, type RefObject, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { formatCell } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
@@ -54,16 +54,18 @@ export function ResultGrid({ result }: { result: QueryResult }) {
     });
   }
 
-  // The compiler skips this component because it cannot memoize the
-  // virtualizer's callbacks. That is the right call: the grid re-renders as it
-  // scrolls, and nothing memoized is handed anything from here.
-  // eslint-disable-next-line react/incompatible-library
-  const rows = useVirtualizer({
-    count: result.rows.length,
-    getScrollElement: () => scroller.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
-  });
+  function scrollRowIntoView(index: number) {
+    const element = scroller.current;
+    if (!element) return;
+    const top = index * ROW_HEIGHT;
+    // The header floats over the rows, so the topmost readable row starts one
+    // row height below the scroll position.
+    if (top < element.scrollTop + ROW_HEIGHT) {
+      element.scrollTop = top - ROW_HEIGHT;
+    } else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
+      element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
+    }
+  }
 
   function move(event: KeyboardEvent<HTMLDivElement>) {
     if (!selected) return;
@@ -79,7 +81,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
       if (next.row < 0 || next.row >= result.rows.length) return;
       if (next.column < 0 || next.column >= result.columns.length) return;
       setSelected(next);
-      rows.scrollToIndex(next.row);
+      scrollRowIntoView(next.row);
       return;
     }
     if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
@@ -134,41 +136,78 @@ export function ResultGrid({ result }: { result: QueryResult }) {
           ))}
         </div>
 
-        <div className="relative" style={{ height: rows.getTotalSize() }}>
-          {rows.getVirtualItems().map((virtual) => {
-            const row = result.rows[virtual.index] ?? [];
-            return (
-              <div
-                key={virtual.key}
-                role="row"
-                className="hover:bg-base-200/60 absolute flex w-full items-center"
-                style={{ height: virtual.size, transform: `translateY(${virtual.start}px)` }}
-              >
-                {row.map((cell, column) => {
-                  const isSelected = selected?.row === virtual.index && selected.column === column;
-                  return (
-                    <div
-                      key={column}
-                      role="gridcell"
-                      aria-selected={isSelected}
-                      onClick={() => setSelected({ row: virtual.index, column })}
-                      className={[
-                        "shrink-0 truncate px-3 py-1",
-                        isSelected ? "bg-primary/20 ring-primary ring-1" : "",
-                        cell === null ? "text-base-content/40 italic" : "",
-                      ].join(" ")}
-                      style={{ width: widths[column] }}
-                      title={formatCell(cell)}
-                    >
-                      {formatCell(cell)}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+        <Rows
+          rows={result.rows}
+          widths={widths}
+          scroller={scroller}
+          selected={selected}
+          onSelect={setSelected}
+        />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The virtualizer re-renders its component on every scroll, and the React
+ * Compiler skips a component that uses it, so only the rows live here:
+ * measuring the columns from this render would run on every scrolled pixel.
+ */
+function Rows({
+  rows,
+  widths,
+  scroller,
+  selected,
+  onSelect,
+}: {
+  rows: QueryResult["rows"];
+  widths: number[];
+  scroller: RefObject<HTMLDivElement | null>;
+  selected: Cell | null;
+  onSelect: (cell: Cell) => void;
+}) {
+  // eslint-disable-next-line react/incompatible-library
+  const virtual = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
+
+  return (
+    <div className="relative" style={{ height: virtual.getTotalSize() }}>
+      {virtual.getVirtualItems().map((item) => {
+        const row = rows[item.index] ?? [];
+        return (
+          <div
+            key={item.key}
+            role="row"
+            className="hover:bg-base-200/60 absolute flex w-full items-center"
+            style={{ height: item.size, transform: `translateY(${item.start}px)` }}
+          >
+            {row.map((cell, column) => {
+              const isSelected = selected?.row === item.index && selected.column === column;
+              return (
+                <div
+                  key={column}
+                  role="gridcell"
+                  aria-selected={isSelected}
+                  onClick={() => onSelect({ row: item.index, column })}
+                  className={[
+                    "shrink-0 truncate px-3 py-1",
+                    isSelected ? "bg-primary/20 ring-primary ring-1" : "",
+                    cell === null ? "text-base-content/40 italic" : "",
+                  ].join(" ")}
+                  style={{ width: widths[column] }}
+                  title={formatCell(cell)}
+                >
+                  {formatCell(cell)}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
