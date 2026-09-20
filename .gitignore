@@ -11,6 +11,9 @@ src-tauri/gen/schemas
 .agents
 .claude/skills
 
+# Per-developer Claude Code settings
+.claude/settings.local.json
+
 # Editor / OS
 .DS_Store
 .idea

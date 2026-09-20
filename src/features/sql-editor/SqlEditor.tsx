@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { editor as monaco, KeyCode, KeyMod, SQL_LANGUAGE } from "./monaco";
-import { useEditorTheme } from "./theme";
 
 type Props = {
   value: string;
@@ -11,7 +10,6 @@ type Props = {
 export default function SqlEditor({ value, onChange, onSubmit }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.IStandaloneCodeEditor | null>(null);
-  const theme = useEditorTheme();
   // Monaco keeps the callback it was handed at mount, so the handlers reach it
   // through a ref. Writing that ref while rendering would publish handlers from
   // a render React can still throw away, and a passive effect would leave the
@@ -25,6 +23,7 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     const instance = monaco.create(host.current as HTMLElement, {
       value,
       language: SQL_LANGUAGE,
+      theme: "vs-dark",
       automaticLayout: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
@@ -50,10 +49,6 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     // change the editor did not make itself.
     // eslint-disable-next-line react/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    monaco.setTheme(theme);
-  }, [theme]);
 
   useEffect(() => {
     const instance = editor.current;

@@ -60,8 +60,10 @@ else names a command or calls `invoke` directly.
 
 ## Agent skills
 
-`skills-lock.json` pins them; the skills themselves are not committed, so run `npx skills
-experimental_install` after cloning. Use the daisyUI skill whenever you touch the UI.
+`skills-lock.json` pins them; the skills themselves are not committed, so the
+`SessionStart` hook in `.claude/settings.json` installs them — a step no one has to
+remember, and one that keeps working when the lockfile changes. Use the daisyUI skill
+whenever you touch the UI.
 
 ## Storage
 
@@ -114,6 +116,10 @@ table layout, so `columnWidths` sizes the columns from the first rows.
   the frontend rounded.
 - Commands fail with `AppError`, which serializes as `{ kind, message }`; the frontend
   branches on `kind` and never on message text.
+- Monokai Pro is the only theme. It has no light counterpart, so no built-in daisyUI
+  theme is enabled and nothing follows the OS light/dark preference. Monaco paints
+  itself rather than reading the theme, so it is pinned to its own `vs-dark` — close
+  enough that a second palette to maintain is not worth it.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.
