@@ -61,18 +61,25 @@ async fn save(
     secrets: &dyn SecretStore,
 ) -> Result<String, AppError> {
     validate(&input)?;
+    let label = input.label.trim();
+    let mut tx = pool.begin().await?;
+
     let id = match &input.id {
-        // An id the database does not know would otherwise be inserted as a new
-        // row, and the secret requirement only applies to requests without one.
-        Some(id) if connection::find_by_id(pool, id).await?.is_none() => {
-            return Err(AppError::NotFound(id.clone()));
+        Some(id) => {
+            // An id the database does not hold is not an edit: inserting it
+            // here would make a connection whose password was never required.
+            if !connection::update(&mut *tx, id, label, &input.config).await? {
+                return Err(AppError::NotFound(id.clone()));
+            }
+            id.clone()
         }
-        Some(id) => id.clone(),
-        None => uuid::Uuid::new_v4().to_string(),
+        None => {
+            let id = uuid::Uuid::new_v4().to_string();
+            connection::insert(&mut *tx, &id, label, &input.config).await?;
+            id
+        }
     };
 
-    let mut tx = pool.begin().await?;
-    connection::upsert(&mut *tx, &id, input.label.trim(), &input.config).await?;
     if let Some(secret) = &input.secret {
         secrets.set(&id, secret)?;
     }

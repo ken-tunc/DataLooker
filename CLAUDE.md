@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 DataLooker is a GUI database client for macOS: Tauri 2 (Rust) + React 19. PostgreSQL is the
-first target, BigQuery follows. Only the project scaffold exists so far.
+first target, BigQuery follows. Managing connections is the only feature so far — nothing
+connects to a database yet.
 
 Keep this file short. Document decisions the code cannot show; leave everything else to the
 code.

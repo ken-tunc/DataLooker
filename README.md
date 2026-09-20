@@ -2,8 +2,9 @@
 
 A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
-> **Status:** early development. The project scaffold runs — an empty window — and nothing
-> else is wired up yet. PostgreSQL support is the first target, BigQuery follows.
+> **Status:** early development. PostgreSQL connections can be created, edited, duplicated
+> and deleted — stored locally, with their passwords in the OS keychain. Nothing connects
+> to a database yet. BigQuery follows PostgreSQL.
 
 ## Prerequisites
 
