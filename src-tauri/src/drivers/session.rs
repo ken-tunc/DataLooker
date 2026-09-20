@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::SqlitePool;
 
 use crate::db::connection::{self, DriverConfig};
-use crate::db::postgres::PostgresSession;
+use crate::drivers::postgres::PostgresSession;
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 
@@ -83,6 +83,11 @@ impl SessionRegistry {
         let mut registry = self.0.lock().unwrap();
         registry.open.remove(id);
         *registry.closes.entry(id.to_string()).or_default() += 1;
+    }
+
+    #[cfg(test)]
+    pub fn is_open(&self, id: &str) -> bool {
+        self.0.lock().unwrap().open.contains_key(id)
     }
 }
 

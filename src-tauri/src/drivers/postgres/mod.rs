@@ -8,7 +8,7 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::db::query::QueryResult;
+use crate::drivers::QueryResult;
 use crate::error::AppError;
 
 /// Bounds opening a connection, and the whole of `test`: a server that accepts

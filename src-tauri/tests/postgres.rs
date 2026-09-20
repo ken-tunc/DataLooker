@@ -6,8 +6,8 @@ use std::env;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-use datalooker_lib::db::postgres::PostgresSession;
-use datalooker_lib::db::query::QueryResult;
+use datalooker_lib::drivers::postgres::PostgresSession;
+use datalooker_lib::drivers::QueryResult;
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;

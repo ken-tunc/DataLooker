@@ -3,8 +3,8 @@ use std::time::Instant;
 use futures_util::TryStreamExt;
 use sqlx::{AssertSqlSafe, Column, PgConnection, Row, TypeInfo};
 
-use crate::db::postgres::value::row_to_json;
-use crate::db::query::{QueryColumn, QueryResult};
+use crate::drivers::postgres::value::row_to_json;
+use crate::drivers::{QueryColumn, QueryResult};
 
 /// `started` is taken before the connection is opened, so `elapsed_ms` is what
 /// the user waited for. The caller decides what a failure means for the
