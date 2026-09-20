@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import type { TabsState } from "./tabs";
 
 type Props = {
@@ -14,6 +14,17 @@ function focusTabAt(sibling: HTMLElement, index: number): void {
 }
 
 export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
+  const strip = useRef<HTMLDivElement>(null);
+  // Closing the tab in focus takes the focused element with it, which would
+  // otherwise drop focus on the document and end the keyboard's walk here.
+  const refocus = useRef(false);
+
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    strip.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  });
+
   function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>, id: string) {
     // Space on the close button would otherwise activate the tab here instead
     // of closing it.
@@ -39,6 +50,7 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
+      refocus.current = true;
       onClose(id);
       return;
     }
@@ -49,7 +61,7 @@ export function SqlTabs({ state, onActivate, onClose, onOpen }: Props) {
   }
 
   return (
-    <div role="tablist" className="tabs tabs-lift border-base-300 border-b pt-1 pl-1">
+    <div ref={strip} role="tablist" className="tabs tabs-lift border-base-300 border-b pt-1 pl-1">
       {state.tabs.map((tab) => (
         // Only the active tab is in the tab order; the arrows move between
         // them, and Delete closes the one in focus — ARIA makes whatever sits
