@@ -101,7 +101,13 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
                   </summary>
                   <ul className="dropdown-content menu bg-base-100 rounded-box z-10 w-40 p-2 shadow-sm">
                     <li>
-                      <button type="button" onClick={() => runTest(connection)}>
+                      {/* One mutation serves every row, and a second test
+                          while one is running would take its callbacks. */}
+                      <button
+                        type="button"
+                        disabled={test.isPending}
+                        onClick={() => runTest(connection)}
+                      >
                         Test
                       </button>
                     </li>
