@@ -28,6 +28,15 @@ export function columnWidths(headers: ColumnHeader[], rows: readonly unknown[][]
   });
 }
 
+/**
+ * Bounds for a width the reader dragged. They are wider than the ones above on
+ * both ends: the guess has to stay readable, but a reader narrowing a column to
+ * see the one behind it, or widening one to read a document, means it.
+ */
+export function clampColumnWidth(px: number): number {
+  return Math.min(Math.max(Math.round(px), 40), 1200);
+}
+
 function header(name: string, typeName = ""): ColumnHeader {
   return { name, typeName };
 }
@@ -57,6 +66,12 @@ if (import.meta.vitest) {
       const [withType] = columnWidths([header("created", "TIMESTAMPTZ")], [["x"]]);
       const [withoutType] = columnWidths([header("created")], [["x"]]);
       expect(withType).toBeGreaterThan(withoutType as number);
+    });
+
+    it("keeps a dragged width inside its own, wider bounds", () => {
+      expect(clampColumnWidth(10)).toBe(40);
+      expect(clampColumnWidth(5000)).toBe(1200);
+      expect(clampColumnWidth(60.4)).toBe(60);
     });
 
     it("measures a NULL as what it renders, not as nothing", () => {

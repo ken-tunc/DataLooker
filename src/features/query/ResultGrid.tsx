@@ -1,20 +1,58 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { formatCell } from "./cell";
-import { columnWidths } from "./columnWidths";
+import { clampColumnWidth, columnWidths } from "./columnWidths";
 
 const ROW_HEIGHT = 28;
 
 type Cell = { row: number; column: number };
 
+/** Widths the reader dragged, and the columns they were dragged for. */
+type Dragged = { columns: string; widths: Record<number, number> };
+
 export function ResultGrid({ result }: { result: QueryResult }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
+  const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
+
+  const columns = result.columns.map((column) => column.name).join("\u0000");
+  // A result with other columns is another table; the widths dragged for the
+  // last one mean nothing to it.
+  const overrides = dragged.columns === columns ? dragged.widths : {};
   const widths = columnWidths(
     result.columns.map((column) => ({ name: column.name, typeName: column.type_name })),
     result.rows,
-  );
+  ).map((width, index) => overrides[index] ?? width);
+
+  function resize(event: PointerEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = widths[index] as number;
+    handle.setPointerCapture(event.pointerId);
+
+    const onMove = (move: globalThis.PointerEvent) => {
+      const width = clampColumnWidth(startWidth + move.clientX - startX);
+      setDragged((current) => ({
+        columns,
+        widths: { ...(current.columns === columns ? current.widths : {}), [index]: width },
+      }));
+    };
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  }
+
+  function resetWidth(index: number) {
+    setDragged((current) => {
+      const { [index]: _dropped, ...rest } = current.columns === columns ? current.widths : {};
+      return { columns, widths: rest };
+    });
+  }
 
   // The compiler skips this component because it cannot memoize the
   // virtualizer's callbacks. That is the right call: the grid re-renders as it
@@ -71,7 +109,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
-              className="shrink-0 truncate px-3 py-1 font-sans font-medium"
+              className="relative shrink-0 truncate px-3 py-1 font-sans font-medium"
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
             >
@@ -79,6 +117,14 @@ export function ResultGrid({ result }: { result: QueryResult }) {
               <span className="text-base-content/40 ml-2 font-normal lowercase">
                 {column.type_name}
               </span>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize ${column.name}`}
+                className="hover:bg-primary absolute top-0 right-0 h-full w-1 cursor-col-resize"
+                onPointerDown={(event) => resize(event, index)}
+                onDoubleClick={() => resetWidth(index)}
+              />
             </div>
           ))}
         </div>
