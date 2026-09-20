@@ -139,41 +139,52 @@ function Row({
     );
   }
 
-  // The chevron and the name are separate controls: expanding a table is not
-  // the same wish as opening it.
-  const isSchema = row.kind === "schema";
+  // A schema's row is one control — it only expands — while a table's row is
+  // two: the chevron shows its columns, and the name (with the space after it)
+  // opens the table.
+  if (row.kind === "schema") {
+    return (
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        className="hover:bg-base-200 flex w-full cursor-pointer items-baseline gap-1 py-0.5 pr-2 pl-2 text-left text-sm font-medium"
+        onClick={() => onToggle(row.id)}
+      >
+        <Chevron expanded={row.expanded} />
+        <span className="truncate">{row.name}</span>
+        <span className="text-base-content/50 shrink-0 text-xs">{row.tables}</span>
+      </button>
+    );
+  }
+
   return (
-    <span
-      className={`hover:bg-base-200 flex w-full items-baseline gap-1 py-0.5 pr-2 text-sm ${
-        isSchema ? "pl-2 font-medium" : "pl-6"
-      }`}
-    >
+    <span className="hover:bg-base-200 flex w-full items-baseline gap-1 py-0.5 pr-2 pl-6 text-sm">
       <button
         type="button"
         aria-expanded={row.expanded}
         aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`}
-        className="text-base-content/40 w-3 shrink-0 cursor-pointer text-xs"
+        className="cursor-pointer"
         onClick={() => onToggle(row.id)}
       >
-        {row.expanded ? "▾" : "▸"}
+        <Chevron expanded={row.expanded} />
       </button>
-      {isSchema ? (
+      <button
+        type="button"
+        className="flex min-w-0 grow cursor-pointer items-baseline gap-2 text-left"
+        title={`Open ${row.schema}.${row.name}`}
+        onClick={() => onOpenTable(row.schema, row.name)}
+      >
         <span className="truncate">{row.name}</span>
-      ) : (
-        <button
-          type="button"
-          className="cursor-pointer truncate text-left"
-          title={`Open ${row.schema}.${row.name}`}
-          onClick={() => onOpenTable(row.schema, row.name)}
-        >
-          {row.name}
-        </button>
-      )}
-      <span className="text-base-content/50 shrink-0 text-xs">
-        {isSchema ? row.tables : KIND_LABELS[row.tableKind] || row.columns}
-      </span>
+        <span className="text-base-content/50 shrink-0 text-xs">
+          {KIND_LABELS[row.tableKind] || row.columns}
+        </span>
+      </button>
     </span>
   );
+}
+
+function Chevron({ expanded }: { expanded: boolean }) {
+  return <span className="text-base-content/40 w-3 shrink-0 text-xs">{expanded ? "▾" : "▸"}</span>;
 }
 
 function Skeleton() {
