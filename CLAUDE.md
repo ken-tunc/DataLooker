@@ -18,6 +18,9 @@ code.
   compiler can catch it, encode it there — oxlint rules live in `vite.config.ts`, clippy
   lints in `src-tauri/Cargo.toml` — and keep this file for what none of them can see. A
   rule that exists only in prose is one every reader has to remember.
+- A component fetches what it renders. React Query's cache is shared, so two components
+  asking for the same thing make one request, and a parent holds only the state its
+  children genuinely share — which connection is in front, not the connections.
 - Do not hand-memoize. The React Compiler is on, so `useCallback`, `useMemo` and `memo`
   only add noise, and `no-restricted-imports` rejects them. Disable the rule on the line
   with a reason if a case ever needs one.
