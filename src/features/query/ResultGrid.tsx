@@ -12,7 +12,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const widths = columnWidths(
-    result.columns.map((column) => column.name),
+    result.columns.map((column) => ({ name: column.name, typeName: column.type_name })),
     result.rows,
   );
 
@@ -63,13 +63,15 @@ export function ResultGrid({ result }: { result: QueryResult }) {
       role="grid"
       onKeyDown={move}
     >
-      <div style={{ width: total }}>
-        <div className="bg-base-200 sticky top-0 z-10 flex" role="row">
+      {/* The rows are as wide as their columns; the header keeps its background
+          across the rest of the pane. */}
+      <div className="min-w-full" style={{ width: total }}>
+        <div className="bg-base-200 sticky top-0 z-10 flex min-w-full" role="row">
           {result.columns.map((column, index) => (
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
-              className="truncate px-3 py-1 font-sans font-medium"
+              className="shrink-0 truncate px-3 py-1 font-sans font-medium"
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
             >
@@ -100,7 +102,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
                       aria-selected={isSelected}
                       onClick={() => setSelected({ row: virtual.index, column })}
                       className={[
-                        "truncate px-3 py-1",
+                        "shrink-0 truncate px-3 py-1",
                         isSelected ? "bg-primary/20 ring-primary ring-1" : "",
                         cell === null ? "text-base-content/40 italic" : "",
                       ].join(" ")}
