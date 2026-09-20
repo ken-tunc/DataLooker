@@ -32,6 +32,8 @@ jobs:
       # `vp check` covers format, lint and type check.
       - run: vp check
 
+      - run: vp test --run
+
   rust:
     runs-on: macos-26
     defaults:
