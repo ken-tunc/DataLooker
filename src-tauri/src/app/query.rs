@@ -26,7 +26,7 @@ impl App {
         sql: &str,
         query_id: &str,
     ) -> Result<QueryResult, AppError> {
-        let cancel = self.queries.register(query_id);
+        let cancel = self.queries.register(query_id)?;
         let _registration = Registration {
             registry: &self.queries,
             query_id,
@@ -48,13 +48,18 @@ impl App {
 pub struct QueryRegistry(Mutex<HashMap<String, CancellationToken>>);
 
 impl QueryRegistry {
-    fn register(&self, query_id: &str) -> CancellationToken {
+    /// Rejects an id already running rather than replacing its token, which
+    /// would leave that query with no way to be cancelled.
+    fn register(&self, query_id: &str) -> Result<CancellationToken, AppError> {
+        let mut running = self.0.lock().unwrap();
+        if running.contains_key(query_id) {
+            return Err(AppError::Validation(format!(
+                "query {query_id} is already running"
+            )));
+        }
         let token = CancellationToken::new();
-        self.0
-            .lock()
-            .unwrap()
-            .insert(query_id.to_string(), token.clone());
-        token
+        running.insert(query_id.to_string(), token.clone());
+        Ok(token)
     }
 
     fn cancel(&self, query_id: &str) {
@@ -100,7 +105,7 @@ mod tests {
     #[test]
     fn a_finished_query_leaves_the_registry_empty() {
         let registry = QueryRegistry::default();
-        let token = registry.register("q1");
+        let token = registry.register("q1").unwrap();
         {
             let _registration = Registration {
                 registry: &registry,
@@ -115,10 +120,22 @@ mod tests {
     #[test]
     fn cancelling_reaches_the_token_the_query_holds() {
         let registry = QueryRegistry::default();
-        let held = registry.register("q1");
+        let held = registry.register("q1").unwrap();
 
         registry.cancel("q1");
 
+        assert!(held.is_cancelled());
+    }
+
+    #[test]
+    fn an_id_already_running_is_rejected_and_keeps_its_token() {
+        let registry = QueryRegistry::default();
+        let held = registry.register("q1").unwrap();
+
+        let err = registry.register("q1").unwrap_err();
+
+        assert!(matches!(err, AppError::Validation(_)));
+        registry.cancel("q1");
         assert!(held.is_cancelled());
     }
 
