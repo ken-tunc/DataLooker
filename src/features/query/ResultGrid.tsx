@@ -5,6 +5,8 @@ import { formatCell } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
 
 const ROW_HEIGHT = 28;
+/** The header is one row tall, and it is what a row scrolls out from under. */
+const HEADER_HEIGHT = ROW_HEIGHT;
 
 type Cell = { row: number; column: number };
 
@@ -57,11 +59,11 @@ export function ResultGrid({ result }: { result: QueryResult }) {
   function scrollRowIntoView(index: number) {
     const element = scroller.current;
     if (!element) return;
-    const top = index * ROW_HEIGHT;
-    // The header floats over the rows, so the topmost readable row starts one
-    // row height below the scroll position.
-    if (top < element.scrollTop + ROW_HEIGHT) {
-      element.scrollTop = top - ROW_HEIGHT;
+    // The header sits above the rows in flow before it sticks over them, so it
+    // both offsets every row and covers the top of the viewport.
+    const top = HEADER_HEIGHT + index * ROW_HEIGHT;
+    if (top < element.scrollTop + HEADER_HEIGHT) {
+      element.scrollTop = top - HEADER_HEIGHT;
     } else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
       element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
     }
