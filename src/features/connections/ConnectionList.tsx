@@ -12,9 +12,9 @@ export function ConnectionList({ connections, onEdit, onDuplicate, onDelete }: P
     <ul className="list bg-base-200 rounded-box">
       {connections.map((connection) => (
         <li key={connection.id} className="list-row items-center">
-          <div className="grow">
+          <div className="list-col-grow">
             <div className="font-medium">{connection.label}</div>
-            <div className="text-sm opacity-60">
+            <div className="text-base-content/60 text-sm">
               {connection.config.username}@{connection.config.host}:{connection.config.port}/
               {connection.config.database}
             </div>
@@ -27,7 +27,7 @@ export function ConnectionList({ connections, onEdit, onDuplicate, onDelete }: P
           </button>
           <button
             type="button"
-            className="btn btn-sm btn-error btn-outline"
+            className="btn btn-sm btn-error btn-soft"
             onClick={() => onDelete(connection)}
           >
             Delete

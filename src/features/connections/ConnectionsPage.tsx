@@ -4,6 +4,7 @@ import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { ConnectionList } from "./ConnectionList";
+import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import type { FormMode } from "./form";
 import { useConnections, useDeleteConnection } from "./hooks";
 
@@ -39,16 +40,19 @@ export function ConnectionsPage() {
         </button>
       </header>
 
-      {connections.isPending && <span className="loading loading-spinner" />}
+      {connections.isPending && <ConnectionListSkeleton />}
 
       {connections.isError && (
         <div role="alert" className="alert alert-error">
           <span>{describeError(connections.error)}</span>
+          <button type="button" className="btn btn-sm" onClick={() => connections.refetch()}>
+            Retry
+          </button>
         </div>
       )}
 
       {connections.data?.length === 0 && (
-        <p className="opacity-60">No connections yet. Create one to get started.</p>
+        <p className="text-base-content/60">No connections yet. Create one to get started.</p>
       )}
 
       {connections.data && connections.data.length > 0 && (
@@ -69,26 +73,29 @@ export function ConnectionsPage() {
       )}
 
       {deleting && (
-        <dialog className="modal modal-open">
-          <div className="modal-box">
-            <h3 className="text-lg font-semibold">Delete {deleting.label}?</h3>
-            <p className="py-4">Its password is removed from the keychain as well.</p>
-            <div className="modal-action">
-              <button type="button" className="btn btn-ghost" onClick={() => setDeleting(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-error"
-                disabled={remove.isPending}
-                onClick={() => confirmDelete(deleting)}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </dialog>
+        <DeleteConnectionDialog
+          connection={deleting}
+          pending={remove.isPending}
+          onConfirm={() => confirmDelete(deleting)}
+          onClose={() => setDeleting(null)}
+        />
       )}
     </main>
+  );
+}
+
+function ConnectionListSkeleton() {
+  return (
+    <ul className="list bg-base-200 rounded-box">
+      {["one", "two", "three"].map((row) => (
+        <li key={row} className="list-row items-center gap-3">
+          <div className="flex grow flex-col gap-2">
+            <div className="skeleton h-4 w-32" />
+            <div className="skeleton h-3 w-56" />
+          </div>
+          <div className="skeleton h-8 w-16" />
+        </li>
+      ))}
+    </ul>
   );
 }
