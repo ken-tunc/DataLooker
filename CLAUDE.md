@@ -42,6 +42,14 @@ rewrites it, so never edit it by hand and re-run the Rust tests after touching a
 crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
 else names a command or calls `invoke` directly.
 
+## Storage
+
+`meta.db` (SQLite via sqlx, under the app data directory) holds the app's own data;
+`src-tauri/migrations/` holds the numbered migration files sqlx applies at startup, so a
+schema change is a new file, never an edit to an existing one. Connection secrets live in
+the OS keychain behind the `SecretStore` trait, which tests swap for an in-memory
+implementation so they never touch the real keychain.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives
@@ -51,6 +59,8 @@ else names a command or calls `invoke` directly.
   and `src-tauri/Cargo.toml` stays at `0.0.0`.
 - `dragDropEnabled: false` turns off Tauri's native file-drop handling, which otherwise
   swallows HTML5 drag and drop inside the webview.
+- A connection's driver-specific settings are stored as JSON in one `config` column, so
+  adding a driver needs no migration.
 - Commands fail with `AppError`, which serializes as `{ kind, message }`; the frontend
   branches on `kind` and never on message text.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and

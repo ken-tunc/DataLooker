@@ -8,6 +8,30 @@ use ts_rs::TS;
 pub enum AppError {
     #[error("Invalid input: {0}")]
     Validation(String),
+
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Keychain error: {0}")]
+    Secret(String),
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(e: sqlx::Error) -> Self {
+        AppError::Database(e.to_string())
+    }
+}
+
+impl From<sqlx::migrate::MigrateError> for AppError {
+    fn from(e: sqlx::migrate::MigrateError) -> Self {
+        AppError::Database(e.to_string())
+    }
+}
+
+impl From<keyring_core::Error> for AppError {
+    fn from(e: keyring_core::Error) -> Self {
+        AppError::Secret(e.to_string())
+    }
 }
 
 #[cfg(test)]
