@@ -47,6 +47,11 @@ rewrites it, so never edit it by hand and re-run the Rust tests after touching a
 crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
 else names a command or calls `invoke` directly.
 
+## Agent skills
+
+`skills-lock.json` pins them; the skills themselves are not committed, so run `npx skills
+experimental_install` after cloning. Use the daisyUI skill whenever you touch the UI.
+
 ## Storage
 
 `meta.db` (SQLite via sqlx, under the app data directory) holds the app's own data;

@@ -28,6 +28,21 @@ vp run tauri dev
 
 A native window titled "DataLooker" opens.
 
+## Agent skills
+
+`skills-lock.json` pins the agent skills this repository uses. The skills themselves are
+not committed — restore them with:
+
+```sh
+npx skills experimental_install
+```
+
+To add one, which also updates the lockfile:
+
+```sh
+npx skills add saadeghi/daisyui --agent claude-code --yes
+```
+
 ## Scripts
 
 | Command                                                      | What it does                                                |
