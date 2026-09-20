@@ -30,6 +30,20 @@ export default defineConfig({
       "react/exhaustive-deps": "error",
       "react/rules-of-hooks": "error",
       "react/only-export-components": "warn",
+      // The React Compiler memoizes for us; see CLAUDE.md.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "react",
+              importNames: ["memo", "useCallback", "useMemo"],
+              message:
+                "The React Compiler memoizes for you. Remove it, or disable this rule with a reason.",
+            },
+          ],
+        },
+      ],
     },
   },
 
