@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 DataLooker is a GUI database client for macOS: Tauri 2 (Rust) + React 19. PostgreSQL is the
-first target, BigQuery follows. Managing connections is the only feature so far — nothing
-connects to a database yet.
+first target, BigQuery follows. Connections can be managed and SQL can be run against them;
+the editor, the schema tree and table editing are still to come.
 
 Keep this file short. Document decisions the code cannot show; leave everything else to the
 code.
@@ -61,6 +61,17 @@ schema change is a new file, never an edit to an existing one. Connection secret
 the OS keychain behind the `SecretStore` trait, which tests swap for an in-memory
 implementation so they never touch the real keychain.
 
+## Querying
+
+A connection holds one PostgreSQL session (`db::session::SessionRegistry`), reused across
+queries so `BEGIN`, `SET` and temporary tables survive the statement that created them.
+Queries on one connection therefore run one at a time. A cancelled query leaves the wire
+protocol mid-row, so its connection is dropped and the next query opens a new one; an error
+the server reported leaves the session usable and keeps it.
+
+`src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d`)
+and each test skips itself when that server is unreachable.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives
@@ -72,6 +83,12 @@ implementation so they never touch the real keychain.
   swallows HTML5 drag and drop inside the webview.
 - A connection's driver-specific settings are stored as JSON in one `config` column, so
   adding a driver needs no migration.
+- There is no driver trait. One implementation cannot show which operations a second
+  driver would share, so `DriverConfig` is matched where a driver is opened and the
+  abstraction waits for BigQuery.
+- A result cell crosses IPC as JSON, typed `unknown` in TypeScript. Integers outside
+  JavaScript's safe range and `NUMERIC` become strings, because a JSON number would reach
+  the frontend rounded.
 - Commands fail with `AppError`, which serializes as `{ kind, message }`; the frontend
   branches on `kind` and never on message text.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
