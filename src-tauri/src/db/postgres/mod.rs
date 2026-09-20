@@ -76,8 +76,6 @@ impl PostgresSession {
             result = query::execute(&mut conn, sql, row_limit, started) => Some(result),
         };
 
-        // Whether the session survives decides whether it goes back in the
-        // slot; dropping it here closes it and the next query reconnects.
         match outcome {
             // The query was abandoned mid-protocol, so what the connection
             // would read next is anyone's guess.
@@ -86,9 +84,8 @@ impl PostgresSession {
                 *held = Some(conn);
                 Ok(result)
             }
-            // An error the server reported leaves the session usable (an open
-            // transaction is now aborted, which the user has to see); anything
-            // else is the connection itself failing.
+            // An open transaction is now aborted, which the user has to see,
+            // so an error the server reported keeps the session.
             Some(Err(e)) => {
                 if matches!(e, sqlx::Error::Database(_)) {
                     *held = Some(conn);

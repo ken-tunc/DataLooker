@@ -14,9 +14,7 @@ pub fn row_to_json(row: &PgRow) -> Vec<Value> {
         .collect()
 }
 
-/// Decode one cell as either the scalar type or, for `T[]`, a JSON array of it.
-/// Array elements are nullable, so they decode as `Option<T>` and render as
-/// JSON `null`.
+/// Array elements are nullable, hence `Option<T>` in the array branch.
 macro_rules! decode {
     ($row:expr, $index:expr, $is_array:expr, $ty:ty, $convert:expr) => {
         if $is_array {

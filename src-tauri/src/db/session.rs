@@ -44,8 +44,8 @@ impl SessionRegistry {
             if registry.closes(id) != closes {
                 continue;
             }
-            // A concurrent caller may have opened one in the meantime;
-            // whichever landed first is the session everyone gets.
+            // Whichever concurrent caller landed first is the session
+            // everyone gets.
             return Ok(registry
                 .open
                 .entry(id.to_string())
@@ -139,8 +139,6 @@ mod tests {
 
         registry.close("id-1");
 
-        // The count is what an open still reading the stored credentials sees
-        // when it comes back, so that it retries instead of caching them.
         let registry = registry.0.lock().unwrap();
         assert!(registry.open.is_empty());
         assert_eq!(registry.closes("id-1"), 1);

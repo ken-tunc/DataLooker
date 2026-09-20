@@ -101,8 +101,7 @@ function Result({ result }: { result: QueryResult }) {
             </thead>
             <tbody className="font-mono">
               {result.rows.map((row, rowIndex) => (
-                // Rows have no identity of their own: a result set can repeat a
-                // row, and nothing here reorders them.
+                // A result set can repeat a row, and nothing here reorders them.
                 // eslint-disable-next-line react/no-array-index-key
                 <tr key={rowIndex}>
                   {row.map((cell, cellIndex) => (

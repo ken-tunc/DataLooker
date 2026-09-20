@@ -1,5 +1,5 @@
-//! Runs against the PostgreSQL in `compose.yaml` (`docker compose up -d`).
-//! Every test skips itself when that server is not reachable, so a machine
+//! Runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
+//! --wait`), and skips when nothing is listening on its port so that a machine
 //! without Docker still runs the rest of the suite.
 
 use std::env;

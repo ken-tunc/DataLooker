@@ -12,11 +12,9 @@ pub struct QueryColumn {
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct QueryResult {
     pub columns: Vec<QueryColumn>,
-    /// A cell is whatever JSON the driver made of the database value, so a
-    /// reader has to narrow it before rendering.
+    /// A cell is whatever JSON the driver made of the database value.
     #[ts(type = "Array<Array<unknown>>")]
     pub rows: Vec<Vec<serde_json::Value>>,
-    /// The query had more rows than the limit the command asked for.
     pub truncated: bool,
     pub elapsed_ms: u32,
 }

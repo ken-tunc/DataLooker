@@ -35,7 +35,6 @@ impl QueryRegistry {
     }
 }
 
-/// Removes the query from the registry however the command returns.
 struct Registration<'a> {
     registry: &'a QueryRegistry,
     query_id: &'a str,

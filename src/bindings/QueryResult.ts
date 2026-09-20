@@ -3,11 +3,6 @@ import type { QueryColumn } from "./QueryColumn";
 
 export type QueryResult = { columns: Array<QueryColumn>, 
 /**
- * A cell is whatever JSON the driver made of the database value, so a
- * reader has to narrow it before rendering.
+ * A cell is whatever JSON the driver made of the database value.
  */
-rows: Array<Array<unknown>>, 
-/**
- * The query had more rows than the limit the command asked for.
- */
-truncated: boolean, elapsed_ms: number, };
+rows: Array<Array<unknown>>, truncated: boolean, elapsed_ms: number, };

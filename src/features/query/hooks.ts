@@ -3,9 +3,8 @@ import { useRef } from "react";
 import { cancelQuery, executeQuery } from "../../lib/commands";
 
 /**
- * Runs SQL on one connection. The id minted here is what the backend registers
- * the running query under, so cancelling is a second command rather than a
- * property of the first one's promise.
+ * The id minted here is what the backend registers the running query under, so
+ * cancelling is a second command rather than a property of this promise.
  */
 export function useQueryRunner(connectionId: string) {
   const runningId = useRef<string | null>(null);

@@ -6,10 +6,9 @@ use sqlx::{AssertSqlSafe, Column, PgConnection, Row, TypeInfo};
 use crate::db::postgres::value::row_to_json;
 use crate::db::query::{QueryColumn, QueryResult};
 
-/// Stream `sql` and keep at most `row_limit` rows. `started` is taken before
-/// the connection is opened, so `elapsed_ms` is what the user waited for. The
-/// caller decides what a failure means for the connection, so the sqlx error is
-/// passed through unmapped.
+/// `started` is taken before the connection is opened, so `elapsed_ms` is what
+/// the user waited for. The caller decides what a failure means for the
+/// connection, so the sqlx error is passed through unmapped.
 pub async fn execute(
     conn: &mut PgConnection,
     sql: &str,

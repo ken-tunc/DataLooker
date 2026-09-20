@@ -1,4 +1,4 @@
-/** Renders one cell of a result row. A cell is JSON, so it can be anything. */
+/** A cell is JSON, so it can be anything. */
 export function formatCell(value: unknown): string {
   if (value === null) return "NULL";
   if (typeof value === "string") return value;
