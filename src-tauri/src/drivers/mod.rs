@@ -21,3 +21,42 @@ pub struct QueryResult {
     pub truncated: bool,
     pub elapsed_ms: u32,
 }
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct SchemaTree {
+    pub schemas: Vec<Schema>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Schema {
+    pub name: String,
+    pub tables: Vec<Table>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Table {
+    pub name: String,
+    pub kind: TableKind,
+    pub columns: Vec<Column>,
+}
+
+#[derive(Debug, Serialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum TableKind {
+    Table,
+    View,
+    MaterializedView,
+    ForeignTable,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Column {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+}

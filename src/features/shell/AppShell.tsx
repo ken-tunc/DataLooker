@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ConnectionSidebar } from "../connections/ConnectionSidebar";
 import { QueryWorkspace } from "../query/QueryWorkspace";
+import { SchemaTree } from "../schema-tree/SchemaTree";
 import { useSqlTabs } from "../sql-tabs/useSqlTabs";
 
 /**
@@ -45,6 +46,8 @@ export function AppShell() {
           tabs.forget(id);
         }}
       />
+
+      {selectedId && <SchemaTree key={selectedId} connectionId={selectedId} />}
 
       <main className="flex min-w-0 flex-1 flex-col">
         {selectedId ? (

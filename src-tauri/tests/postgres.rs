@@ -7,7 +7,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use datalooker_lib::drivers::postgres::PostgresSession;
-use datalooker_lib::drivers::QueryResult;
+use datalooker_lib::drivers::{QueryResult, TableKind};
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -215,4 +215,73 @@ async fn a_cancelled_query_stops_and_the_next_one_reconnects() {
     // The cancelled connection was thrown away, so this opens a new one.
     let result = run(&session, "SELECT 1 AS one").await.unwrap();
     assert_eq!(result.rows, vec![vec![json!(1)]]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    // Named for this test and dropped first, so a run that failed half way
+    // through does not change what the next one sees.
+    run(&session, "DROP SCHEMA IF EXISTS tree_test CASCADE")
+        .await
+        .unwrap();
+    run(&session, "CREATE SCHEMA tree_test").await.unwrap();
+    run(
+        &session,
+        "CREATE TABLE tree_test.people (id int PRIMARY KEY, name text NOT NULL, email text)",
+    )
+    .await
+    .unwrap();
+    run(
+        &session,
+        "CREATE VIEW tree_test.names AS SELECT name FROM tree_test.people",
+    )
+    .await
+    .unwrap();
+
+    let tree = session.schema_tree().await.unwrap();
+
+    let schema = tree
+        .schemas
+        .iter()
+        .find(|schema| schema.name == "tree_test")
+        .expect("the schema just created is in the tree");
+    let tables: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(tables, ["names", "people"]);
+
+    let people = &schema.tables[1];
+    assert_eq!(people.kind, TableKind::Table);
+    let columns: Vec<(&str, &str, bool)> = people
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("id", "integer", false),
+            ("name", "text", false),
+            ("email", "text", true)
+        ]
+    );
+    assert_eq!(schema.tables[0].kind, TableKind::View);
+
+    run(&session, "DROP SCHEMA tree_test CASCADE")
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tree_leaves_out_the_catalogs() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+
+    let tree = session.schema_tree().await.unwrap();
+
+    let names: Vec<&str> = tree.schemas.iter().map(|s| s.name.as_str()).collect();
+    assert!(!names.contains(&"pg_catalog"), "{names:?}");
+    assert!(!names.contains(&"information_schema"), "{names:?}");
 }
