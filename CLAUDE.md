@@ -60,13 +60,8 @@ else names a command or calls `invoke` directly.
 
 ## Agent skills
 
-`skills-lock.json` pins them; the skills themselves are not committed, so the
-`SessionStart` hook in `.claude/settings.json` runs `.claude/hooks/install-skills.sh`
-— a step no one has to remember, and one that keeps working when the lockfile
-changes. The script explains the two things its order depends on: the `skills` CLI
-runs from `node_modules` so the lockfile pins it, and its restore only ever writes to
-`.agents/skills`, which is not the directory Claude Code reads. Use the daisyUI skill
-whenever you touch the UI.
+`skills-lock.json` pins them; the skills themselves are not committed, so run `npx skills
+experimental_install` after cloning. Use the daisyUI skill whenever you touch the UI.
 
 ## Storage
 
