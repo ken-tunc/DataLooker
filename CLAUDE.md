@@ -66,7 +66,10 @@ experimental_install` after cloning. Use the daisyUI skill whenever you touch th
 `src-tauri/migrations/` holds the numbered migration files sqlx applies at startup, so a
 schema change is a new file, never an edit to an existing one. Connection secrets live in
 the OS keychain behind the `SecretStore` trait, which tests swap for an in-memory
-implementation so they never touch the real keychain.
+implementation so they never touch the real keychain. The keychain write sits inside the
+SQLite transaction, so a keychain failure rolls the row back; a commit that then fails
+still leaves the password changed, which is the floor with two stores that cannot commit
+together, and nothing tries to compensate for it.
 
 ## Querying
 

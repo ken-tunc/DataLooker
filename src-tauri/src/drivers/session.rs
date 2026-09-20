@@ -84,6 +84,11 @@ impl SessionRegistry {
         registry.open.remove(id);
         *registry.closes.entry(id.to_string()).or_default() += 1;
     }
+
+    #[cfg(test)]
+    pub fn is_open(&self, id: &str) -> bool {
+        self.0.lock().unwrap().open.contains_key(id)
+    }
 }
 
 impl Registry {

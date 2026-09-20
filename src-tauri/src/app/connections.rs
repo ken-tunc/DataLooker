@@ -13,15 +13,21 @@ impl App {
     }
 
     pub async fn save_connection(&self, input: SaveConnectionInput) -> Result<String, AppError> {
-        let id = save(input, &self.pool, self.secrets.as_ref()).await?;
-        self.sessions.close(&id);
-        Ok(id)
+        let edited = input.id.clone();
+        let saved = save(input, &self.pool, self.secrets.as_ref()).await;
+        // A save that failed can still have changed the password, and a session
+        // opened while it ran may hold one half of it, so the session goes
+        // either way. A new connection has no session: nothing knew its id yet.
+        if let Some(id) = saved.as_ref().ok().or(edited.as_ref()) {
+            self.sessions.close(id);
+        }
+        saved
     }
 
     pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
-        delete(id, &self.pool, self.secrets.as_ref()).await?;
+        let deleted = delete(id, &self.pool, self.secrets.as_ref()).await;
         self.sessions.close(id);
-        Ok(())
+        deleted
     }
 }
 
@@ -120,6 +126,25 @@ mod tests {
     use crate::app::tests::app;
     use crate::db::open_in_memory;
     use crate::secrets::InMemorySecretStore;
+
+    #[tokio::test]
+    async fn a_save_that_failed_drops_the_session_too() {
+        let app = app().await;
+        let id = app
+            .save_connection(input(None, "Local", Some("hunter2")))
+            .await
+            .unwrap();
+        app.session(&id).await.unwrap();
+        assert!(app.sessions.is_open(&id));
+
+        app.pool.close().await;
+        assert!(app
+            .save_connection(input(Some(&id), "Renamed", Some("new-password")))
+            .await
+            .is_err());
+
+        assert!(!app.sessions.is_open(&id));
+    }
 
     #[tokio::test]
     async fn a_saved_connection_is_listed_until_it_is_deleted() {
