@@ -1,0 +1,26 @@
+# pnpm 11 does not run dependency install scripts unless they are listed here.
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - "@tauri-apps/cli-darwin-arm64@2.11.5"
+  - "@tauri-apps/cli-darwin-x64@2.11.5"
+  - "@tauri-apps/cli-linux-arm-gnueabihf@2.11.5"
+  - "@tauri-apps/cli-linux-arm64-gnu@2.11.5"
+  - "@tauri-apps/cli-linux-arm64-musl@2.11.5"
+  - "@tauri-apps/cli-linux-riscv64-gnu@2.11.5"
+  - "@tauri-apps/cli-linux-x64-gnu@2.11.5"
+  - "@tauri-apps/cli-linux-x64-musl@2.11.5"
+  - "@tauri-apps/cli-win32-arm64-msvc@2.11.5"
+  - "@tauri-apps/cli-win32-ia32-msvc@2.11.5"
+  - "@tauri-apps/cli-win32-x64-msvc@2.11.5"
+  - "@tauri-apps/cli@2.11.5"
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
+  vite-plus: 0.3.3
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

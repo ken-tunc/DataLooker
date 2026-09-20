@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# CI never debugs the binary, so dev-profile debug symbols are pure compile and
+# cache-IO overhead here. Local `cargo` builds are unaffected.
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+
+jobs:
+  frontend:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # setup-vp installs Vite+, the pinned Node.js and the package manager,
+      # and caches the dependency store.
+      - uses: voidzero-dev/setup-vp@v1.21.0
+        with:
+          cache: true
+
+      - run: vp install --frozen-lockfile
+
+      # `vp check` covers format, lint and type check.
+      - run: vp check
+
+  rust:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - run: cargo test

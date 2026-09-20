@@ -1,0 +1,47 @@
+{
+  "name": "datalooker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "tauri": "tauri",
+    "check": "vp check",
+    "lint": "vp lint",
+    "fmt": "vp fmt"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@rolldown/plugin-babel": "^0.2.4",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "daisyui": "^5.7.42",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.9.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=26.9.0",
+    "pnpm": ">=11"
+  },
+  "packageManager": "pnpm@11.11.0"
+}
