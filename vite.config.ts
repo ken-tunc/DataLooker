@@ -1,0 +1,39 @@
+import babel from "@rolldown/plugin-babel";
+import tailwindcss from "@tailwindcss/vite";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import { defineConfig, lazyPlugins } from "vite-plus";
+
+export default defineConfig({
+  fmt: {
+    printWidth: 100,
+  },
+  lint: {
+    plugins: ["react", "typescript", "unicorn", "oxc"],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      "react/exhaustive-deps": "error",
+      "react/rules-of-hooks": "error",
+      "react/only-export-components": "warn",
+    },
+  },
+
+  // `lazyPlugins` keeps `vp check` / `vp lint` from loading the plugins.
+  plugins: lazyPlugins(() => [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()]),
+
+  // Keep Rust compile errors on screen instead of clearing them on every reload.
+  clearScreen: false,
+  server: {
+    // Tauri loads `devUrl` from tauri.conf.json, so the port must not drift.
+    port: 1420,
+    strictPort: true,
+    watch: {
+      // Tauri watches the Rust sources itself and restarts the app.
+      ignored: ["**/src-tauri/**"],
+    },
+  },
+});

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build artifacts
+dist
+src-tauri/target
+src-tauri/gen/schemas
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode
+
+# Logs
+*.log
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+.envrc
