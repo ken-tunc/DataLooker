@@ -13,6 +13,10 @@ code.
 - Comment why, never what. A comment that restates the code becomes noise the moment the
   code changes, so leave out anything a reader gets from the code itself — write one only
   for a reason, a constraint or a workaround the code cannot show.
+- Make a convention a check, not a paragraph. If the linter, the type system or the
+  compiler can catch it, encode it there — oxlint rules live in `vite.config.ts`, clippy
+  lints in `src-tauri/Cargo.toml` — and keep this file for what none of them can see. A
+  rule that exists only in prose is one every reader has to remember.
 - Do not hand-memoize. The React Compiler is on, so `useCallback`, `useMemo` and `memo`
   only add noise, and `no-restricted-imports` rejects them. Disable the rule on the line
   with a reason if a case ever needs one.
