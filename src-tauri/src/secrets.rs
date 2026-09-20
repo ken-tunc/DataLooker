@@ -61,3 +61,24 @@ fn register_default_store() -> Result<(), AppError> {
         "no credential store for this platform".into(),
     ))
 }
+
+#[cfg(test)]
+#[derive(Default)]
+pub struct InMemorySecretStore(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+#[cfg(test)]
+impl SecretStore for InMemorySecretStore {
+    fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+        Ok(self.0.lock().unwrap().get(id).cloned())
+    }
+
+    fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
+        self.0.lock().unwrap().insert(id.into(), secret.into());
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> Result<(), AppError> {
+        self.0.lock().unwrap().remove(id);
+        Ok(())
+    }
+}
