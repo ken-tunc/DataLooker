@@ -3,6 +3,7 @@
 //! without Docker still runs the rest of the suite.
 
 use std::env;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use datalooker_lib::db::postgres::PostgresSession;
@@ -17,21 +18,38 @@ fn var(name: &str, fallback: &str) -> String {
     env::var(name).unwrap_or_else(|_| fallback.to_string())
 }
 
+/// Nothing listening means there is no server to test against, so the test
+/// skips. A server that answers has to work: turning a wrong password or a
+/// missing database into a skip would let the suite pass while testing nothing.
+fn listening(host: &str, port: u16) -> bool {
+    let Ok(addresses) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    addresses
+        .into_iter()
+        .any(|address| TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok())
+}
+
 async fn session_or_skip() -> Option<PostgresSession> {
+    let host = var("DATALOOKER_TEST_PG_HOST", "localhost");
+    let port = var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap();
+    if !listening(&host, port) {
+        eprintln!("skipping: nothing is listening on {host}:{port}");
+        return None;
+    }
+
     let session = PostgresSession::new(
-        &var("DATALOOKER_TEST_PG_HOST", "localhost"),
-        var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap(),
+        &host,
+        port,
         &var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"),
         &var("DATALOOKER_TEST_PG_USERNAME", "datalooker"),
         &var("DATALOOKER_TEST_PG_PASSWORD", "datalooker"),
     );
-    match session.test().await {
-        Ok(()) => Some(session),
-        Err(e) => {
-            eprintln!("skipping: no PostgreSQL to test against ({e})");
-            None
-        }
-    }
+    session
+        .test()
+        .await
+        .expect("the server that answered on the test port has to be usable");
+    Some(session)
 }
 
 async fn run(session: &PostgresSession, sql: &str) -> Result<QueryResult, AppError> {

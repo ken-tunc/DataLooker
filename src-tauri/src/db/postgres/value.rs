@@ -117,7 +117,8 @@ fn without_padding(numeric: String) -> String {
 }
 
 fn i64_to_json(value: i64) -> Value {
-    if value.abs() <= SAFE_INTEGER {
+    // `i64::MIN.abs()` has no positive i64 to be, so compare the magnitudes.
+    if value.unsigned_abs() <= SAFE_INTEGER.unsigned_abs() {
         Value::Number(value.into())
     } else {
         Value::String(value.to_string())
@@ -175,6 +176,10 @@ mod tests {
         assert_eq!(
             i64_to_json(-SAFE_INTEGER - 1),
             Value::String("-9007199254740992".into())
+        );
+        assert_eq!(
+            i64_to_json(i64::MIN),
+            Value::String("-9223372036854775808".into())
         );
     }
 

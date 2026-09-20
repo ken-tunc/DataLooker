@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 use crate::db::query::QueryResult;
 use crate::error::AppError;
 
+/// Bounds opening a connection, and the whole of `test`: a server that accepts
+/// a connection and then stalls would otherwise leave Test spinning forever.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One PostgreSQL session, reused across queries so that `BEGIN`, `SET` and
@@ -39,11 +41,16 @@ impl PostgresSession {
     /// Reach the server with these credentials on a connection of its own, so
     /// that a session already open cannot make an unreachable server look fine.
     pub async fn test(&self) -> Result<(), AppError> {
-        let mut conn = connect(&self.options).await?;
-        let result = conn.execute("SELECT 1").await;
-        let _ = conn.close().await;
-        result?;
-        Ok(())
+        let attempt = async {
+            let mut conn = connect(&self.options).await?;
+            let result = conn.execute("SELECT 1").await;
+            let _ = conn.close().await;
+            result?;
+            Ok(())
+        };
+        tokio::time::timeout(CONNECT_TIMEOUT, attempt)
+            .await
+            .map_err(|_| AppError::Timeout)?
     }
 
     pub async fn execute(

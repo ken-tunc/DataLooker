@@ -88,8 +88,9 @@ function Result({ result }: { result: QueryResult }) {
           <table className="table table-zebra table-pin-rows table-sm">
             <thead>
               <tr>
-                {result.columns.map((column) => (
-                  <th key={column.name}>
+                {result.columns.map((column, index) => (
+                  // A result may name two columns alike (`SELECT 1 AS a, 2 AS a`).
+                  <th key={`${index}-${column.name}`}>
                     {column.name}
                     <span className="text-base-content/40 ml-2 font-normal lowercase">
                       {column.type_name}
@@ -106,7 +107,7 @@ function Result({ result }: { result: QueryResult }) {
                 <tr key={rowIndex}>
                   {row.map((cell, cellIndex) => (
                     <td
-                      key={result.columns[cellIndex]?.name ?? cellIndex}
+                      key={cellIndex}
                       className={cell === null ? "text-base-content/40 italic" : undefined}
                     >
                       {formatCell(cell)}

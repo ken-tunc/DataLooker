@@ -69,8 +69,9 @@ Queries on one connection therefore run one at a time. A cancelled query leaves 
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
 
-`src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d`)
-and each test skips itself when that server is unreachable.
+`src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
+--wait`) and each test skips itself when nothing is listening on that port. A server that
+does answer has to work: only absence is a skip, never a failure.
 
 ## Decisions
 

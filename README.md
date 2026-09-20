@@ -49,12 +49,14 @@ npx skills add saadeghi/daisyui --agent claude-code --yes
 
 ```sh
 vp test --run                                   # frontend
-docker compose up -d                            # PostgreSQL for the integration tests
+docker compose up -d --wait                     # PostgreSQL for the integration tests
 cd src-tauri && cargo test                      # backend
 ```
 
 The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
-itself when that server is unreachable, so `cargo test` still passes without Docker.
+itself when nothing is listening on its port, so `cargo test` still passes without Docker.
+`--wait` holds until the server is healthy, so the tests do not skip a container that is
+still starting.
 
 ## Scripts
 

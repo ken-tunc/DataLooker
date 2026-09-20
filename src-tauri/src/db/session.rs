@@ -11,7 +11,16 @@ use crate::secrets::SecretStore;
 /// The open session per stored connection. Opening one reads the keychain, so
 /// keeping them here also keeps the password prompt off the query path.
 #[derive(Default)]
-pub struct SessionRegistry(Mutex<HashMap<String, Arc<PostgresSession>>>);
+pub struct SessionRegistry(Mutex<Registry>);
+
+#[derive(Default)]
+struct Registry {
+    open: HashMap<String, Arc<PostgresSession>>,
+    /// How often each connection has been closed. Opening a session reads the
+    /// stored record outside the lock, so this is what tells the reader that a
+    /// `close` overtook it and the credentials it read are already stale.
+    closes: HashMap<String, u64>,
+}
 
 impl SessionRegistry {
     pub async fn get(
@@ -20,10 +29,37 @@ impl SessionRegistry {
         pool: &SqlitePool,
         secrets: &dyn SecretStore,
     ) -> Result<Arc<PostgresSession>, AppError> {
-        if let Some(session) = self.0.lock().unwrap().get(id) {
-            return Ok(session.clone());
-        }
+        loop {
+            let closes = {
+                let registry = self.0.lock().unwrap();
+                if let Some(session) = registry.open.get(id) {
+                    return Ok(session.clone());
+                }
+                registry.closes(id)
+            };
 
+            let session = Arc::new(self.open(id, pool, secrets).await?);
+
+            let mut registry = self.0.lock().unwrap();
+            if registry.closes(id) != closes {
+                continue;
+            }
+            // A concurrent caller may have opened one in the meantime;
+            // whichever landed first is the session everyone gets.
+            return Ok(registry
+                .open
+                .entry(id.to_string())
+                .or_insert(session)
+                .clone());
+        }
+    }
+
+    async fn open(
+        &self,
+        id: &str,
+        pool: &SqlitePool,
+        secrets: &dyn SecretStore,
+    ) -> Result<PostgresSession, AppError> {
         let record = connection::find_by_id(pool, id)
             .await?
             .ok_or_else(|| AppError::NotFound(id.to_string()))?;
@@ -36,25 +72,23 @@ impl SessionRegistry {
             database,
             username,
         } = record.config;
-        let session = Arc::new(PostgresSession::new(
+        Ok(PostgresSession::new(
             &host, port, &database, &username, &secret,
-        ));
-
-        // A concurrent caller may have opened one in the meantime; whichever
-        // landed first is the session everyone gets.
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .entry(id.to_string())
-            .or_insert(session)
-            .clone())
+        ))
     }
 
     /// Drop the session so the next query opens a new one. Editing or deleting
     /// a connection leaves the session pointing at credentials that are gone.
     pub fn close(&self, id: &str) {
-        self.0.lock().unwrap().remove(id);
+        let mut registry = self.0.lock().unwrap();
+        registry.open.remove(id);
+        *registry.closes.entry(id.to_string()).or_default() += 1;
+    }
+}
+
+impl Registry {
+    fn closes(&self, id: &str) -> u64 {
+        self.closes.get(id).copied().unwrap_or_default()
     }
 }
 
@@ -90,6 +124,26 @@ mod tests {
         registry.close("id-1");
         let reopened = registry.get("id-1", &pool, &secrets).await.unwrap();
         assert!(!Arc::ptr_eq(&first, &reopened));
+    }
+
+    #[tokio::test]
+    async fn close_forgets_the_session_and_counts_the_close() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        connection::insert(&pool, "id-1", "Local", &config())
+            .await
+            .unwrap();
+        secrets.set("id-1", "hunter2").unwrap();
+        let registry = SessionRegistry::default();
+        registry.get("id-1", &pool, &secrets).await.unwrap();
+
+        registry.close("id-1");
+
+        // The count is what an open still reading the stored credentials sees
+        // when it comes back, so that it retries instead of caching them.
+        let registry = registry.0.lock().unwrap();
+        assert!(registry.open.is_empty());
+        assert_eq!(registry.closes("id-1"), 1);
     }
 
     #[tokio::test]
