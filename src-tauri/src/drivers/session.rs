@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::SqlitePool;
 
 use crate::db::connection::{self, DriverConfig};
-use crate::db::postgres::PostgresSession;
+use crate::drivers::postgres::PostgresSession;
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 

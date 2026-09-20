@@ -46,6 +46,9 @@ add a separate version manager. Its docs sit in `node_modules/vite-plus/docs`.
 A command is an adapter: it extracts state and calls `app::App`, which holds what
 DataLooker can do and knows nothing about Tauri, so that a second caller — an MCP server
 for agents is the one planned — drives the same operations rather than a copy of them.
+`app/` keeps one file per feature, each holding that feature's methods beside the rules
+they apply; `drivers/` is what talks to a database the user connects to, and `db/` is
+meta.db.
 
 `src/bindings/` holds the TypeScript types ts-rs generates from the Rust ones; `cargo test`
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
@@ -67,7 +70,7 @@ implementation so they never touch the real keychain.
 
 ## Querying
 
-A connection holds one PostgreSQL session (`db::session::SessionRegistry`), reused across
+A connection holds one PostgreSQL session (`drivers::session::SessionRegistry`), reused across
 queries so `BEGIN`, `SET` and temporary tables survive the statement that created them.
 Queries on one connection therefore run one at a time. A cancelled query leaves the wire
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error

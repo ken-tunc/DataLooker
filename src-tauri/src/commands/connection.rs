@@ -1,7 +1,7 @@
 use tauri::State;
 
+use crate::app::connections::SaveConnectionInput;
 use crate::app::App;
-use crate::connections::SaveConnectionInput;
 use crate::db::connection::ConnectionRecord;
 use crate::error::AppError;
 

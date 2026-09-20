@@ -1,7 +1,7 @@
 pub mod app;
 mod commands;
-pub mod connections;
 pub mod db;
+pub mod drivers;
 pub mod error;
 mod secrets;
 

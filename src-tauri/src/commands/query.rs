@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::app::App;
-use crate::db::query::QueryResult;
+use crate::drivers::QueryResult;
 use crate::error::AppError;
 
 #[tauri::command]

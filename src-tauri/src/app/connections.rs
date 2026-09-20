@@ -2,9 +2,28 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use crate::db::connection::{self, DriverConfig};
+use crate::app::App;
+use crate::db::connection::{self, ConnectionRecord, DriverConfig};
 use crate::error::AppError;
 use crate::secrets::SecretStore;
+
+impl App {
+    pub async fn list_connections(&self) -> Result<Vec<ConnectionRecord>, AppError> {
+        connection::list_all(&self.pool).await
+    }
+
+    pub async fn save_connection(&self, input: SaveConnectionInput) -> Result<String, AppError> {
+        let id = save(input, &self.pool, self.secrets.as_ref()).await?;
+        self.sessions.close(&id);
+        Ok(id)
+    }
+
+    pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
+        delete(id, &self.pool, self.secrets.as_ref()).await?;
+        self.sessions.close(id);
+        Ok(())
+    }
+}
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -21,11 +40,7 @@ pub struct SaveConnectionInput {
 /// The keychain write sits inside the transaction: if it fails, dropping the
 /// transaction rolls the row back, so the two never disagree about whether the
 /// connection exists.
-pub async fn delete(
-    id: &str,
-    pool: &SqlitePool,
-    secrets: &dyn SecretStore,
-) -> Result<(), AppError> {
+async fn delete(id: &str, pool: &SqlitePool, secrets: &dyn SecretStore) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     connection::delete(&mut *tx, id).await?;
     secrets.delete(id)?;
@@ -33,7 +48,7 @@ pub async fn delete(
     Ok(())
 }
 
-pub async fn save(
+async fn save(
     input: SaveConnectionInput,
     pool: &SqlitePool,
     secrets: &dyn SecretStore,
@@ -102,8 +117,23 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::tests::app;
     use crate::db::open_in_memory;
     use crate::secrets::InMemorySecretStore;
+
+    #[tokio::test]
+    async fn a_saved_connection_is_listed_until_it_is_deleted() {
+        let app = app().await;
+
+        let id = app
+            .save_connection(input(None, "Local", Some("hunter2")))
+            .await
+            .unwrap();
+        assert_eq!(app.list_connections().await.unwrap().len(), 1);
+
+        app.delete_connection(&id).await.unwrap();
+        assert!(app.list_connections().await.unwrap().is_empty());
+    }
 
     fn postgres_config() -> DriverConfig {
         DriverConfig::Postgres {

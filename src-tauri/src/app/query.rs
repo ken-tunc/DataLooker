@@ -1,57 +1,18 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Instant;
 
-use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
-use crate::connections::{self, SaveConnectionInput};
-use crate::db::connection::{self, ConnectionRecord};
-use crate::db::postgres::PostgresSession;
-use crate::db::query::QueryResult;
-use crate::db::session::SessionRegistry;
+use crate::app::App;
+use crate::drivers::QueryResult;
 use crate::error::AppError;
-use crate::secrets::SecretStore;
 
 /// Enough rows to scroll through, few enough that a careless `SELECT *` cannot
 /// pull a whole table into the webview.
 const ROW_LIMIT: usize = 5_000;
 
-/// What DataLooker can do, with no Tauri in sight. The window reaches it through
-/// `commands/`, and anything else that drives the app arrives here the same way.
-pub struct App {
-    pool: SqlitePool,
-    secrets: Box<dyn SecretStore>,
-    sessions: SessionRegistry,
-    queries: QueryRegistry,
-}
-
 impl App {
-    pub fn new(pool: SqlitePool, secrets: Box<dyn SecretStore>) -> Self {
-        Self {
-            pool,
-            secrets,
-            sessions: SessionRegistry::default(),
-            queries: QueryRegistry::default(),
-        }
-    }
-
-    pub async fn list_connections(&self) -> Result<Vec<ConnectionRecord>, AppError> {
-        connection::list_all(&self.pool).await
-    }
-
-    pub async fn save_connection(&self, input: SaveConnectionInput) -> Result<String, AppError> {
-        let id = connections::save(input, &self.pool, self.secrets.as_ref()).await?;
-        self.sessions.close(&id);
-        Ok(id)
-    }
-
-    pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
-        connections::delete(id, &self.pool, self.secrets.as_ref()).await?;
-        self.sessions.close(id);
-        Ok(())
-    }
-
     /// Resolves to how long reaching the server took, in milliseconds.
     pub async fn test_connection(&self, id: &str) -> Result<u32, AppError> {
         let started = Instant::now();
@@ -79,18 +40,12 @@ impl App {
     pub fn cancel_query(&self, query_id: &str) {
         self.queries.cancel(query_id);
     }
-
-    async fn session(&self, id: &str) -> Result<Arc<PostgresSession>, AppError> {
-        self.sessions
-            .get(id, &self.pool, self.secrets.as_ref())
-            .await
-    }
 }
 
 /// The cancellation token of every query currently running, keyed by the id its
 /// caller made up, so that a cancel can reach a query already in flight.
 #[derive(Default)]
-struct QueryRegistry(Mutex<HashMap<String, CancellationToken>>);
+pub struct QueryRegistry(Mutex<HashMap<String, CancellationToken>>);
 
 impl QueryRegistry {
     fn register(&self, query_id: &str) -> CancellationToken {
@@ -128,41 +83,7 @@ impl Drop for Registration<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::connection::DriverConfig;
-    use crate::db::open_in_memory;
-    use crate::secrets::InMemorySecretStore;
-
-    async fn app() -> App {
-        App::new(
-            open_in_memory().await.unwrap(),
-            Box::new(InMemorySecretStore::default()),
-        )
-    }
-
-    fn input(label: &str) -> SaveConnectionInput {
-        SaveConnectionInput {
-            id: None,
-            label: label.into(),
-            config: DriverConfig::Postgres {
-                host: "localhost".into(),
-                port: 5432,
-                database: "datalooker".into(),
-                username: "admin".into(),
-            },
-            secret: Some("hunter2".into()),
-        }
-    }
-
-    #[tokio::test]
-    async fn a_saved_connection_is_listed_until_it_is_deleted() {
-        let app = app().await;
-
-        let id = app.save_connection(input("Local")).await.unwrap();
-        assert_eq!(app.list_connections().await.unwrap().len(), 1);
-
-        app.delete_connection(&id).await.unwrap();
-        assert!(app.list_connections().await.unwrap().is_empty());
-    }
+    use crate::app::tests::app;
 
     #[tokio::test]
     async fn a_query_on_an_unknown_connection_is_not_found() {
