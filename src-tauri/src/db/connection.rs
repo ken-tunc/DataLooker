@@ -57,9 +57,6 @@ pub async fn insert<'e>(
     Ok(())
 }
 
-/// Leaves `created_at` at its first value. False means no such row, which the
-/// caller reads as "this is not an edit" without a separate lookup that the
-/// row could outlive.
 pub async fn update<'e>(
     executor: impl Executor<'e, Database = Sqlite>,
     id: &str,

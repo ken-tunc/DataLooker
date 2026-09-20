@@ -4,14 +4,27 @@ import type { SaveConnectionInput } from "../../bindings/SaveConnectionInput";
 
 export type FormMode = "new" | "edit" | "duplicate";
 
-export type ConnectionFormValues = {
-  label: string;
-  host: string;
-  port: string;
-  database: string;
-  username: string;
-  password: string;
-};
+const required = (field: string) => z.string().trim().min(1, `${field} is required`);
+
+const PORT_RANGE = "Port must be between 1 and 65535";
+
+const schema = z.object({
+  label: required("Label"),
+  host: required("Host"),
+  // Every field holds what the input element holds — a string — so the form's
+  // own type can be read off the schema's input side.
+  port: z
+    .string()
+    .trim()
+    .regex(/^\d+$/, "Port must be a whole number")
+    .transform(Number)
+    .refine((port) => port >= 1 && port <= 65535, PORT_RANGE),
+  database: required("Database"),
+  username: required("Username"),
+  password: z.string(),
+});
+
+export type ConnectionFormValues = z.input<typeof schema>;
 
 export type FieldErrors = Partial<Record<keyof ConnectionFormValues, string>>;
 
@@ -23,21 +36,6 @@ export const EMPTY_FORM: ConnectionFormValues = {
   username: "",
   password: "",
 };
-
-const required = (field: string) => z.string().trim().min(1, `${field} is required`);
-
-const schema = z.object({
-  label: required("Label"),
-  host: required("Host"),
-  port: z.coerce
-    .number({ error: "Port must be a number" })
-    .int("Port must be a whole number")
-    .min(1, "Port must be between 1 and 65535")
-    .max(65535, "Port must be between 1 and 65535"),
-  database: required("Database"),
-  username: required("Username"),
-  password: z.string(),
-});
 
 export type ParseResult =
   | { ok: true; input: SaveConnectionInput }
