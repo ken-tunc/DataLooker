@@ -1,0 +1,190 @@
+use serde_json::{Number, Value};
+use sqlx::postgres::{PgRow, PgTypeInfo, PgTypeKind};
+use sqlx::{Column, Row, TypeInfo, ValueRef};
+
+/// Beyond this, a JSON number no longer survives the trip through JavaScript's
+/// `number`, so the value is sent as a string rather than silently rounded.
+const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+
+pub fn row_to_json(row: &PgRow) -> Vec<Value> {
+    row.columns()
+        .iter()
+        .enumerate()
+        .map(|(index, column)| cell_to_json(row, index, column.type_info()))
+        .collect()
+}
+
+/// Decode one cell as either the scalar type or, for `T[]`, a JSON array of it.
+/// Array elements are nullable, so they decode as `Option<T>` and render as
+/// JSON `null`.
+macro_rules! decode {
+    ($row:expr, $index:expr, $is_array:expr, $ty:ty, $convert:expr) => {
+        if $is_array {
+            or_error(
+                $row.try_get::<Vec<Option<$ty>>, _>($index)
+                    .map(|items| json_array(items, $convert)),
+            )
+        } else {
+            or_error($row.try_get::<$ty, _>($index).map($convert))
+        }
+    };
+}
+
+fn cell_to_json(row: &PgRow, index: usize, type_info: &PgTypeInfo) -> Value {
+    match row.try_get_raw(index) {
+        Ok(raw) if raw.is_null() => return Value::Null,
+        Err(e) => return unsupported(format!("error: {e}")),
+        Ok(_) => {}
+    }
+
+    // An array column reports its own type name (`_int4`), never the element's,
+    // so unwrap it here and let every arm below decode both forms.
+    let (is_array, element) = match type_info.kind() {
+        PgTypeKind::Array(element) => (true, element),
+        _ => (false, type_info),
+    };
+
+    // A user-defined enum's type name is the enum's own, so it cannot be
+    // matched below. PostgreSQL sends the label as UTF-8 in both wire formats.
+    if matches!(element.kind(), PgTypeKind::Enum(_)) && !is_array {
+        return match row.try_get::<String, _>(index) {
+            Ok(label) => Value::String(label),
+            Err(_) => unsupported(element.name()),
+        };
+    }
+
+    match element.name() {
+        "BOOL" => decode!(row, index, is_array, bool, Value::Bool),
+        "INT2" => decode!(row, index, is_array, i16, |v| Value::Number(v.into())),
+        "INT4" => decode!(row, index, is_array, i32, |v| Value::Number(v.into())),
+        "INT8" => decode!(row, index, is_array, i64, i64_to_json),
+        "FLOAT4" => decode!(row, index, is_array, f32, |v| f64_to_json(v.into())),
+        "FLOAT8" => decode!(row, index, is_array, f64, f64_to_json),
+        "NUMERIC" => decode!(row, index, is_array, sqlx::types::BigDecimal, |v| {
+            Value::String(without_padding(v.to_string()))
+        }),
+        "TEXT" | "VARCHAR" | "BPCHAR" | "NAME" | "CHAR" => {
+            decode!(row, index, is_array, String, Value::String)
+        }
+        "UUID" => decode!(row, index, is_array, uuid::Uuid, |v| Value::String(
+            v.to_string()
+        )),
+        "JSON" | "JSONB" => decode!(row, index, is_array, Value, |v| v),
+        "DATE" => decode!(row, index, is_array, time::Date, |v| Value::String(
+            v.to_string()
+        )),
+        "TIME" => decode!(row, index, is_array, time::Time, |v| Value::String(
+            v.to_string()
+        )),
+        "TIMESTAMP" => decode!(row, index, is_array, time::PrimitiveDateTime, |v| {
+            Value::String(v.to_string())
+        }),
+        "TIMESTAMPTZ" => decode!(row, index, is_array, time::OffsetDateTime, |v| {
+            Value::String(v.to_string())
+        }),
+        "BYTEA" => decode!(row, index, is_array, Vec<u8>, |v| Value::String(hex(&v))),
+        name => unsupported(name),
+    }
+}
+
+fn json_array<T>(items: Vec<Option<T>>, convert: impl Fn(T) -> Value) -> Value {
+    Value::Array(
+        items
+            .into_iter()
+            .map(|item| item.map(&convert).unwrap_or(Value::Null))
+            .collect(),
+    )
+}
+
+fn or_error(decoded: Result<Value, sqlx::Error>) -> Value {
+    decoded.unwrap_or_else(|e| unsupported(format!("decode error: {e}")))
+}
+
+/// A cell the grid cannot show as a value still has to render as something, and
+/// failing the whole query over one unknown type would be worse.
+fn unsupported(what: impl std::fmt::Display) -> Value {
+    Value::String(format!("<{what}>"))
+}
+
+/// sqlx decodes a NUMERIC into whole groups of four digits, so `12.34` arrives
+/// as `12.3400`. The padding is the decoder's, not the value's.
+fn without_padding(numeric: String) -> String {
+    if !numeric.contains('.') {
+        return numeric;
+    }
+    let trimmed = numeric.trim_end_matches('0');
+    trimmed.strip_suffix('.').unwrap_or(trimmed).to_string()
+}
+
+fn i64_to_json(value: i64) -> Value {
+    if value.abs() <= SAFE_INTEGER {
+        Value::Number(value.into())
+    } else {
+        Value::String(value.to_string())
+    }
+}
+
+fn f64_to_json(value: f64) -> Value {
+    // NaN and the infinities have no JSON number form.
+    Number::from_f64(value)
+        .map(Value::Number)
+        .unwrap_or_else(|| Value::String(value.to_string()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes.iter().fold(String::from("\\x"), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytea_renders_in_postgres_hex_notation() {
+        assert_eq!(hex(&[0x00, 0xff, 0x10]), "\\x00ff10");
+        assert_eq!(hex(&[]), "\\x");
+    }
+
+    #[test]
+    fn numerics_keep_their_digits_and_lose_the_padding() {
+        for (padded, expected) in [
+            ("12.3400", "12.34"),
+            ("100", "100"),
+            ("0.00000100", "0.000001"),
+            ("0.0000", "0"),
+            ("-1.2000", "-1.2"),
+        ] {
+            assert_eq!(without_padding(padded.to_string()), expected);
+        }
+    }
+
+    #[test]
+    fn integers_past_the_safe_range_become_strings() {
+        assert_eq!(
+            i64_to_json(SAFE_INTEGER),
+            Value::Number(SAFE_INTEGER.into())
+        );
+        assert_eq!(
+            i64_to_json(SAFE_INTEGER + 1),
+            Value::String("9007199254740992".into())
+        );
+        assert_eq!(
+            i64_to_json(-SAFE_INTEGER - 1),
+            Value::String("-9007199254740992".into())
+        );
+    }
+
+    #[test]
+    fn floats_without_a_json_form_become_strings() {
+        assert_eq!(
+            f64_to_json(1.5),
+            Value::Number(Number::from_f64(1.5).unwrap())
+        );
+        assert_eq!(f64_to_json(f64::NAN), Value::String("NaN".into()));
+        assert_eq!(f64_to_json(f64::INFINITY), Value::String("inf".into()));
+    }
+}

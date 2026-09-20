@@ -4,6 +4,7 @@ use tauri::State;
 use ts_rs::TS;
 
 use crate::db::connection::{self, ConnectionRecord, DriverConfig};
+use crate::db::session::SessionRegistry;
 use crate::db::DbState;
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -31,8 +32,11 @@ pub async fn save_connection(
     input: SaveConnectionInput,
     db: State<'_, DbState>,
     secrets: State<'_, SecretState>,
+    sessions: State<'_, SessionRegistry>,
 ) -> Result<String, AppError> {
-    save(input, &db.0, secrets.0.as_ref()).await
+    let id = save(input, &db.0, secrets.0.as_ref()).await?;
+    sessions.close(&id);
+    Ok(id)
 }
 
 #[tauri::command]
@@ -40,8 +44,11 @@ pub async fn delete_connection(
     id: String,
     db: State<'_, DbState>,
     secrets: State<'_, SecretState>,
+    sessions: State<'_, SessionRegistry>,
 ) -> Result<(), AppError> {
-    delete(&id, &db.0, secrets.0.as_ref()).await
+    delete(&id, &db.0, secrets.0.as_ref()).await?;
+    sessions.close(&id);
+    Ok(())
 }
 
 /// The keychain write sits inside the transaction: if it fails, dropping the
