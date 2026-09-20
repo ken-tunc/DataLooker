@@ -224,9 +224,11 @@ async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
     };
     // Named for this test and dropped first, so a run that failed half way
     // through does not change what the next one sees.
-    run(&session, "DROP SCHEMA IF EXISTS tree_test CASCADE")
-        .await
-        .unwrap();
+    for schema in ["tree_test", "tree_test_empty"] {
+        run(&session, &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            .await
+            .unwrap();
+    }
     run(&session, "CREATE SCHEMA tree_test").await.unwrap();
     run(
         &session,
@@ -240,6 +242,9 @@ async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
     )
     .await
     .unwrap();
+    run(&session, "CREATE SCHEMA tree_test_empty")
+        .await
+        .unwrap();
 
     let tree = session.schema_tree().await.unwrap();
 
@@ -268,9 +273,19 @@ async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
     );
     assert_eq!(schema.tables[0].kind, TableKind::View);
 
-    run(&session, "DROP SCHEMA tree_test CASCADE")
-        .await
-        .unwrap();
+    // A schema nothing has been created in yet is still a schema.
+    let empty = tree
+        .schemas
+        .iter()
+        .find(|schema| schema.name == "tree_test_empty")
+        .expect("an empty schema is in the tree");
+    assert!(empty.tables.is_empty());
+
+    for schema in ["tree_test", "tree_test_empty"] {
+        run(&session, &format!("DROP SCHEMA {schema} CASCADE"))
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

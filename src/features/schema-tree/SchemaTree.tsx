@@ -2,7 +2,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { type RefObject, useRef, useState } from "react";
 import { describeError } from "../../lib/invoke";
 import { useRefreshSchemaTree, useSchemaTree } from "./hooks";
+import type { TableKind } from "../../bindings/TableKind";
 import { type TreeRow, treeRows } from "./rows";
+
+const KIND_LABELS: Record<TableKind, string> = {
+  table: "",
+  view: "view",
+  materialized_view: "materialized view",
+  foreign_table: "foreign table",
+};
 
 const ROW_HEIGHT = 26;
 
@@ -129,7 +137,7 @@ function Row({ row, onToggle }: { row: TreeRow; onToggle: (id: string) => void }
       <span className="text-base-content/40 w-3 shrink-0 text-xs">{row.expanded ? "▾" : "▸"}</span>
       <span className="truncate">{row.name}</span>
       <span className="text-base-content/50 shrink-0 text-xs">
-        {isSchema ? row.tables : row.tableKind === "table" ? row.columns : row.tableKind}
+        {isSchema ? row.tables : KIND_LABELS[row.tableKind] || row.columns}
       </span>
     </button>
   );

@@ -44,7 +44,7 @@ pub struct Table {
 }
 
 #[derive(Debug, Serialize, TS, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub enum TableKind {
     Table,

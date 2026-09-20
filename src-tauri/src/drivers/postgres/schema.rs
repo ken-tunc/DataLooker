@@ -14,12 +14,12 @@ const TREE: &str = "
            a.attname AS column_name,
            format_type(a.atttypid, a.atttypmod) AS data_type,
            NOT a.attnotnull AS nullable
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
+      FROM pg_namespace n
+      LEFT JOIN pg_class c
+             ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
       LEFT JOIN pg_attribute a
              ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
-     WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
-       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
        AND n.nspname NOT LIKE 'pg\\_toast%'
        AND n.nspname NOT LIKE 'pg\\_temp%'
      ORDER BY n.nspname, c.relname, a.attnum
@@ -31,8 +31,6 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
 
     while let Some(row) = rows.try_next().await? {
         let schema_name: String = row.try_get("schema_name")?;
-        let table_name: String = row.try_get("table_name")?;
-        let kind = table_kind(row.try_get::<i8, _>("table_kind")? as u8 as char);
 
         // The rows arrive grouped by schema and table, so the one being built
         // is always the last of each.
@@ -43,18 +41,21 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
             });
         }
         let tables = &mut schemas.last_mut().expect("just pushed").tables;
+
+        // A schema with no tables, and a table with no columns, each still have
+        // a row, with the left joins' nulls in it.
+        let Some(table_name) = row.try_get::<Option<String>, _>("table_name")? else {
+            continue;
+        };
         if tables.last().map(|t| t.name.as_str()) != Some(&table_name) {
             tables.push(Table {
                 name: table_name,
-                kind,
+                kind: table_kind(row.try_get::<i8, _>("table_kind")? as u8 as char),
                 columns: Vec::new(),
             });
         }
 
-        // A table with no columns at all still has a row, with the left join's
-        // nulls in it.
-        let column_name: Option<String> = row.try_get("column_name")?;
-        if let Some(name) = column_name {
+        if let Some(name) = row.try_get::<Option<String>, _>("column_name")? {
             tables
                 .last_mut()
                 .expect("just pushed")
