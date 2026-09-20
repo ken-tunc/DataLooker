@@ -23,13 +23,13 @@ describe("toIpcError", () => {
 
 describe("describeError", () => {
   it("lets the caller reword a specific kind", () => {
-    const error = toIpcError({ kind: "NotFound", message: "connection 7" });
-    expect(describeError(error, { NotFound: "That connection is gone." })).toBe(
-      "That connection is gone.",
+    const error = toIpcError({ kind: "Validation", message: "message must not be empty" });
+    expect(describeError(error, { Validation: "Type something first." })).toBe(
+      "Type something first.",
     );
   });
 
   it("uses the backend message when there is no override", () => {
-    expect(describeError(toIpcError({ kind: "Internal", message: "disk full" }))).toBe("disk full");
+    expect(describeError(toIpcError({ kind: "Validation", message: "empty" }))).toBe("empty");
   });
 });

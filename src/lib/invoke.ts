@@ -12,11 +12,7 @@ export class IpcError extends Error {
   }
 }
 
-const ERROR_KINDS: ReadonlySet<string> = new Set<AppError["kind"]>([
-  "NotFound",
-  "Validation",
-  "Internal",
-]);
+const ERROR_KINDS: ReadonlySet<string> = new Set<AppError["kind"]>(["Validation"]);
 
 function asAppError(value: unknown): AppError | null {
   if (typeof value !== "object" || value === null) return null;
@@ -56,9 +52,9 @@ if (import.meta.vitest) {
 
   describe("asAppError", () => {
     it("accepts a known kind with a string message", () => {
-      expect(asAppError({ kind: "NotFound", message: "connection 7" })).toEqual({
-        kind: "NotFound",
-        message: "connection 7",
+      expect(asAppError({ kind: "Validation", message: "message must not be empty" })).toEqual({
+        kind: "Validation",
+        message: "message must not be empty",
       });
     });
 
@@ -67,12 +63,12 @@ if (import.meta.vitest) {
     });
 
     it("rejects a payload whose message is missing or not a string", () => {
-      expect(asAppError({ kind: "Internal" })).toBeNull();
-      expect(asAppError({ kind: "Internal", message: 42 })).toBeNull();
+      expect(asAppError({ kind: "Validation" })).toBeNull();
+      expect(asAppError({ kind: "Validation", message: 42 })).toBeNull();
     });
 
     it("rejects values that are not objects", () => {
-      expect(asAppError("NotFound")).toBeNull();
+      expect(asAppError("Validation")).toBeNull();
       expect(asAppError(null)).toBeNull();
     });
   });
