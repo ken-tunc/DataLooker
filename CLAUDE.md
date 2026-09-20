@@ -62,10 +62,11 @@ else names a command or calls `invoke` directly.
 
 `skills-lock.json` pins them; the skills themselves are not committed, so the
 `SessionStart` hook in `.claude/settings.json` installs them — a step no one has to
-remember, and one that keeps working when the lockfile changes. The hook runs the
-`skills` CLI from `node_modules`, not a release fetched at session start, so what it
-executes is pinned by `pnpm-lock.yaml` like every other dependency. Use the daisyUI
-skill whenever you touch the UI.
+remember, and one that keeps working when the lockfile changes. It runs `vp install
+--frozen-lockfile` first, because a fresh clone or a new worktree has no
+`node_modules` and the `skills` CLI lives there: the hook runs that pinned binary
+rather than a release fetched at session start. Use the daisyUI skill whenever you
+touch the UI.
 
 ## Storage
 
