@@ -33,12 +33,12 @@ A native window titled "DataLooker" opens.
 ## Agent skills
 
 `skills-lock.json` pins the agent skills this repository uses. The skills themselves are
-not committed; the `SessionStart` hook in `.claude/settings.json` restores them when a
-Claude Code session opens, installing dependencies first if the checkout has none, so
-there is nothing to run after cloning. To install them by hand:
+not committed; a `SessionStart` hook restores them when a Claude Code session opens,
+installing dependencies first if the checkout has none, so there is nothing to run
+after cloning. To restore them by hand:
 
 ```sh
-vp run skills experimental_install
+.claude/hooks/install-skills.sh
 ```
 
 To add one, which also updates the lockfile:

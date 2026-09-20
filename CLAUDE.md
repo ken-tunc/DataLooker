@@ -61,12 +61,12 @@ else names a command or calls `invoke` directly.
 ## Agent skills
 
 `skills-lock.json` pins them; the skills themselves are not committed, so the
-`SessionStart` hook in `.claude/settings.json` installs them — a step no one has to
-remember, and one that keeps working when the lockfile changes. It runs `vp install
---frozen-lockfile` first, because a fresh clone or a new worktree has no
-`node_modules` and the `skills` CLI lives there: the hook runs that pinned binary
-rather than a release fetched at session start. Use the daisyUI skill whenever you
-touch the UI.
+`SessionStart` hook in `.claude/settings.json` runs `.claude/hooks/install-skills.sh`
+— a step no one has to remember, and one that keeps working when the lockfile
+changes. The script explains the two things its order depends on: the `skills` CLI
+runs from `node_modules` so the lockfile pins it, and its restore only ever writes to
+`.agents/skills`, which is not the directory Claude Code reads. Use the daisyUI skill
+whenever you touch the UI.
 
 ## Storage
 
