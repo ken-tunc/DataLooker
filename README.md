@@ -51,10 +51,15 @@ npx skills add saadeghi/daisyui --agent claude-code --yes
 ## Tests
 
 ```sh
+vp exec playwright install chromium             # once, for the browser tests
 vp test --run                                   # frontend
 docker compose up -d --wait                     # PostgreSQL for the integration tests
 cd src-tauri && cargo test                      # backend
 ```
+
+`vp test --run` runs two projects: `node` for plain tests and in-source ones, and `browser`
+for the `*.browser.test.tsx` files, which mount components in a real Chromium with the
+Tauri side stubbed. Run one of them with `--project node` or `--project browser`.
 
 Both suites can report their coverage — `vp test --run --coverage` and, in `src-tauri`,
 `cargo llvm-cov` (`cargo install cargo-llvm-cov`). CI runs both and puts the tables on the

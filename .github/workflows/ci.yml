@@ -39,6 +39,10 @@ jobs:
       # `vp check` covers format, lint and type check.
       - run: vp check
 
+      # The browser tests drive the components in a real Chromium; the runner
+      # carries none, and `--with-deps` adds the libraries it needs.
+      - run: vp exec playwright install --with-deps chromium
+
       - run: vp test --run --coverage
 
       - name: Summarize coverage

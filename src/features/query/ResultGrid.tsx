@@ -165,6 +165,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
 
 function GridCell({
   value,
+  column,
   width,
   selected,
   changed,
@@ -172,6 +173,7 @@ function GridCell({
   onEdit,
 }: {
   value: unknown;
+  column: string;
   width: number | undefined;
   selected: boolean;
   changed: boolean;
@@ -184,6 +186,9 @@ function GridCell({
   if (draft !== null && onEdit) {
     return (
       <input
+        // The grid's own header is not a label, so the editor says which
+        // column it is writing to.
+        aria-label={column}
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
         className="input input-xs shrink-0 rounded-none font-mono"
@@ -319,6 +324,7 @@ function Rows({
                 <GridCell
                   key={column}
                   value={value}
+                  column={name}
                   width={widths[column]}
                   selected={isSelected}
                   changed={pending !== undefined}

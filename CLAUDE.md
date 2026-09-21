@@ -27,6 +27,12 @@ code.
 - Tests sit next to the code they cover: `#[cfg(test)]` modules in Rust, `*.test.ts` in
   TypeScript. When a test would be the only reason to export something, write it in-source
   behind `import.meta.vitest` instead of widening the API.
+- A `*.browser.test.tsx` runs in a real Chromium and drives a component the way a reader
+  does — clicking, typing, reading the screen. `src/test/harness.tsx` stands in for Tauri
+  by replacing `window.__TAURI_INTERNALS__.invoke`, so everything from `lib/commands.ts`
+  upwards runs unchanged and a test can assert on what would have been sent. Reach for one
+  when the behaviour lives in the wiring between components, and for a plain test when it
+  lives in a function.
 - Validate with `vp check` (format, lint, type check; `--fix` applies fixes) and
   `vp test --run`, plus `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
   and `cargo test` in `src-tauri`. CI runs exactly these, with coverage: `--coverage` on
@@ -58,7 +64,9 @@ meta.db.
 `src/bindings/` holds the TypeScript types ts-rs generates from the Rust ones; `cargo test`
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
 crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
-else names a command or calls `invoke` directly.
+else names a command or calls `invoke` directly. `CARRIES_MESSAGE` in
+`src/lib/invoke.ts` lists every `AppError` kind, so a variant added in Rust fails the type
+check there rather than reaching the frontend as an error nothing can branch on.
 
 ## Agent skills
 

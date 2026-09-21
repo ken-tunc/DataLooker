@@ -29,13 +29,16 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/browser-playwright": "4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
     "babel-plugin-react-compiler": "^1.0.0",
     "daisyui": "^5.7.42",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest-browser-react": "^2.3.0"
   },
   "devEngines": {
     "runtime": {

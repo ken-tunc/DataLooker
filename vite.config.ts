@@ -2,13 +2,37 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import { playwright } from "vite-plus/test/browser-playwright";
 
 export default defineConfig({
   test: {
-    includeSource: ["src/**/*.ts"],
     // `.claude/worktrees/` holds checkouts of other branches; their tests are
     // not this one's to run.
     exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          includeSource: ["src/**/*.ts"],
+          exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/*.browser.test.tsx"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "browser",
+          include: ["src/**/*.browser.test.tsx"],
+          setupFiles: ["src/test/setup.ts"],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: "chromium" }],
+          },
+        },
+      },
+    ],
     coverage: {
       // Every source file, not only the ones a test happened to import: a file
       // nothing covers is the point of measuring.
