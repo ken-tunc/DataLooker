@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TableEdits } from "../../bindings/TableEdits";
-import { commitTableEdits, previewTable, tableShape } from "../../lib/commands";
+import { commitTableEdits, previewTable, tableDefinition, tableShape } from "../../lib/commands";
 import type { Tab } from "../tabs/tabs";
 import { previewKeys } from "./keys";
 
@@ -9,10 +9,20 @@ export type TableTab = Extract<Tab, { kind: "table" }>;
 /** A table's shape changes far less often than the rows in it. */
 const SHAPE_STALE_TIME = 5 * 60_000;
 
-export function useTableShape(connectionId: string, schema: string, table: string) {
+export function useTableShape(connectionId: string, schema: string, table: string, ready: boolean) {
   return useQuery({
+    enabled: ready,
     queryKey: previewKeys.shape(connectionId, schema, table),
     queryFn: () => tableShape(connectionId, schema, table),
+    staleTime: SHAPE_STALE_TIME,
+  });
+}
+
+/** What a table is made of changes as rarely as its shape does. */
+export function useTableDefinition(connectionId: string, schema: string, table: string) {
+  return useQuery({
+    queryKey: previewKeys.definition(connectionId, schema, table),
+    queryFn: () => tableDefinition(connectionId, schema, table),
     staleTime: SHAPE_STALE_TIME,
   });
 }

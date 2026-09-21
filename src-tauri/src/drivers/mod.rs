@@ -158,3 +158,21 @@ pub struct TableShape {
     pub types: HashMap<String, String>,
     pub primary_key: Vec<String>,
 }
+
+/// What a table is, as PostgreSQL's own catalogs describe it: the `CREATE`
+/// statement rebuilt from them, and the indexes and triggers that are not part
+/// of it.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TableDefinition {
+    pub definition: String,
+    pub indexes: Vec<NamedDefinition>,
+    pub triggers: Vec<NamedDefinition>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct NamedDefinition {
+    pub name: String,
+    pub definition: String,
+}

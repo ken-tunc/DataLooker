@@ -1,3 +1,4 @@
+mod ddl;
 mod edit;
 mod preview;
 mod query;
@@ -13,8 +14,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::drivers::postgres::edit::Edits;
 use crate::drivers::{
-    DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TablePage,
-    TableShape,
+    DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree,
+    TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 
@@ -87,6 +88,18 @@ impl PostgresSession {
     pub async fn shape(&self, schema: &str, table: &str) -> Result<TableShape, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
             Ok(edit::shape(conn, schema, table).await?)
+        })
+        .await
+    }
+
+    /// `None` when the schema holds no such relation.
+    pub async fn definition(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Option<TableDefinition>, AppError> {
+        self.with_connection(&CancellationToken::new(), async |conn| {
+            Ok(ddl::definition(conn, schema, table).await?)
         })
         .await
     }

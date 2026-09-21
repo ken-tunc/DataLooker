@@ -6,6 +6,8 @@ export const previewKeys = {
     [...previewKeys.all, connectionId, schema, table] as const,
   shape: (connectionId: string, schema: string, table: string) =>
     [...previewKeys.table(connectionId, schema, table), "shape"] as const,
+  definition: (connectionId: string, schema: string, table: string) =>
+    [...previewKeys.table(connectionId, schema, table), "definition"] as const,
   page: (
     connectionId: string,
     schema: string,

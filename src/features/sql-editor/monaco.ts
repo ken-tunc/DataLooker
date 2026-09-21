@@ -24,6 +24,8 @@ import "monaco-editor/features/wordPartOperations/register.js";
 import "monaco-editor/languages/definitions/pgsql/register.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 
+import { editor } from "monaco-editor/editor/editor.api.js";
+
 export {
   KeyCode,
   KeyMod,
@@ -31,6 +33,12 @@ export {
   editor,
   languages,
 } from "monaco-editor/editor/editor.api.js";
+
+// Monaco paints itself rather than reading the page's theme, and it holds one
+// theme for everything it draws. Setting it here rather than on each editor is
+// what makes a statement coloured outside one — a table's definition — come
+// out the same colours as the same SQL in a tab.
+editor.setTheme("vs-dark");
 
 self.MonacoEnvironment = {
   getWorker() {

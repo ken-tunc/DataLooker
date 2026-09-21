@@ -129,6 +129,28 @@ our rendering of a value, and catches any concurrent change to the row. One save
 transaction: a row that matches nothing refuses the lot. A relation with no primary key
 cannot name a row, so it is read-only.
 
+## A table's structure
+
+PostgreSQL has no `SHOW CREATE TABLE`. What it does offer is `pg_get_*def` for the pieces
+that are objects of their own — an index, a trigger, a constraint, a view's body — so
+`drivers/postgres/ddl.rs` rebuilds the `CREATE` statement around them out of
+`pg_attribute`. An index that backs a constraint is left out of the index list, since the
+statement already names it as that constraint, and a trigger PostgreSQL marks internal is
+left out too, because a foreign key wrote it rather than a reader. What the statement does
+carry is everything that changes what the relation is: an unlogged table is made unlogged,
+a partition is written as part of the table it belongs to rather than as a table of its
+own, and a materialized view that was never filled says so. A foreign table's server and
+its options are not rebuilt.
+
+It shows inside the table's own tab rather than in a tab of its own: a tab is the table,
+and its rows and its structure are two ways of looking at it. Switching between them
+leaves a pending edit pending and the reader on the page they were on.
+
+`components/SqlText.tsx` colours a statement with `editor.colorize`, the editor's own
+tokenizer, so a definition reads the way the same SQL does in a tab. It imports Monaco
+when the first statement is drawn rather than in its own chunk: opening a connection opens
+a SQL tab, which has loaded it already.
+
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries
@@ -190,7 +212,9 @@ Monaco in the page rather than two.
 - Monokai Pro is the only theme. It has no light counterpart, so no built-in daisyUI
   theme is enabled and nothing follows the OS light/dark preference. Monaco paints
   itself rather than reading the theme, so it is pinned to its own `vs-dark` — close
-  enough that a second palette to maintain is not worth it.
+  enough that a second palette to maintain is not worth it. That is set in
+  `features/sql-editor/monaco.ts` rather than on each editor, because Monaco holds one
+  theme for everything it draws, including the statements it colours outside an editor.
 - The table palette (⌘O) ranks names itself rather than through a fuzzy-search library.
   The haystack is a few thousand `schema.table` strings already in memory, and what makes
   one hit better than another here is structural — a run of letters that is contiguous,

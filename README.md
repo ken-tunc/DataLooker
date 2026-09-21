@@ -7,7 +7,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > opens a window of SQL tabs: a Monaco editor per tab, the rows in a grid below it. A schema
 > tree shows what a database holds, a table is found by name from anywhere with ⌘O, and it
 > opens in a tab of its own where its rows can be filtered and sorted — and edited, when the
-> table has a primary key to name a row by. The editor marks what PostgreSQL would refuse to
+> table has a primary key to name a row by — beside the statement that would make the table
+> again, with its indexes and triggers. The editor marks what PostgreSQL would refuse to
 > parse, without asking a server, and has vim keybindings behind a toggle. Every statement
 > that runs is logged, and ⌘Y reopens one. BigQuery follows PostgreSQL.
 
