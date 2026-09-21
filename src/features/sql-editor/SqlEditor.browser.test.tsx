@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
@@ -16,10 +16,17 @@ const slect: SyntaxError = {
 async function editor(replies: Record<string, unknown>, sql = "SLECT 1") {
   const ipc = stubIpc(replies);
   const onChange = vi.fn();
-  const screen = await renderApp(<SqlEditor value={sql} onChange={onChange} onSubmit={() => {}} />);
+  const onJump = vi.fn();
+  // The editor fills what it is given, and what a test gives it is nothing
+  // unless it says so: a collapsed editor draws no line to click on.
+  const screen = await renderApp(
+    <div className="h-72">
+      <SqlEditor value={sql} onChange={onChange} onSubmit={() => {}} onJump={onJump} />
+    </div>,
+  );
   const markers = () => monaco.getModelMarkers({ owner: "datalooker.syntax" });
   const text = () => monaco.getEditors()[0]?.getValue();
-  return { ipc, screen, markers, onChange, text };
+  return { ipc, screen, markers, onChange, onJump, text };
 }
 
 describe("SqlEditor", () => {
@@ -54,6 +61,52 @@ describe("SqlEditor", () => {
     // have happened for this to say anything.
     await vi.waitFor(() => expect(ipc.sent("check_syntax")).toBeDefined(), { timeout: 3000 });
     expect(markers()).toEqual([]);
+  });
+});
+
+describe("SqlEditor asked what a name is", () => {
+  const STATEMENT = "select * from shop.orders";
+  // Monaco reads `CtrlCmd` as ⌘ on a Mac and as Ctrl everywhere else. The app
+  // is a Mac one, but the tests also run where the other half of that is true.
+  const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
+  /** The column before `orders`, counting from one as Monaco does. */
+  const ON_ORDERS = STATEMENT.indexOf("orders") + 1;
+
+  it("answers with the name under the cursor when ⌘⇧D is pressed", async () => {
+    const { onJump } = await editor({ check_syntax: [] }, STATEMENT);
+    const instance = monaco.getEditors()[0];
+
+    instance?.focus();
+    instance?.setPosition({ lineNumber: 1, column: ON_ORDERS });
+    await userEvent.keyboard(`{${CTRL_CMD}>}{Shift>}D{/Shift}{/${CTRL_CMD}}`);
+
+    await vi.waitFor(() => expect(onJump).toHaveBeenCalledWith({ schema: "shop", name: "orders" }));
+  });
+
+  it("answers the same for a ⌘-click, and says nothing for a plain one", async () => {
+    const { onJump } = await editor({ check_syntax: [] }, STATEMENT);
+    const instance = monaco.getEditors()[0];
+    if (!instance) throw new Error("the editor did not mount");
+
+    // Where Monaco drew that column, so that the click lands on the word the
+    // way a reader's would.
+    const at = instance.getScrolledVisiblePosition({ lineNumber: 1, column: ON_ORDERS });
+    const host = instance.getDomNode()?.getBoundingClientRect();
+    if (!at || !host) throw new Error("the editor has not been laid out");
+    const line = instance.getDomNode()?.querySelector(".view-line");
+    const box = line?.getBoundingClientRect();
+    if (!line || !box) throw new Error("the line was not drawn");
+    const position = {
+      x: host.left + at.left + 2 - box.left,
+      y: host.top + at.top + at.height / 2 - box.top,
+    };
+
+    const locator = page.elementLocator(line);
+    await userEvent.click(locator, { position });
+    expect(onJump).not.toHaveBeenCalled();
+
+    await userEvent.click(locator, { position, modifiers: [CTRL_CMD] });
+    await vi.waitFor(() => expect(onJump).toHaveBeenCalledWith({ schema: "shop", name: "orders" }));
   });
 });
 

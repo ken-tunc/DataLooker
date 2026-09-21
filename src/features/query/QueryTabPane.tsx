@@ -1,5 +1,8 @@
 import { lazy, Suspense } from "react";
+import { useToast } from "../../components/useToast";
 import { describeError, IpcError } from "../../lib/invoke";
+import { useSchemaTree } from "../schema-tree/hooks";
+import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
 import { ResultGrid } from "./ResultGrid";
 import { useQueryRunner } from "./hooks";
 
@@ -12,14 +15,53 @@ type Props = {
   sql: string;
   onSqlChange: (sql: string) => void;
   hidden: boolean;
+  /** Where a name in the statement leads: the table it names, as it is made. */
+  onOpenStructure: (schema: string, table: string) => void;
+  /** Where a name that means several tables leads: the reader chooses. */
+  onFindTable: (query: string) => void;
 };
 
-export function QueryTabPane({ connectionId, sql, onSqlChange, hidden }: Props) {
+export function QueryTabPane({
+  connectionId,
+  sql,
+  onSqlChange,
+  hidden,
+  onOpenStructure,
+  onFindTable,
+}: Props) {
   const { run, cancel } = useQueryRunner(connectionId);
+  const { show } = useToast();
+  // The tree the sidebar is already showing, which is what a name is looked up
+  // in — one cache, so asking here costs no request.
+  const tree = useSchemaTree(connectionId);
   const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
 
   function submit() {
     if (sql.trim() !== "" && !run.isPending) run.mutate(sql);
+  }
+
+  /**
+   * An unqualified name can mean a table in any schema the search path
+   * reaches, and which one is the server's answer rather than this tree's, so
+   * more than one is handed to the palette rather than guessed at.
+   */
+  function jump(name: QualifiedName) {
+    // Nothing is missing while the tree is still on its way, and nothing is
+    // known once reading it failed. Either way, saying the name is not there
+    // would be saying more than is known.
+    if (tree.isPending) {
+      show("The schema is still being read.", "info");
+      return;
+    }
+    if (!tree.data) {
+      show(`${describeError(tree.error)} — no name can be looked up.`, "error");
+      return;
+    }
+    const found = tablesNamed(tree.data, name);
+    const first = found[0];
+    if (found.length === 1 && first) onOpenStructure(first.schema, first.table);
+    else if (found.length > 1) onFindTable(name.name);
+    else show(`No table here is called ${written(name)}.`, "info");
   }
 
   return (
@@ -55,7 +97,7 @@ export function QueryTabPane({ connectionId, sql, onSqlChange, hidden }: Props) 
 
       <div className="border-base-300 h-56 shrink-0 overflow-hidden rounded-box border">
         <Suspense fallback={<div className="skeleton h-full w-full" />}>
-          <SqlEditor value={sql} onChange={onSqlChange} onSubmit={submit} />
+          <SqlEditor value={sql} onChange={onSqlChange} onSubmit={submit} onJump={jump} />
         </Suspense>
       </div>
 

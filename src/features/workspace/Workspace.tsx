@@ -6,9 +6,11 @@ import type { TabsController } from "../tabs/useTabs";
 type Props = {
   connectionId: string;
   tabs: TabsController;
+  /** A name that could mean more than one table is handed to the palette. */
+  onFindTable: (query: string) => void;
 };
 
-export function Workspace({ connectionId, tabs }: Props) {
+export function Workspace({ connectionId, tabs, onFindTable }: Props) {
   const state = tabs.of(connectionId);
   if (!state) return null;
 
@@ -28,6 +30,10 @@ export function Workspace({ connectionId, tabs }: Props) {
             sql={tab.sql}
             hidden={tab.id !== state.activeId}
             onSqlChange={(sql) => tabs.writeSql(connectionId, tab.id, sql)}
+            onOpenStructure={(schema, table) =>
+              tabs.openTable(connectionId, schema, table, "structure")
+            }
+            onFindTable={onFindTable}
           />
         ) : (
           <TablePreviewPane

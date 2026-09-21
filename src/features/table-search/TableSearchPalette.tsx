@@ -6,6 +6,8 @@ import { highlight, MATCH_LIMIT, searchTables } from "./search";
 
 type Props = {
   connectionId: string;
+  /** What to look for straight away, when the palette was opened about a name. */
+  initial?: string;
   onOpenTable: (schema: string, table: string) => void;
   onClose: () => void;
 };
@@ -15,13 +17,14 @@ type Props = {
  * the one the sidebar already asked for, so opening the palette costs no
  * request of its own.
  */
-export function TableSearchPalette({ connectionId, onOpenTable, onClose }: Props) {
+export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose }: Props) {
   const tree = useSchemaTree(connectionId);
 
   return (
     <Palette
       label="Open a table"
       placeholder="Find a table"
+      initial={initial}
       search={(query) => (tree.data ? searchTables(tree.data, query) : [])}
       keyOf={(match) => `${match.schema}.${match.table}`}
       onChoose={(match) => onOpenTable(match.schema, match.table)}
