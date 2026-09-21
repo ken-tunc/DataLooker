@@ -22,8 +22,12 @@ export function useQueryRunner(connectionId: string) {
       }
     },
     // The backend logs a run whatever became of it, so the history the palette
-    // shows is stale either way.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: historyKeys.of(connectionId) }),
+    // shows is stale either way. Returning the promise would hold the mutation
+    // open until the refetch came back, and the editor would still be saying
+    // the query is running.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: historyKeys.of(connectionId) });
+    },
   });
 
   function cancel() {

@@ -1,17 +1,15 @@
 use std::time::Duration;
 
 use crate::app::App;
-use crate::db::history::{self, HistoryEntry, QueryRun};
+use crate::db::history::{self, HistoryEntry, QueryRun, KEEP};
 use crate::drivers::QueryResult;
 use crate::error::AppError;
 
-/// As much as the palette can make use of. The log keeps more than this; what
-/// is older is reached by narrowing the search, not by scrolling past it.
-const LIMIT: u32 = 200;
-
 impl App {
+    /// Everything the log still holds. The palette searches what it was handed,
+    /// so a run left behind here could not be reached at all.
     pub async fn query_history(&self, connection_id: &str) -> Result<Vec<HistoryEntry>, AppError> {
-        history::list(&self.pool, connection_id, LIMIT).await
+        history::list(&self.pool, connection_id, KEEP).await
     }
 
     /// Every run is logged, whatever became of it: a statement that failed or

@@ -4,10 +4,10 @@ use ts_rs::TS;
 
 use crate::error::AppError;
 
-/// How many runs of one connection are kept. Far more than the palette shows,
-/// so that what a reader is looking for is still there, and bounded, so that a
-/// long-lived database file does not grow for ever.
-const KEEP: u32 = 1_000;
+/// How many runs of one connection are kept. Enough that what a reader is
+/// looking for is still there, and bounded, so that a long-lived database file
+/// does not grow for ever.
+pub const KEEP: u32 = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
