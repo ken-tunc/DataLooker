@@ -149,6 +149,15 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </div>
       )}
 
+      {shape.isError && (
+        <div role="alert" className="alert alert-error">
+          <span className="text-sm">
+            {describeError(shape.error)} — the rows are shown, but nothing here knows how to name
+            one, so they cannot be edited.
+          </span>
+        </div>
+      )}
+
       {preview.isError && (
         <div role="alert" className="alert alert-error">
           <span className="font-mono text-sm">{describeError(preview.error)}</span>
@@ -193,12 +202,14 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </span>
         {page && <span>{page.result.elapsed_ms} ms</span>}
         <span className="grow" />
-        <span>
-          {editable
-            ? "Double-click a cell to edit it; ⌘⌫ sets it to NULL."
-            : "Read-only: this relation has no primary key."}
-        </span>
+        <span>{editingHint(editable, shape.isError)}</span>
       </div>
     </div>
   );
+}
+
+function editingHint(editable: boolean, shapeFailed: boolean): string {
+  if (shapeFailed) return "Read-only: the table's shape could not be read.";
+  if (editable) return "Double-click a cell to edit it; ⌘⌫ sets it to NULL.";
+  return "Read-only: this relation has no primary key.";
 }
