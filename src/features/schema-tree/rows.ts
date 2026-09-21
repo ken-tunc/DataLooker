@@ -66,10 +66,18 @@ const SHARD = /^(.+)_(\d{4})(\d{2})(\d{2})$/;
 export function shardPrefix(name: string): string | null {
   const match = SHARD.exec(name);
   if (!match) return null;
-  const [, prefix, , month, day] = match;
-  if (prefix === undefined || month === undefined || day === undefined) return null;
-  const within = (text: string, last: number) => Number(text) >= 1 && Number(text) <= last;
-  return within(month, 12) && within(day, 31) ? prefix : null;
+  const [, prefix, year, month, day] = match;
+  if (prefix === undefined || year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+  // A day that no calendar has is not one a table was written on, so the date
+  // is read rather than range-checked: February has 28 days in 2025.
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  const written =
+    date.getUTCFullYear() === Number(year) &&
+    date.getUTCMonth() === Number(month) - 1 &&
+    date.getUTCDate() === Number(day);
+  return written ? prefix : null;
 }
 
 type ShardGroup =
@@ -179,12 +187,19 @@ export function treeRows(
   const needle = filter.trim().toLowerCase();
   const rows: TreeRow[] = [];
 
+  const matches = (table: Table) => needle === "" || table.name.toLowerCase().includes(needle);
+
   for (const schema of tree.schemas) {
-    const tables =
-      needle === ""
-        ? schema.tables
-        : schema.tables.filter((table) => table.name.toLowerCase().includes(needle));
-    if (needle !== "" && tables.length === 0) continue;
+    // What the schema holds decides what a set of shards is; the filter only
+    // decides which of them are shown. Grouping what survived a filter would
+    // make a set of a thousand days look like one table whenever the reader
+    // narrowed it down to one.
+    const groups = shardGroups(schema.tables).flatMap((group): ShardGroup[] => {
+      if (group.kind === "table") return matches(group.table) ? [group] : [];
+      const shards = group.shards.filter(matches);
+      return shards.length === 0 ? [] : [{ ...group, shards }];
+    });
+    if (needle !== "" && groups.length === 0) continue;
 
     const schemaOpen = needle !== "" || expanded.has(schemaRowId(schema.name));
     rows.push({
@@ -192,12 +207,15 @@ export function treeRows(
       id: schemaRowId(schema.name),
       indent: 0,
       name: schema.name,
-      tables: tables.length,
+      tables: groups.reduce(
+        (count, group) => count + (group.kind === "table" ? 1 : group.shards.length),
+        0,
+      ),
       expanded: schemaOpen,
     });
     if (!schemaOpen) continue;
 
-    for (const group of shardGroups(tables)) {
+    for (const group of groups) {
       if (group.kind === "table") {
         rows.push(...tableRows(schema.name, group.table, 1, expanded, columnsOf));
         continue;
@@ -398,6 +416,16 @@ if (import.meta.vitest) {
       expect(rows.filter((row) => row.kind === "table")).toHaveLength(3);
     });
 
+    it("keeps a day inside its set when the filter matches only that day", () => {
+      const rows = treeRows(sharded, new Set(), "events_20250103", read);
+      expect(ids(rows)).toEqual([
+        schemaRowId("logs"),
+        shardsRowId("logs", "events"),
+        tableRowId("logs", "events_20250103"),
+      ]);
+      expect(rows[1]).toMatchObject({ kind: "shards", shards: 1 });
+    });
+
     it("indents a shard's columns under the group holding it", () => {
       const rows = treeRows(
         sharded,
@@ -425,6 +453,13 @@ if (import.meta.vitest) {
       expect(shardPrefix("events_20250001")).toBeNull();
       expect(shardPrefix("orders_2025")).toBeNull();
       expect(shardPrefix("20250101")).toBeNull();
+    });
+
+    it("leaves alone a day the calendar does not have", () => {
+      expect(shardPrefix("events_20250230")).toBeNull();
+      expect(shardPrefix("events_20250431")).toBeNull();
+      expect(shardPrefix("events_20250229")).toBeNull();
+      expect(shardPrefix("events_20240229")).toBe("events");
     });
   });
 

@@ -213,7 +213,9 @@ one row and lists the days inside it, newest first. That is read out of the
 names rather than asked of a driver, because the convention is a naming one and
 nothing in a catalog says a table is a shard; a prefix only one table carries
 stays that table, since a row that opens onto a single table hides it rather
-than summing it up. The ⌘O palette still offers every day by name, which is how
+than summing it up. What the schema holds is what decides that, and a filter
+only decides which days are shown: a set of a thousand is still a set when the
+reader has narrowed it to one. The ⌘O palette still offers every day by name, which is how
 one of them is reached directly.
 
 BigQuery answers out of `INFORMATION_SCHEMA` in the region its jobs run in, which is one

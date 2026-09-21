@@ -166,7 +166,7 @@ function Row({
     const [name, beside] =
       row.kind === "schema"
         ? [row.name, String(row.tables)]
-        : [`${row.prefix}_*`, `${row.shards} shards`];
+        : [`${row.prefix}_*`, `${row.shards} shard${row.shards === 1 ? "" : "s"}`];
     return (
       <button
         type="button"
