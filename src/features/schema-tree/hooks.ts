@@ -50,5 +50,5 @@ export function useColumnsOf(
 
 export function useRefreshSchemaTree(connectionId: string) {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: schemaKeys.tree(connectionId) });
+  return () => queryClient.invalidateQueries({ queryKey: schemaKeys.of(connectionId) });
 }

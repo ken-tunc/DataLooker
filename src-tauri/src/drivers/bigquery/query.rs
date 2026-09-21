@@ -53,14 +53,8 @@ pub async fn execute(
     let wanted = i32::try_from(row_limit)
         .unwrap_or(i32::MAX)
         .saturating_add(1);
-    let page = start(
-        client,
-        project_id,
-        location,
-        request(sql, location, wanted),
-        cancel,
-    )
-    .await?;
+    let query = request(sql, location, wanted);
+    let page = start(client, project_id, location, query, wanted, cancel).await?;
 
     let truncated = page.rows.len() > row_limit
         || page.next.is_some()
@@ -105,7 +99,7 @@ pub async fn collect(
         request.query_parameters = Some(parameters);
     }
 
-    let mut page = start(client, project_id, location, request, &cancel).await?;
+    let mut page = start(client, project_id, location, request, PAGE, &cancel).await?;
     let fields = page.fields.clone();
     let mut rows: Vec<Vec<serde_json::Value>> =
         page.rows.iter().map(|row| cells(row, &fields)).collect();
@@ -142,6 +136,9 @@ async fn start(
     project_id: &str,
     location: &str,
     request: QueryRequest,
+    // How many rows to ask for while waiting, which is what the caller asked
+    // the query for: waiting is not a reason to read a different amount.
+    wanted: i32,
     cancel: &CancellationToken,
 ) -> Result<Page, AppError> {
     // A query cancelled before BigQuery has answered at all leaves no job id
@@ -173,7 +170,8 @@ async fn start(
                 "BigQuery started a job it did not name".into(),
             ));
         };
-        let (asked, finished) = ask(client, project_id, location, job_id, None, cancel).await?;
+        let (asked, finished) =
+            ask(client, project_id, location, job_id, wanted, None, cancel).await?;
         page = asked;
         complete = finished;
     }
@@ -190,7 +188,18 @@ async fn more(
     token: &str,
     cancel: &CancellationToken,
 ) -> Result<Page, AppError> {
-    let (page, _) = ask(client, project_id, location, job_id, Some(token), cancel).await?;
+    // A page of a whole answer is a page's worth, however few rows the first
+    // request asked to see.
+    let (page, _) = ask(
+        client,
+        project_id,
+        location,
+        job_id,
+        PAGE,
+        Some(token),
+        cancel,
+    )
+    .await?;
     Ok(page)
 }
 
@@ -202,12 +211,13 @@ async fn ask(
     project_id: &str,
     location: &str,
     job_id: &str,
+    wanted: i32,
     token: Option<&str>,
     cancel: &CancellationToken,
 ) -> Result<(Page, bool), AppError> {
     let parameters = GetQueryResultsParameters {
         location: Some(location.to_string()),
-        max_results: Some(PAGE),
+        max_results: Some(wanted),
         timeout_ms: Some(HOLD_MS),
         page_token: token.map(str::to_string),
         ..Default::default()

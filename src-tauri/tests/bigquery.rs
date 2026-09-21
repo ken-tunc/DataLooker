@@ -16,6 +16,7 @@ use datalooker_lib::drivers::TableKind;
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 const ROW_LIMIT: usize = 100;
 
@@ -30,8 +31,13 @@ fn session_or_skip() -> Option<BigQuerySession> {
         return None;
     };
     let key = std::fs::read_to_string(&path).expect("the key named by DATALOOKER_TEST_BQ_KEY");
-    let location = env::var("DATALOOKER_TEST_BQ_LOCATION").unwrap_or_else(|_| "US".to_string());
-    Some(BigQuerySession::new(&project, &location, &key).expect("a key that parses"))
+    Some(BigQuerySession::new(&project, &location(), &key).expect("a key that parses"))
+}
+
+/// Where the project is read, which is also where a dataset made here has to
+/// be: a job runs in one location and sees the catalog of that one.
+fn location() -> String {
+    env::var("DATALOOKER_TEST_BQ_LOCATION").unwrap_or_else(|_| "US".to_string())
 }
 
 #[tokio::test]
@@ -185,22 +191,25 @@ async fn a_statement_nobody_is_waiting_for_is_cancelled() {
     assert!(matches!(err, AppError::Cancelled), "got {err}");
 }
 
-/// A dataset of this test's own, so that what it asserts is what it made.
-/// Named after the run, since two of them can be in flight at once.
+/// A dataset of this test's own, so that what it asserts is what it made. Its
+/// name is this run's alone: two of them can be in flight at once, against the
+/// same project.
 struct Dataset {
     session: BigQuerySession,
     name: String,
 }
 
 impl Dataset {
-    async fn make(session: BigQuerySession, name: &str) -> Self {
-        let dataset = Self {
-            session,
-            name: name.to_string(),
-        };
+    async fn make(session: BigQuerySession, what_for: &str) -> Self {
+        // A dataset is named in letters, digits and underscores, which is not
+        // how a uuid is written unless it is asked for plainly.
+        let name = format!("datalooker_{what_for}_{}", Uuid::new_v4().simple());
+        let dataset = Self { session, name };
         dataset
             .run(&format!(
-                "CREATE SCHEMA IF NOT EXISTS {name} OPTIONS (location = 'US')"
+                "CREATE SCHEMA IF NOT EXISTS {} OPTIONS (location = '{}')",
+                dataset.name,
+                location()
             ))
             .await;
         dataset
@@ -224,15 +233,17 @@ async fn a_project_says_which_datasets_hold_which_tables() {
     let Some(session) = session_or_skip() else {
         return;
     };
-    let dataset = Dataset::make(session, "datalooker_tree_test").await;
+    let dataset = Dataset::make(session, "tree").await;
+    let name = dataset.name.clone();
     dataset
-        .run("CREATE OR REPLACE TABLE datalooker_tree_test.people (id INT64, name STRING)")
+        .run(&format!(
+            "CREATE OR REPLACE TABLE {name}.people (id INT64, name STRING)"
+        ))
         .await;
     dataset
-        .run(
-            "CREATE OR REPLACE VIEW datalooker_tree_test.names AS \
-             SELECT name FROM datalooker_tree_test.people",
-        )
+        .run(&format!(
+            "CREATE OR REPLACE VIEW {name}.names AS SELECT name FROM {name}.people"
+        ))
         .await;
 
     let tree = dataset.session.schema_tree().await.expect("the tree");
@@ -240,7 +251,7 @@ async fn a_project_says_which_datasets_hold_which_tables() {
     let found = tree
         .schemas
         .iter()
-        .find(|schema| schema.name == "datalooker_tree_test")
+        .find(|schema| schema.name == name)
         .expect("the dataset just made is in the tree");
     let tables: Vec<(&str, &TableKind)> = found
         .tables
@@ -255,7 +266,7 @@ async fn a_project_says_which_datasets_hold_which_tables() {
     // What a table holds is asked for on its own, in the order it was written.
     let columns: Vec<(String, String, bool)> = dataset
         .session
-        .columns("datalooker_tree_test", "people")
+        .columns(&name, "people")
         .await
         .expect("the columns")
         .into_iter()
@@ -272,7 +283,7 @@ async fn a_project_says_which_datasets_hold_which_tables() {
     // A table nobody has holds nothing, rather than failing.
     assert!(dataset
         .session
-        .columns("datalooker_tree_test", "nothing")
+        .columns(&name, "nothing")
         .await
         .expect("no columns")
         .is_empty());

@@ -67,6 +67,21 @@ describe("SchemaTree", () => {
     expect(ipc.calls.filter((call) => call.command === "table_columns")).toHaveLength(1);
   });
 
+  it("reads an open table's columns again when the schema is reloaded", async () => {
+    const { ipc, screen } = await schemaTree();
+    await screen.getByText("shop").click();
+    await screen.getByLabelText("Expand orders").click();
+    await expect.element(screen.getByText("total")).toBeVisible();
+
+    // A schema that changed changes what its tables hold, so reading it again
+    // is reading those again too.
+    await screen.getByLabelText("Reload the schema").click();
+
+    await expect
+      .poll(() => ipc.calls.filter((call) => call.command === "table_columns"))
+      .toHaveLength(2);
+  });
+
   it("says what went wrong where the columns would have been", async () => {
     const { screen } = await schemaTree({
       table_columns: () => {
