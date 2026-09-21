@@ -57,7 +57,9 @@ cd src-tauri && cargo test                      # backend
 
 Both suites can report their coverage — `vp test --run --coverage` and, in `src-tauri`,
 `cargo llvm-cov` (`cargo install cargo-llvm-cov`). CI runs both and puts the tables on the
-run's summary page. Nothing is uploaded anywhere else, so no account or token is involved.
+run's summary page. No external coverage service is involved, so there is nothing to sign
+up for and no secret to keep — the workflow posts its comment with the token GitHub already
+gives the run.
 
 The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
 itself when nothing is listening on its port, so `cargo test` still passes without Docker.

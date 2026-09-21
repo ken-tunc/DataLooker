@@ -95,7 +95,12 @@ jobs:
         run: docker compose up -d --wait
 
       # Runs the tests instrumented; the report comes from the same run.
-      - run: cargo llvm-cov --no-report
+      # `--no-report` leaves old counters where they are, and the cache brings
+      # a previous run's back, so the clean is what keeps the report to this
+      # run's own data.
+      - run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report
 
       - name: Summarize coverage
         run: |
