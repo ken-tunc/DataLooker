@@ -13,6 +13,19 @@ type Props = {
 const optionId = (index: number) => `table-search-option-${index}`;
 
 /**
+ * How far a key moves through the list, or 0 if it does not move at all. ⌃N and
+ * ⌃P are here beside the arrows because macOS reads them as down and up in any
+ * text field, and they keep a reader's hands where the query is.
+ */
+function stepFor(event: KeyboardEvent): number {
+  if (event.ctrlKey && (event.key === "n" || event.key === "p")) return event.key === "n" ? 1 : -1;
+  if (event.ctrlKey || event.metaKey || event.altKey) return 0;
+  if (event.key === "ArrowDown") return 1;
+  if (event.key === "ArrowUp") return -1;
+  return 0;
+}
+
+/**
  * Finds a table by name rather than by where it sits. The tree it searches is
  * the one the sidebar already asked for, so opening the palette costs no
  * request of its own.
@@ -45,7 +58,7 @@ export function TableSearchPalette({ connectionId, onOpenTable, onClose }: Props
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    const step = stepFor(event);
     if (step !== 0) {
       event.preventDefault();
       // Wraps, because a list this short is faster to reach from either end.

@@ -35,15 +35,16 @@ A native window titled "DataLooker" opens.
 
 ## Keyboard
 
-| Keys              | What it does                      |
-| ----------------- | --------------------------------- |
-| ⌘O                | Find a table by name and open it  |
-| ⌘T                | New SQL tab                       |
-| ⌃Tab, ⌃⇧Tab       | Next / previous tab               |
-| Delete, Backspace | Close the focused tab             |
-| ⌘Enter            | Run the editor's query            |
-| ⌘C                | Copy the selected cell            |
-| ⌘Backspace        | Set the cell being edited to NULL |
+| Keys              | What it does                         |
+| ----------------- | ------------------------------------ |
+| ⌘O                | Find a table by name and open it     |
+| ⌃N, ⌃P            | Next / previous match in the palette |
+| ⌘T                | New SQL tab                          |
+| ⌃Tab, ⌃⇧Tab       | Next / previous tab                  |
+| Delete, Backspace | Close the focused tab                |
+| ⌘Enter            | Run the editor's query               |
+| ⌘C                | Copy the selected cell               |
+| ⌘Backspace        | Set the cell being edited to NULL    |
 
 ## Agent skills
 

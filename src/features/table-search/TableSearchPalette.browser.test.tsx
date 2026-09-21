@@ -51,6 +51,24 @@ describe("TableSearchPalette", () => {
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it("moves down the list on ⌃N", async () => {
+    const { find, onOpenTable } = await palette();
+
+    await find.fill("people");
+    await userEvent.keyboard("{Control>}n{/Control}{Enter}");
+
+    expect(onOpenTable).toHaveBeenCalledWith("analytics", "people_daily");
+  });
+
+  it("moves back up on ⌃P", async () => {
+    const { find, onOpenTable } = await palette();
+
+    await find.fill("people");
+    await userEvent.keyboard("{Control>}n{/Control}{Control>}p{/Control}{Enter}");
+
+    expect(onOpenTable).toHaveBeenCalledWith("public", "people");
+  });
+
   it("opens the table a click lands on", async () => {
     const { screen, onOpenTable } = await palette();
 
