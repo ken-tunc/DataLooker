@@ -22,12 +22,12 @@ function opened(state: TabsState | undefined, tab: Tab): TabsState {
   return { tabs: [...(state?.tabs ?? []), tab], activeId: tab.id };
 }
 
-export function openSqlTab(state: TabsState | undefined, id: string): TabsState {
+export function openSqlTab(state: TabsState | undefined, id: string, sql = ""): TabsState {
   return opened(state, {
     kind: "sql",
     id,
     title: nextQueryTitle(state?.tabs ?? []),
-    sql: "",
+    sql,
   });
 }
 
@@ -116,6 +116,10 @@ if (import.meta.vitest) {
         tabs: [{ kind: "sql", id: "a", title: "Query 1", sql: "" }],
         activeId: "a",
       });
+    });
+
+    it("starts with the statement it was handed", () => {
+      expect(openSqlTab(undefined, "a", "SELECT 1").tabs[0]).toMatchObject({ sql: "SELECT 1" });
     });
 
     it("numbers a new tab after the ones still open", () => {

@@ -1,5 +1,6 @@
 pub mod connections;
 pub mod edit;
+pub mod history;
 pub mod preview;
 mod query;
 mod schema;
