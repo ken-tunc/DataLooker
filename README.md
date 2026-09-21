@@ -12,8 +12,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > parse, without asking a server, and has vim keybindings behind a toggle. Every statement
 > that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
 > what it names. A connection can carry a shell command — a port
-> forward, an SSH tunnel — started and stopped from its row in the list. BigQuery follows
-> PostgreSQL.
+> forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
+> connection can be made and tested; the rest of that driver follows.
 
 ## Prerequisites
 

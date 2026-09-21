@@ -12,8 +12,7 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
-use crate::drivers::postgres::PostgresSession;
-use crate::drivers::session::SessionRegistry;
+use crate::drivers::session::{Session, SessionRegistry};
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 use crate::shell::{ShellExit, ShellRegistry};
@@ -50,7 +49,7 @@ impl App {
         }
     }
 
-    async fn session(&self, id: &str) -> Result<Arc<PostgresSession>, AppError> {
+    async fn session(&self, id: &str) -> Result<Arc<Session>, AppError> {
         self.sessions
             .get(id, &self.pool, self.secrets.as_ref())
             .await

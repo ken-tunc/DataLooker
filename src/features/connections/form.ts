@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SaveConnectionInput } from "../../bindings/SaveConnectionInput";
+import type { DriverKind } from "./driver";
 
 export type FormMode = "new" | "edit" | "duplicate";
 
@@ -8,11 +9,22 @@ const required = (field: string) => z.string().trim().min(1, `${field} is requir
 
 const PORT_RANGE = "Port must be between 1 and 65535";
 
-const schema = z.object({
+// Every field holds what the input element holds — a string — and the form
+// holds every driver's fields at once, so that picking the other driver and
+// coming back finds what was typed.
+const shared = {
   label: required("Label"),
+  secret: z.string(),
+  // What the reader runs before connecting, if anything: a port forward, an
+  // SSH tunnel. Nothing checks what it says — it is a shell command, and the
+  // shell is what reads it.
+  command: z.string().trim(),
+};
+
+const postgres = z.object({
+  ...shared,
+  kind: z.literal("postgres"),
   host: required("Host"),
-  // Every field holds what the input element holds — a string — so the form's
-  // own type can be read off the schema's input side.
   port: z
     .string()
     .trim()
@@ -21,25 +33,49 @@ const schema = z.object({
     .refine((port) => port >= 1 && port <= 65535, PORT_RANGE),
   database: required("Database"),
   username: required("Username"),
-  password: z.string(),
-  // What the reader runs before connecting, if anything: a port forward, an
-  // SSH tunnel. Nothing checks what it says — it is a shell command, and the
-  // shell is what reads it.
-  command: z.string().trim(),
 });
 
-export type ConnectionFormValues = z.input<typeof schema>;
+const bigquery = z.object({
+  ...shared,
+  kind: z.literal("bigquery"),
+  project: required("Project"),
+  location: required("Location"),
+});
+
+export type ConnectionFormValues = {
+  label: string;
+  kind: DriverKind;
+  host: string;
+  port: string;
+  database: string;
+  username: string;
+  project: string;
+  location: string;
+  secret: string;
+  command: string;
+};
 
 export type FieldErrors = Partial<Record<keyof ConnectionFormValues, string>>;
 
 export const EMPTY_FORM: ConnectionFormValues = {
   label: "",
+  kind: "postgres",
   host: "localhost",
   port: "5432",
   database: "",
   username: "",
-  password: "",
+  project: "",
+  // Where a project is read from when nobody says otherwise, and the one
+  // multi-region a new project is likeliest to be in.
+  location: "US",
+  secret: "",
   command: "",
+};
+
+/** What the secret is called, which is not the same thing for every driver. */
+export const SECRET_LABELS: Record<DriverKind, string> = {
+  postgres: "Password",
+  bigquery: "Service account key",
 };
 
 export type ParseResult =
@@ -47,15 +83,18 @@ export type ParseResult =
   | { ok: false; errors: FieldErrors };
 
 /**
- * An edit may leave the password blank, which means "keep the stored one"; a
- * new or duplicated connection has nothing stored yet, so it must carry one.
+ * An edit may leave the secret blank, which means "keep the stored one"; a new
+ * or duplicated connection has nothing stored yet, so it must carry one. Only
+ * the fields of the driver that was picked are read: the others hold whatever
+ * the reader typed before changing their mind.
  */
 export function parseConnectionForm(
   values: ConnectionFormValues,
   mode: FormMode,
   sourceId: string | null,
 ): ParseResult {
-  const parsed = schema.safeParse(values);
+  const parsed =
+    values.kind === "postgres" ? postgres.safeParse(values) : bigquery.safeParse(values);
   const errors: FieldErrors = {};
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
@@ -63,8 +102,8 @@ export function parseConnectionForm(
       if (field && !errors[field]) errors[field] = issue.message;
     }
   }
-  if (mode !== "edit" && values.password === "") {
-    errors.password = "Password is required";
+  if (mode !== "edit" && values.secret === "") {
+    errors.secret = `${SECRET_LABELS[values.kind]} is required`;
   }
   if (Object.keys(errors).length > 0 || !parsed.success) return { ok: false, errors };
 
@@ -73,28 +112,41 @@ export function parseConnectionForm(
     input: {
       id: mode === "edit" ? sourceId : null,
       label: parsed.data.label,
-      config: {
-        kind: "postgres",
-        host: parsed.data.host,
-        port: parsed.data.port,
-        database: parsed.data.database,
-        username: parsed.data.username,
-      },
-      secret: values.password === "" ? null : values.password,
+      config:
+        parsed.data.kind === "postgres"
+          ? {
+              kind: "postgres",
+              host: parsed.data.host,
+              port: parsed.data.port,
+              database: parsed.data.database,
+              username: parsed.data.username,
+            }
+          : {
+              kind: "bigquery",
+              project_id: parsed.data.project,
+              location: parsed.data.location,
+            },
+      secret: values.secret === "" ? null : values.secret,
       command: parsed.data.command === "" ? null : parsed.data.command,
     },
   };
 }
 
 export function formValuesFrom(record: ConnectionRecord, mode: FormMode): ConnectionFormValues {
+  const config = record.config;
   return {
+    ...EMPTY_FORM,
     label: mode === "duplicate" ? `${record.label} copy` : record.label,
-    host: record.config.host,
-    port: String(record.config.port),
-    database: record.config.database,
-    username: record.config.username,
-    password: "",
+    kind: config.kind,
     command: record.command ?? "",
+    ...(config.kind === "postgres"
+      ? {
+          host: config.host,
+          port: String(config.port),
+          database: config.database,
+          username: config.username,
+        }
+      : { project: config.project_id, location: config.location }),
   };
 }
 
@@ -102,13 +154,20 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
   const valid: ConnectionFormValues = {
+    ...EMPTY_FORM,
     label: "Local",
-    host: "localhost",
-    port: "5432",
     database: "datalooker",
     username: "admin",
-    password: "hunter2",
-    command: "",
+    secret: "hunter2",
+  };
+
+  const bq: ConnectionFormValues = {
+    ...EMPTY_FORM,
+    kind: "bigquery",
+    label: "Warehouse",
+    project: "looking",
+    location: "asia-northeast1",
+    secret: '{"type":"service_account"}',
   };
 
   describe("parseConnectionForm", () => {
@@ -132,6 +191,33 @@ if (import.meta.vitest) {
       });
     });
 
+    it("builds a BigQuery connection from the fields that driver has", () => {
+      const result = parseConnectionForm(bq, "new", null);
+      expect(result.ok && result.input.config).toEqual({
+        kind: "bigquery",
+        project_id: "looking",
+        location: "asia-northeast1",
+      });
+    });
+
+    it("reads only the driver that was picked", () => {
+      // The PostgreSQL fields are empty here, and say nothing about a
+      // connection that is not one.
+      const result = parseConnectionForm({ ...bq, host: "", database: "" }, "new", null);
+      expect(result.ok).toBe(true);
+
+      const other = parseConnectionForm({ ...valid, project: "", location: "" }, "new", null);
+      expect(other.ok).toBe(true);
+    });
+
+    it("names the secret the way its driver does", () => {
+      const missing = parseConnectionForm({ ...bq, secret: "" }, "new", null);
+      expect(!missing.ok && missing.errors.secret).toBe("Service account key is required");
+
+      const password = parseConnectionForm({ ...valid, secret: "" }, "new", null);
+      expect(!password.ok && password.errors.secret).toBe("Password is required");
+    });
+
     it("keeps the id when editing, and drops it when duplicating", () => {
       const edit = parseConnectionForm(valid, "edit", "id-1");
       const duplicate = parseConnectionForm(valid, "duplicate", "id-1");
@@ -139,17 +225,9 @@ if (import.meta.vitest) {
       expect(duplicate.ok && duplicate.input.id).toBeNull();
     });
 
-    it("sends no secret when an edit leaves the password blank", () => {
-      const result = parseConnectionForm({ ...valid, password: "" }, "edit", "id-1");
+    it("sends no secret when an edit leaves it blank", () => {
+      const result = parseConnectionForm({ ...valid, secret: "" }, "edit", "id-1");
       expect(result.ok && result.input.secret).toBeNull();
-    });
-
-    it("requires a password for anything but an edit", () => {
-      for (const mode of ["new", "duplicate"] as const) {
-        const result = parseConnectionForm({ ...valid, password: "" }, mode, "id-1");
-        expect(result.ok).toBe(false);
-        expect(!result.ok && result.errors.password).toBe("Password is required");
-      }
     });
 
     it("reports one message per blank field", () => {
@@ -188,17 +266,31 @@ if (import.meta.vitest) {
       created_at: "2026-09-20T00:00:00Z",
     };
 
-    it("marks a duplicate in its label and never carries a password over", () => {
+    it("marks a duplicate in its label and never carries a secret over", () => {
       expect(formValuesFrom(record, "duplicate")).toEqual({
+        ...EMPTY_FORM,
         label: "Local copy",
         host: "db.example.com",
         port: "6543",
         database: "datalooker",
         username: "admin",
-        password: "",
         command: "ssh -L 5432:db:5432 bastion",
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");
+    });
+
+    it("fills the fields of whichever driver the connection is", () => {
+      const warehouse = formValuesFrom(
+        {
+          ...record,
+          config: { kind: "bigquery", project_id: "looking", location: "EU" },
+          command: null,
+        },
+        "edit",
+      );
+      expect(warehouse).toMatchObject({ kind: "bigquery", project: "looking", location: "EU" });
+      // The other driver's fields are left where a new connection starts.
+      expect(warehouse.host).toBe(EMPTY_FORM.host);
     });
   });
 }
