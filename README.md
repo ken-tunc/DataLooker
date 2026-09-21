@@ -97,7 +97,7 @@ still starting.
 `tests/bigquery.rs` needs a real project, which it skips unless one is named:
 
 ```sh
-DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test --test bigquery
+cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test --test bigquery
 ```
 
 `DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key
