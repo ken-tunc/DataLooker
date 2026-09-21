@@ -1016,3 +1016,33 @@ async fn a_materialized_view_with_nothing_in_it_yet_says_so() {
         found.definition
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_index_that_only_another_tables_key_points_at_is_still_listed() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    for statement in [
+        "DROP SCHEMA IF EXISTS ddl_pointed CASCADE",
+        "CREATE SCHEMA ddl_pointed",
+        "CREATE TABLE ddl_pointed.people (id int PRIMARY KEY, code text NOT NULL)",
+        // A unique index rather than a unique constraint: a foreign key can
+        // reference one, and it belongs to no constraint of its own.
+        "CREATE UNIQUE INDEX people_by_code ON ddl_pointed.people (code)",
+        "CREATE TABLE ddl_pointed.orders (
+             id int PRIMARY KEY,
+             code text NOT NULL REFERENCES ddl_pointed.people (code)
+         )",
+    ] {
+        run(&session, statement).await.unwrap();
+    }
+
+    let found = session
+        .definition("ddl_pointed", "people")
+        .await
+        .unwrap()
+        .unwrap();
+
+    let indexes: Vec<&str> = found.indexes.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(indexes, ["people_by_code"]);
+}

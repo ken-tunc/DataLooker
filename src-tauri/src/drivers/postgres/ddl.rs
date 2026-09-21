@@ -49,14 +49,20 @@ const CONSTRAINTS: &str = "
      ORDER BY CASE contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 WHEN 'f' THEN 2 ELSE 3 END, conname
 ";
 
-/// An index that backs a constraint is left out: its definition is already in
-/// the statement, as the constraint that owns it.
+/// An index that backs a constraint of this table is left out: its definition
+/// is already in the statement, as the constraint that owns it. The constraint
+/// has to be this table's own — a foreign key elsewhere points its `conindid`
+/// at the index it referenced here, and that index is still one nobody but
+/// this table declared.
 const INDEXES: &str = "
     SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS definition
       FROM pg_index i
       JOIN pg_class c ON c.oid = i.indexrelid
      WHERE i.indrelid = $1
-       AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = i.indexrelid)
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_constraint k
+            WHERE k.conindid = i.indexrelid AND k.conrelid = i.indrelid
+       )
      ORDER BY c.relname
 ";
 
