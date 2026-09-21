@@ -174,6 +174,8 @@ async fn a_statement_nobody_is_waiting_for_is_cancelled() {
     let cancel = CancellationToken::new();
     cancel.cancel();
 
+    // The session has not authenticated yet, so this is also the path where
+    // the exchange with Google is what would have been waited on.
     let err = session
         .execute("SELECT 1", ROW_LIMIT, &cancel)
         .await

@@ -71,8 +71,16 @@ impl BigQuerySession {
         // Started before the client is asked for, so that the first query of a
         // connection is timed with the exchange that authenticated it.
         let started = Instant::now();
+        // That exchange is the first thing a query waits on and the last thing
+        // that would notice it had been called off, so it is raced against the
+        // cancellation too. Dropping it leaves the client unbuilt, which is
+        // what the next query finds and builds.
+        let client = tokio::select! {
+            client = self.client() => client?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
         query::execute(
-            self.client().await?,
+            client,
             &self.project_id,
             &self.location,
             sql,
