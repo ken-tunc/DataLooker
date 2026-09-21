@@ -18,6 +18,8 @@ type Props<T> = {
   label: string;
   /** Names the query field, and stands in it while it is empty. */
   placeholder: string;
+  /** What the field starts with, for a palette opened about something. */
+  initial?: string;
   search: (query: string) => readonly T[];
   keyOf: (item: T) => string;
   /** Draws one option. */
@@ -39,6 +41,7 @@ type Props<T> = {
 export function Palette<T>({
   label,
   placeholder,
+  initial,
   search,
   keyOf,
   children,
@@ -50,7 +53,7 @@ export function Palette<T>({
 }: Props<T>) {
   const dialog = useRef<HTMLDialogElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initial ?? "");
   const [active, setActive] = useState(0);
   const base = useId();
   const optionId = (index: number) => `${base}-option-${index}`;

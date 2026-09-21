@@ -2,6 +2,7 @@ import { initVimMode } from "monaco-vim";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
+import { identifierAt, type QualifiedName } from "./jump";
 import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE } from "./monaco";
 import { useVimMode } from "./vim";
 
@@ -24,9 +25,11 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  /** What ⌘⇧D and ⌘-click ask about: the name under the cursor. */
+  onJump: (name: QualifiedName) => void;
 };
 
-export default function SqlEditor({ value, onChange, onSubmit }: Props) {
+export default function SqlEditor({ value, onChange, onSubmit, onJump }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const status = useRef<HTMLSpanElement>(null);
   const [vim, setVim] = useVimMode();
@@ -35,9 +38,9 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
   // through a ref. Writing that ref while rendering would publish handlers from
   // a render React can still throw away, and a passive effect would leave the
   // previous ones live until after the browser could dispatch to Monaco.
-  const handlers = useRef({ onChange, onSubmit });
+  const handlers = useRef({ onChange, onSubmit, onJump });
   useLayoutEffect(() => {
-    handlers.current = { onChange, onSubmit };
+    handlers.current = { onChange, onSubmit, onJump };
   });
 
   useEffect(() => {
@@ -63,8 +66,27 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     });
     instance.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, () => handlers.current.onSubmit());
 
+    function jumpAt(position: { lineNumber: number; column: number } | null) {
+      const line = position && instance.getModel()?.getLineContent(position.lineNumber);
+      if (!position || line === undefined || line === null) return;
+      // Monaco counts columns from one, and a column is the place before the
+      // character of that number — which is the index of that character.
+      const name = identifierAt(line, position.column - 1);
+      if (name) handlers.current.onJump(name);
+    }
+
+    instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyD, () =>
+      jumpAt(instance.getPosition()),
+    );
+    // The other half of the same gesture. Monaco puts a second cursor on an
+    // ⌥-click rather than a ⌘-click, so this takes nothing that was in use.
+    const clicked = instance.onMouseUp((event) => {
+      if (event.event.metaKey || event.event.ctrlKey) jumpAt(event.target.position);
+    });
+
     return () => {
       changed.dispose();
+      clicked.dispose();
       instance.getModel()?.dispose();
       instance.dispose();
       editor.current = null;

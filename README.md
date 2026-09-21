@@ -10,7 +10,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > table has a primary key to name a row by — beside the statement that would make the table
 > again, with its indexes and triggers. The editor marks what PostgreSQL would refuse to
 > parse, without asking a server, and has vim keybindings behind a toggle. Every statement
-> that runs is logged, and ⌘Y reopens one. A connection can carry a shell command — a port
+> that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
+> what it names. A connection can carry a shell command — a port
 > forward, an SSH tunnel — started and stopped from its row in the list. BigQuery follows
 > PostgreSQL.
 
@@ -43,6 +44,7 @@ A native window titled "DataLooker" opens.
 | Keys              | What it does                         |
 | ----------------- | ------------------------------------ |
 | ⌘O                | Find a table by name and open it     |
+| ⌘⇧D, ⌘-click      | Open what a name in the editor names |
 | ⌘Y                | Reopen a query that was run before   |
 | ⌃N, ⌃P            | Next / previous match in the palette |
 | ⌘T                | New SQL tab                          |

@@ -1,0 +1,184 @@
+import type { SchemaTree } from "../../bindings/SchemaTree";
+
+/** A name as the statement wrote it, folded the way PostgreSQL folds one. */
+export type QualifiedName = { schema: string | null; name: string };
+
+export type NamedTable = { schema: string; table: string };
+
+type Token = { text: string; start: number; end: number };
+
+const IDENTIFIER = /[\p{L}\p{N}_$]/u;
+
+/**
+ * The identifiers in one line, quoted or not. Everything else — keywords are
+ * identifiers too at this level, and so is a number — is left to whoever asks
+ * for a name to fail to find it: telling a table from a keyword is the
+ * catalog's job, not the scanner's.
+ *
+ * An unquoted identifier is folded to lower case, which is what PostgreSQL
+ * does to one, so that a name read here compares to a catalog's by equality.
+ */
+function scan(line: string): Token[] {
+  const tokens: Token[] = [];
+  let at = 0;
+  while (at < line.length) {
+    const char = line[at] as string;
+    if (char === '"') {
+      // A quote nothing closes is a name still being typed, and the rest of
+      // the line is as much of it as there is.
+      const close = line.indexOf('"', at + 1);
+      const text = line.slice(at + 1, close === -1 ? line.length : close);
+      const end = close === -1 ? line.length : close + 1;
+      tokens.push({ text, start: at, end });
+      at = end;
+      continue;
+    }
+    if (IDENTIFIER.test(char)) {
+      let end = at;
+      while (end < line.length && IDENTIFIER.test(line[end] as string)) end += 1;
+      tokens.push({ text: line.slice(at, end).toLowerCase(), start: at, end });
+      at = end;
+      continue;
+    }
+    at += 1;
+  }
+  return tokens;
+}
+
+/** Whether all that stands between two identifiers is the dot that joins them. */
+function joined(line: string, left: Token, right: Token): boolean {
+  return /^\s*\.\s*$/.test(line.slice(left.end, right.start));
+}
+
+/**
+ * The name the cursor is in, with the schema it was qualified by if it was.
+ * A cursor resting just after a name counts as being in it, the way a word is
+ * selected by a double-click at either of its ends.
+ */
+export function identifierAt(line: string, index: number): QualifiedName | null {
+  const tokens = scan(line);
+  const at = tokens.findIndex((token) => index >= token.start && index <= token.end);
+  const token = tokens[at];
+  if (!token) return null;
+
+  const before = tokens[at - 1];
+  if (before && joined(line, before, token)) {
+    return { schema: before.text, name: token.text };
+  }
+  // On the schema of a qualified name, the table is what was meant: nothing
+  // here can show a schema, and `shop` in `shop.orders` is not a table.
+  const after = tokens[at + 1];
+  if (after && joined(line, token, after)) {
+    return { schema: token.text, name: after.text };
+  }
+  return { schema: null, name: token.text };
+}
+
+/**
+ * Every table the name could mean. More than one is not a failure: a name no
+ * schema qualifies means whichever of them the search path reaches first, and
+ * what that is belongs to the server rather than to this tree.
+ */
+export function tablesNamed(tree: SchemaTree, wanted: QualifiedName): NamedTable[] {
+  const found: NamedTable[] = [];
+  for (const schema of tree.schemas) {
+    if (wanted.schema !== null && schema.name !== wanted.schema) continue;
+    for (const table of schema.tables) {
+      if (table.name === wanted.name) found.push({ schema: schema.name, table: table.name });
+    }
+  }
+  return found;
+}
+
+/** What the reader wrote, for a message that quotes it back. */
+export function written(name: QualifiedName): string {
+  return name.schema === null ? name.name : `${name.schema}.${name.name}`;
+}
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+
+  const at = (line: string) => identifierAt(line, line.indexOf("|"));
+  /** The cursor is written as `|`, and taken back out before the line is read. */
+  const cursor = (marked: string) => identifierAt(marked.replace("|", ""), marked.indexOf("|"));
+
+  describe("identifierAt", () => {
+    it("reads the name the cursor is in", () => {
+      expect(cursor("select * from ord|ers")).toEqual({ schema: null, name: "orders" });
+    });
+
+    it("counts either end of a name as being in it", () => {
+      expect(cursor("select * from |orders")).toEqual({ schema: null, name: "orders" });
+      expect(cursor("select * from orders|")).toEqual({ schema: null, name: "orders" });
+    });
+
+    it("takes the schema that qualifies the name", () => {
+      expect(cursor("select * from shop.ord|ers")).toEqual({ schema: "shop", name: "orders" });
+    });
+
+    it("means the table when the cursor is on the schema", () => {
+      expect(cursor("select * from sh|op.orders")).toEqual({ schema: "shop", name: "orders" });
+    });
+
+    it("reads a name the way PostgreSQL does: folded unless it was quoted", () => {
+      expect(cursor("select * from Ord|ers")).toEqual({ schema: null, name: "orders" });
+      expect(cursor('select * from "Ord|ers"')).toEqual({ schema: null, name: "Orders" });
+      expect(cursor('select * from "Shop"."Ord|ers"')).toEqual({
+        schema: "Shop",
+        name: "Orders",
+      });
+    });
+
+    it("joins a name across the spaces a statement is allowed", () => {
+      expect(cursor("select * from shop . ord|ers")).toEqual({ schema: "shop", name: "orders" });
+    });
+
+    it("keeps two names apart when nothing joins them", () => {
+      expect(cursor("select * from orders o|ld")).toEqual({ schema: null, name: "old" });
+    });
+
+    it("has nothing to say about a cursor on nothing", () => {
+      expect(cursor("select * from orders |")).toBeNull();
+      expect(at("")).toBeNull();
+    });
+
+    it("survives a quote nothing closes", () => {
+      expect(cursor('select * from "ord|ers')).toEqual({ schema: null, name: "orders" });
+    });
+  });
+
+  describe("tablesNamed", () => {
+    const table = (name: string) => ({ name, kind: "table" as const, columns: [] });
+    const tree: SchemaTree = {
+      schemas: [
+        { name: "public", tables: [table("orders"), table("people")] },
+        { name: "shop", tables: [table("orders")] },
+      ],
+    };
+
+    it("finds the one table a qualified name can mean", () => {
+      expect(tablesNamed(tree, { schema: "shop", name: "orders" })).toEqual([
+        { schema: "shop", table: "orders" },
+      ]);
+    });
+
+    it("gives every table an unqualified name can mean", () => {
+      expect(tablesNamed(tree, { schema: null, name: "orders" })).toEqual([
+        { schema: "public", table: "orders" },
+        { schema: "shop", table: "orders" },
+      ]);
+    });
+
+    it("finds nothing for a name no schema holds", () => {
+      expect(tablesNamed(tree, { schema: null, name: "o" })).toEqual([]);
+      expect(tablesNamed(tree, { schema: "archive", name: "orders" })).toEqual([]);
+    });
+  });
+
+  describe("written", () => {
+    it("puts the name back the way it was qualified", () => {
+      expect(written({ schema: null, name: "orders" })).toBe("orders");
+      expect(written({ schema: "shop", name: "orders" })).toBe("shop.orders");
+    });
+  });
+}

@@ -151,6 +151,20 @@ tokenizer, so a definition reads the way the same SQL does in a tab. It imports 
 when the first statement is drawn rather than in its own chunk: opening a connection opens
 a SQL tab, which has loaded it already.
 
+## From a name to the table
+
+⌘⇧D, or a ⌘-click, on a name in the editor opens that table's tab on its
+structure. `features/sql-editor/jump.ts` reads the name out of the line: the
+identifier the cursor is in, and the schema qualifying it if one does, folded
+to lower case unless it was quoted — which is what PostgreSQL does to a name,
+so that what is read compares to a catalog's by equality.
+
+It is the line that is read rather than the statement parsed, so an alias is a
+name like any other and leads nowhere. A name no schema qualifies can mean a
+table in any schema the search path reaches, and which one is the server's
+answer rather than the tree's, so more than one match opens the ⌘O palette on
+that name instead of guessing at it.
+
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries

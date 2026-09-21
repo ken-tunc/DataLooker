@@ -39,18 +39,21 @@ export function openSqlTab(state: TabsState | undefined, id: string, sql = ""): 
 
 /**
  * A table opens once: asking for it again brings its tab forward rather than
- * making a second one, since a tab is the table, not a view of it.
+ * making a second one, since a tab is the table, not a view of it. What it is
+ * asked to show it shows either way — a reader who asked for a definition is
+ * asking for it of the tab they already had open too.
  */
 export function openTableTab(
   state: TabsState | undefined,
   id: string,
   schema: string,
   table: string,
+  shows: TableView["shows"] = "rows",
 ): TabsState {
   const open = state?.tabs.find(
     (tab) => tab.kind === "table" && tab.schema === schema && tab.table === table,
   );
-  if (state && open) return { ...state, activeId: open.id };
+  if (state && open) return setTableView({ ...state, activeId: open.id }, open.id, { shows });
 
   return opened(state, {
     kind: "table",
@@ -63,7 +66,7 @@ export function openTableTab(
     filter: "",
     sort: null,
     page: 0,
-    shows: "rows",
+    shows,
   });
 }
 
@@ -161,6 +164,15 @@ if (import.meta.vitest) {
         page: 0,
         shows: "rows",
       });
+    });
+
+    it("shows what it was asked for, in a new tab and in one already open", () => {
+      const opened = openTableTab(undefined, "t1", "public", "people", "structure");
+      expect(opened.tabs[0]).toMatchObject({ shows: "structure" });
+
+      const paged = setTableView(opened, "t1", { page: 2, shows: "rows" });
+      const again = openTableTab(paged, "t2", "public", "people", "structure");
+      expect(again.tabs[0]).toMatchObject({ shows: "structure", page: 2 });
     });
 
     it("brings an open table forward instead of opening it twice", () => {

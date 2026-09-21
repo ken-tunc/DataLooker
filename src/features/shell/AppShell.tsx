@@ -7,7 +7,7 @@ import { TableSearchPalette } from "../table-search/TableSearchPalette";
 import { useTabs } from "../tabs/useTabs";
 
 /** Which palette is in front, if any. Only one can be: each is modal. */
-type Palette = "tables" | "history" | null;
+type Palette = { kind: "tables"; query?: string } | { kind: "history" } | null;
 
 /**
  * Holds what the sidebar and the workspace both need — which connection is in
@@ -38,12 +38,12 @@ export function AppShell() {
       }
       if (event.key === "o" && event.metaKey) {
         event.preventDefault();
-        setPalette("tables");
+        setPalette({ kind: "tables" });
         return;
       }
       if (event.key === "y" && event.metaKey) {
         event.preventDefault();
-        setPalette("history");
+        setPalette({ kind: "history" });
         return;
       }
       if (event.key === "Tab" && event.ctrlKey) {
@@ -74,15 +74,16 @@ export function AppShell() {
         />
       )}
 
-      {selectedId && palette === "tables" && (
+      {selectedId && palette?.kind === "tables" && (
         <TableSearchPalette
           connectionId={selectedId}
+          initial={palette.query}
           onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
           onClose={() => setPalette(null)}
         />
       )}
 
-      {selectedId && palette === "history" && (
+      {selectedId && palette?.kind === "history" && (
         <QueryHistoryPalette
           connectionId={selectedId}
           onOpenQuery={(sql) => tabs.open(selectedId, sql)}
@@ -92,7 +93,11 @@ export function AppShell() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         {selectedId ? (
-          <Workspace connectionId={selectedId} tabs={tabs} />
+          <Workspace
+            connectionId={selectedId}
+            tabs={tabs}
+            onFindTable={(query) => setPalette({ kind: "tables", query })}
+          />
         ) : (
           <div className="text-base-content/50 flex h-full items-center justify-center">
             Select a connection to start querying.

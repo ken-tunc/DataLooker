@@ -39,10 +39,10 @@ export function useTabs() {
     of: (connectionId: string): TabsState | undefined => byConnection[connectionId],
     open: (connectionId: string, sql?: string) =>
       write(connectionId, openSqlTab(byConnection[connectionId], crypto.randomUUID(), sql)),
-    openTable: (connectionId: string, schema: string, table: string) =>
+    openTable: (connectionId: string, schema: string, table: string, shows?: TableView["shows"]) =>
       write(
         connectionId,
-        openTableTab(byConnection[connectionId], crypto.randomUUID(), schema, table),
+        openTableTab(byConnection[connectionId], crypto.randomUUID(), schema, table, shows),
       ),
     close: (connectionId: string, id: string) =>
       change(connectionId, (state) => closeTab(state, id)),
