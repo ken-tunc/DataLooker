@@ -72,7 +72,9 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
         if (save.isPending) event.preventDefault();
       }}
     >
-      <div className="modal-box">
+      {/* Wider than a modal's own width: a command is a line of shell, and
+          reading one wrapped across a narrow box is reading it twice. */}
+      <div className="modal-box w-11/12 max-w-2xl">
         <form onSubmit={handleSubmit}>
           <fieldset className="fieldset">
             <legend className="fieldset-legend text-lg">{TITLES[mode]}</legend>
