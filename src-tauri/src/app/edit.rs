@@ -2,7 +2,7 @@ use serde::Deserialize;
 use ts_rs::TS;
 
 use crate::app::App;
-use crate::drivers::{RowUpdate, TableShape};
+use crate::drivers::{RowDelete, RowInsert, RowUpdate, TableShape};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize, TS)]
@@ -11,7 +11,12 @@ pub struct TableEdits {
     pub connection_id: String,
     pub schema: String,
     pub table: String,
+    #[serde(default)]
+    pub inserts: Vec<RowInsert>,
+    #[serde(default)]
     pub updates: Vec<RowUpdate>,
+    #[serde(default)]
+    pub deletes: Vec<RowDelete>,
 }
 
 impl App {
@@ -31,12 +36,18 @@ impl App {
 
     /// Resolves to how many rows changed, which is every update or none.
     pub async fn commit_table_edits(&self, edits: TableEdits) -> Result<u32, AppError> {
-        if edits.updates.is_empty() {
+        if edits.inserts.is_empty() && edits.updates.is_empty() && edits.deletes.is_empty() {
             return Err(AppError::Validation("there is nothing to save".into()));
         }
         self.session(&edits.connection_id)
             .await?
-            .update_rows(&edits.schema, &edits.table, &edits.updates)
+            .apply_edits(
+                &edits.schema,
+                &edits.table,
+                &edits.inserts,
+                &edits.updates,
+                &edits.deletes,
+            )
             .await
     }
 }
@@ -55,7 +66,9 @@ mod tests {
                 connection_id: "ghost".into(),
                 schema: "public".into(),
                 table: "people".into(),
+                inserts: Vec::new(),
                 updates: Vec::new(),
+                deletes: Vec::new(),
             })
             .await
             .unwrap_err();

@@ -7,7 +7,9 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use datalooker_lib::drivers::postgres::PostgresSession;
-use datalooker_lib::drivers::{Preview, QueryResult, RowUpdate, Sort, TableKind, TablePage};
+use datalooker_lib::drivers::{
+    Preview, QueryResult, RowDelete, RowInsert, RowUpdate, Sort, TableKind, TablePage,
+};
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -482,8 +484,13 @@ fn update(id: &str, set: &[(&str, Option<&str>)], version: &str) -> RowUpdate {
     }
 }
 
-/// The version of each row of an edit test's table, in id order.
-async fn versions(session: &PostgresSession, schema: &str, table: &str) -> Vec<String> {
+/// The version of each row of an edit test's table, in `order` order.
+async fn versions(
+    session: &PostgresSession,
+    schema: &str,
+    table: &str,
+    order: &str,
+) -> Vec<String> {
     session
         .preview(
             &Preview {
@@ -491,7 +498,7 @@ async fn versions(session: &PostgresSession, schema: &str, table: &str) -> Vec<S
                 table,
                 filter: "",
                 sort: Some(&Sort {
-                    column: "id".into(),
+                    column: order.into(),
                     descending: false,
                 }),
                 limit: 10,
@@ -512,16 +519,18 @@ async fn an_edit_writes_the_value_the_reader_typed() {
     };
     edit_table(&session, "edit_write").await;
 
-    let read = versions(&session, "edit_write", "people").await;
+    let read = versions(&session, "edit_write", "people", "id").await;
 
     let applied = session
-        .update_rows(
+        .apply_edits(
             "edit_write",
             "people",
+            &[],
             &[
                 update("1", &[("name", Some("Ada Lovelace"))], &read[0]),
                 update("2", &[("note", Some("added"))], &read[1]),
             ],
+            &[],
         )
         .await
         .unwrap();
@@ -549,7 +558,7 @@ async fn a_row_that_changed_underneath_saves_nothing_at_all() {
     };
     edit_table(&session, "edit_conflict").await;
 
-    let read = versions(&session, "edit_conflict", "people").await;
+    let read = versions(&session, "edit_conflict", "people", "id").await;
     // Someone else writes to Grace after the page was read, which is what
     // makes the second update below stale.
     run(
@@ -560,13 +569,15 @@ async fn a_row_that_changed_underneath_saves_nothing_at_all() {
     .unwrap();
 
     let refused = session
-        .update_rows(
+        .apply_edits(
             "edit_conflict",
             "people",
+            &[],
             &[
                 update("1", &[("name", Some("Written"))], &read[0]),
                 update("2", &[("name", Some("Hopper"))], &read[1]),
             ],
+            &[],
         )
         .await
         .unwrap_err();
@@ -589,10 +600,12 @@ async fn a_value_the_column_cannot_hold_is_the_database_saying_so() {
     edit_table(&session, "edit_bad_value").await;
 
     let err = session
-        .update_rows(
+        .apply_edits(
             "edit_bad_value",
             "people",
+            &[],
             &[update("1", &[("id", Some("not a number"))], "1")],
+            &[],
         )
         .await
         .unwrap_err();
@@ -623,10 +636,12 @@ async fn a_table_without_a_primary_key_cannot_name_a_row() {
     assert!(shape.primary_key.is_empty());
 
     let refused = session
-        .update_rows(
+        .apply_edits(
             "edit_no_key",
             "notes",
+            &[],
             &[update("1", &[("body", Some("x"))], "1")],
+            &[],
         )
         .await
         .unwrap_err();
@@ -646,4 +661,117 @@ async fn a_shape_says_what_a_row_is_named_by_and_what_its_columns_hold() {
     assert_eq!(shape.primary_key, ["id"]);
     assert_eq!(shape.types.get("id").map(String::as_str), Some("integer"));
     assert_eq!(shape.types.get("note").map(String::as_str), Some("text"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_adds_and_removes_rows_in_one_go() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_rows").await;
+    let read = versions(&session, "edit_rows", "people", "id").await;
+
+    let applied = session
+        .apply_edits(
+            "edit_rows",
+            "people",
+            &[RowInsert {
+                values: std::collections::HashMap::from([
+                    ("id".to_string(), Some("3".to_string())),
+                    ("name".to_string(), Some("Katherine".to_string())),
+                ]),
+            }],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([("id".to_string(), Some("1".to_string()))]),
+                version: read[0].clone(),
+            }],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(applied, 2);
+    let rows = run(
+        &session,
+        "SELECT id, name, note FROM edit_rows.people ORDER BY id",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.rows,
+        vec![
+            vec![json!(2), json!("Grace"), serde_json::Value::Null],
+            // A column the insert left out took what the table gives it.
+            vec![json!(3), json!("Katherine"), serde_json::Value::Null],
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_row_deleted_from_under_the_reader_saves_nothing() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_gone").await;
+    let read = versions(&session, "edit_gone", "people", "id").await;
+    run(&session, "DELETE FROM edit_gone.people WHERE id = 2")
+        .await
+        .unwrap();
+
+    let refused = session
+        .apply_edits(
+            "edit_gone",
+            "people",
+            &[],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([("id".to_string(), Some("2".to_string()))]),
+                version: read[1].clone(),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+}
+
+/// Two rows written by one transaction share an `xmin`, so a key that names
+/// only part of the primary key would match both of them.
+#[tokio::test(flavor = "multi_thread")]
+async fn half_a_primary_key_names_no_row_at_all() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    for statement in [
+        "DROP SCHEMA IF EXISTS edit_half CASCADE",
+        "CREATE SCHEMA edit_half",
+        "CREATE TABLE edit_half.sales (region text, day date, total int, PRIMARY KEY (region, day))",
+        "INSERT INTO edit_half.sales VALUES ('north', '2026-09-20', 1), ('north', '2026-09-21', 2)",
+    ] {
+        run(&session, statement).await.unwrap();
+    }
+    let read = versions(&session, "edit_half", "sales", "day").await;
+
+    let refused = session
+        .apply_edits(
+            "edit_half",
+            "sales",
+            &[],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([(
+                    "region".to_string(),
+                    Some("north".to_string()),
+                )]),
+                version: read[0].clone(),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+    let rows = run(&session, "SELECT count(*) FROM edit_half.sales")
+        .await
+        .unwrap();
+    assert_eq!(rows.rows, vec![vec![json!(2)]]);
 }

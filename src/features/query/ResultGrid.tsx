@@ -17,6 +17,8 @@ export type GridEditing = {
   /** The text the reader has typed into a cell but not saved, if any. */
   pendingValue: (row: number, column: string) => string | null | undefined;
   onEdit: (row: number, column: string, value: string | null) => void;
+  /** Classes for a row the reader has added or marked for removal. */
+  rowClass?: (row: number) => string | undefined;
 };
 
 type Props = {
@@ -25,9 +27,11 @@ type Props = {
   sort?: Sort | null;
   onSortColumn?: (column: string) => void;
   editing?: GridEditing;
+  /** Told which row holds the selected cell, for whatever acts on a row. */
+  onSelectRow?: (row: number | null) => void;
 };
 
-export function ResultGrid({ result, sort, onSortColumn, editing }: Props) {
+export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }: Props) {
   // A ref would still be empty when the rows below measure it, because React
   // attaches a parent's ref after its children have already run their effects.
   // Holding the element in state renders them again with it in hand.
@@ -73,6 +77,11 @@ export function ResultGrid({ result, sort, onSortColumn, editing }: Props) {
     });
   }
 
+  function select(cell: Cell) {
+    setSelected(cell);
+    onSelectRow?.(cell.row);
+  }
+
   function move(event: KeyboardEvent<HTMLDivElement>) {
     if (!selected) return;
     const keys: Record<string, Cell> = {
@@ -86,7 +95,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing }: Props) {
       event.preventDefault();
       if (next.row < 0 || next.row >= result.rows.length) return;
       if (next.column < 0 || next.column >= result.columns.length) return;
-      setSelected(next);
+      select(next);
       return;
     }
     if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
@@ -146,7 +155,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing }: Props) {
           widths={widths}
           scroller={scroller}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={select}
           editing={editing}
         />
       </div>
@@ -296,7 +305,9 @@ function Rows({
           <div
             key={item.key}
             role="row"
-            className="hover:bg-base-200/60 absolute flex w-full items-center"
+            className={`hover:bg-base-200/60 absolute flex w-full items-center ${
+              editing?.rowClass?.(item.index) ?? ""
+            }`}
             style={{ height: item.size, transform: `translateY(${item.start}px)` }}
           >
             {row.map((cell, column) => {

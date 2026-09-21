@@ -4,7 +4,7 @@ use futures_util::TryStreamExt;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 
 use crate::drivers::postgres::quote;
-use crate::drivers::{DriverError, RowUpdate, TableShape};
+use crate::drivers::{DriverError, RowDelete, RowInsert, RowUpdate, TableShape};
 
 const SHAPE: &str = "
     SELECT a.attname AS column_name,
@@ -39,36 +39,53 @@ pub async fn shape(
     Ok(TableShape { types, primary_key })
 }
 
-/// Applies every update in one transaction: a commit the reader asked for is
-/// one change to the table, not a handful that might half happen.
-pub async fn update_rows(
+/// Applies everything the reader changed in one transaction: what they asked
+/// for is one change to the table, not a handful that might half happen.
+/// Deletions go first and additions last, so that a row can be replaced by
+/// another with the same key in a single save.
+pub async fn apply(
     conn: &mut PgConnection,
     shape: &TableShape,
     schema: &str,
     table: &str,
-    updates: &[RowUpdate],
+    edits: Edits<'_>,
 ) -> Result<u32, DriverError> {
     if shape.primary_key.is_empty() {
         return Err(DriverError::Refused(format!(
             "{schema}.{table} has no primary key, so a row cannot be named"
         )));
     }
+
+    let mut statements: Vec<Statement> = Vec::new();
+    for delete in edits.deletes {
+        names_one_row(shape, &delete.key)?;
+        statements.push(Statement::delete(shape, schema, table, delete));
+    }
+    for update in edits.updates {
+        names_one_row(shape, &update.key)?;
+        statements.push(Statement::update(shape, schema, table, update));
+    }
+    for insert in edits.inserts {
+        statements.push(Statement::insert(shape, schema, table, insert));
+    }
+
     let mut tx = conn.begin().await?;
     let mut applied = 0;
 
-    for update in updates {
-        let statement = Statement::build(shape, schema, table, update);
+    for statement in statements {
         let mut query = sqlx::query(AssertSqlSafe(statement.sql));
         for value in statement.values {
             query = query.bind(value);
         }
-        // A row that matches nothing is a row that changed after it was read;
-        // dropping the transaction here puts the others back as well, because
-        // the reader asked for one change, not a handful of them.
-        if query.execute(&mut *tx).await?.rows_affected() == 0 {
-            return Err(DriverError::Refused(
-                "a row changed after it was read, so nothing was saved".into(),
-            ));
+        // One row is the only outcome that means what was asked for; dropping
+        // the transaction here puts the statements before it back as well.
+        let affected = query.execute(&mut *tx).await?.rows_affected();
+        if affected != 1 {
+            return Err(DriverError::Refused(if affected == 0 {
+                "a row changed after it was read, so nothing was saved".into()
+            } else {
+                format!("a key named {affected} rows rather than one, so nothing was saved")
+            }));
         }
         applied += 1;
     }
@@ -77,12 +94,82 @@ pub async fn update_rows(
     Ok(applied)
 }
 
+/// Everything one save carries.
+pub struct Edits<'a> {
+    pub inserts: &'a [RowInsert],
+    pub updates: &'a [RowUpdate],
+    pub deletes: &'a [RowDelete],
+}
+
 struct Statement {
     sql: String,
     values: Vec<Option<String>>,
 }
 
 impl Statement {
+    fn insert(shape: &TableShape, schema: &str, table: &str, insert: &RowInsert) -> Self {
+        let mut values = Vec::new();
+        let columns = sorted(&insert.values);
+        if columns.is_empty() {
+            return Self {
+                sql: format!(
+                    "INSERT INTO {}.{} DEFAULT VALUES",
+                    quote(schema),
+                    quote(table)
+                ),
+                values,
+            };
+        }
+
+        let names: Vec<String> = columns.iter().map(|(column, _)| quote(column)).collect();
+        let placeholders: Vec<String> = columns
+            .into_iter()
+            .map(|(column, value)| {
+                values.push(value);
+                format!("${}::{}", values.len(), cast(shape, column))
+            })
+            .collect();
+
+        Self {
+            sql: format!(
+                "INSERT INTO {}.{} ({}) VALUES ({})",
+                quote(schema),
+                quote(table),
+                names.join(", "),
+                placeholders.join(", ")
+            ),
+            values,
+        }
+    }
+
+    fn delete(shape: &TableShape, schema: &str, table: &str, delete: &RowDelete) -> Self {
+        let mut values = Vec::new();
+        let mut matches: Vec<String> = sorted(&delete.key)
+            .into_iter()
+            .map(|(column, value)| {
+                values.push(value);
+                format!(
+                    "{} IS NOT DISTINCT FROM ${}::{}",
+                    quote(column),
+                    values.len(),
+                    cast(shape, column)
+                )
+            })
+            .collect();
+        values.push(Some(delete.version.clone()));
+        matches.push(format!("xmin = ${}::xid", values.len()));
+
+        Self {
+            sql: format!(
+                "DELETE FROM {}.{} WHERE {}",
+                quote(schema),
+                quote(table),
+                matches.join(" AND ")
+            ),
+            values,
+        }
+    }
+
     /// Values travel as the text the reader typed and are cast to the column's
     /// own type, so PostgreSQL parses them with the same input functions it
     /// uses everywhere else — every type it has, rather than the handful a
@@ -92,16 +179,11 @@ impl Statement {
     /// The WHERE clause carries the row's version, so an update whose row has
     /// changed underneath matches nothing and the reader hears about it rather
     /// than overwriting someone else's work.
-    fn build(shape: &TableShape, schema: &str, table: &str, update: &RowUpdate) -> Self {
+    fn update(shape: &TableShape, schema: &str, table: &str, update: &RowUpdate) -> Self {
         let mut values = Vec::new();
         let mut placeholder = |column: &str, value: Option<String>| {
             values.push(value);
-            let cast = shape
-                .types
-                .get(column)
-                .map(String::as_str)
-                .unwrap_or("text");
-            format!("${}::{cast}", values.len())
+            format!("${}::{}", values.len(), cast(shape, column))
         };
 
         let set: Vec<String> = sorted(&update.set)
@@ -132,6 +214,39 @@ impl Statement {
             values,
         }
     }
+}
+
+/// A key is what names the one row a statement is allowed to touch, so it has
+/// to be the whole primary key: a key missing a column widens the WHERE clause
+/// to every row that shares the rest of it, and `xmin` narrows nothing when the
+/// rows were written by the same transaction.
+fn names_one_row(
+    shape: &TableShape,
+    key: &HashMap<String, Option<String>>,
+) -> Result<(), DriverError> {
+    let whole = key.len() == shape.primary_key.len()
+        && shape
+            .primary_key
+            .iter()
+            .all(|column| key.contains_key(column));
+    if whole {
+        return Ok(());
+    }
+    Err(DriverError::Refused(format!(
+        "a row is named by ({}), so nothing was saved",
+        shape.primary_key.join(", ")
+    )))
+}
+
+/// A value is cast to its column's type, which PostgreSQL printed for us.
+/// A column the table does not have is left as text for the database to
+/// reject by name.
+fn cast<'a>(shape: &'a TableShape, column: &str) -> &'a str {
+    shape
+        .types
+        .get(column)
+        .map(String::as_str)
+        .unwrap_or("text")
 }
 
 /// The columns of an update arrive in a map, and a statement has to be the
@@ -169,8 +284,38 @@ mod tests {
     }
 
     #[test]
+    fn a_key_has_to_be_the_whole_primary_key() {
+        let composite = TableShape {
+            primary_key: vec!["id".into(), "day".into()],
+            ..shape()
+        };
+
+        let half = HashMap::from([("id".into(), Some("7".into()))]);
+        assert!(matches!(
+            names_one_row(&composite, &half),
+            Err(DriverError::Refused(_))
+        ));
+
+        let extra = HashMap::from([
+            ("id".into(), Some("7".into())),
+            ("day".into(), Some("2026-09-21".into())),
+            ("name".into(), Some("Ada".into())),
+        ]);
+        assert!(matches!(
+            names_one_row(&composite, &extra),
+            Err(DriverError::Refused(_))
+        ));
+
+        let whole = HashMap::from([
+            ("id".into(), Some("7".into())),
+            ("day".into(), Some("2026-09-21".into())),
+        ]);
+        assert!(names_one_row(&composite, &whole).is_ok());
+    }
+
+    #[test]
     fn writes_the_new_value_where_the_row_is_still_the_one_that_was_read() {
-        let statement = Statement::build(&shape(), "shop", "products", &update());
+        let statement = Statement::update(&shape(), "shop", "products", &update());
 
         assert_eq!(
             statement.sql,
@@ -196,7 +341,7 @@ mod tests {
             ..update()
         };
 
-        let statement = Statement::build(&shape(), "shop", "products", &update);
+        let statement = Statement::update(&shape(), "shop", "products", &update);
 
         assert!(
             statement.sql.contains(r#""name" = $1::text"#),
@@ -207,13 +352,68 @@ mod tests {
     }
 
     #[test]
+    fn an_insert_names_the_columns_it_was_given() {
+        let insert = RowInsert {
+            values: HashMap::from([("name".into(), Some("Ada".into())), ("price".into(), None)]),
+        };
+
+        let statement = Statement::insert(&shape(), "shop", "products", &insert);
+
+        assert_eq!(
+            statement.sql,
+            concat!(
+                r#"INSERT INTO "shop"."products" ("name", "price")"#,
+                r#" VALUES ($1::text, $2::numeric(10,2))"#
+            )
+        );
+        assert_eq!(statement.values, [Some("Ada".to_string()), None]);
+    }
+
+    #[test]
+    fn an_insert_of_nothing_asks_the_table_for_a_row_of_defaults() {
+        let insert = RowInsert {
+            values: HashMap::new(),
+        };
+
+        let statement = Statement::insert(&shape(), "shop", "products", &insert);
+
+        assert_eq!(
+            statement.sql,
+            r#"INSERT INTO "shop"."products" DEFAULT VALUES"#
+        );
+        assert!(statement.values.is_empty());
+    }
+
+    #[test]
+    fn a_delete_names_the_row_and_the_version_it_was_read_at() {
+        let delete = RowDelete {
+            key: HashMap::from([("id".into(), Some("7".into()))]),
+            version: "4242".into(),
+        };
+
+        let statement = Statement::delete(&shape(), "shop", "products", &delete);
+
+        assert_eq!(
+            statement.sql,
+            concat!(
+                r#"DELETE FROM "shop"."products""#,
+                r#" WHERE "id" IS NOT DISTINCT FROM $1::bigint AND xmin = $2::xid"#
+            )
+        );
+        assert_eq!(
+            statement.values,
+            [Some("7".to_string()), Some("4242".to_string())]
+        );
+    }
+
+    #[test]
     fn a_column_the_table_does_not_have_is_left_to_postgresql_to_reject() {
         let update = RowUpdate {
             set: HashMap::from([("nope".into(), Some("1".into()))]),
             ..update()
         };
 
-        let statement = Statement::build(&shape(), "shop", "products", &update);
+        let statement = Statement::update(&shape(), "shop", "products", &update);
 
         assert!(
             statement.sql.contains(r#""nope" = $1::text"#),

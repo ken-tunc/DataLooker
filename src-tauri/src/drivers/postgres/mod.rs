@@ -11,8 +11,10 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use crate::drivers::postgres::edit::Edits;
 use crate::drivers::{
-    DriverError, Preview, QueryResult, RowUpdate, SchemaTree, TablePage, TableShape,
+    DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TablePage,
+    TableShape,
 };
 use crate::error::AppError;
 
@@ -89,18 +91,25 @@ impl PostgresSession {
         .await
     }
 
-    /// Applies every update in one transaction and resolves to how many rows
-    /// it changed — which is how the caller learns that one of them matched
-    /// nothing because the row had moved on.
-    pub async fn update_rows(
+    /// Applies everything one save carries in one transaction and resolves to
+    /// how many rows it changed — which is how the caller learns that one of
+    /// them matched nothing because the row had moved on.
+    pub async fn apply_edits(
         &self,
         schema: &str,
         table: &str,
+        inserts: &[RowInsert],
         updates: &[RowUpdate],
+        deletes: &[RowDelete],
     ) -> Result<u32, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
             let shape = edit::shape(conn, schema, table).await?;
-            edit::update_rows(conn, &shape, schema, table, updates).await
+            let edits = Edits {
+                inserts,
+                updates,
+                deletes,
+            };
+            edit::apply(conn, &shape, schema, table, edits).await
         })
         .await
     }

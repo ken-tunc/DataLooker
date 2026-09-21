@@ -101,6 +101,22 @@ pub struct RowUpdate {
     pub version: String,
 }
 
+/// A row the reader added. A column left out of `values` takes whatever the
+/// table gives it — a default, a sequence, or NULL.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct RowInsert {
+    pub values: HashMap<String, Option<String>>,
+}
+
+/// A row the reader removed, named and versioned as an update is.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct RowDelete {
+    pub key: HashMap<String, Option<String>>,
+    pub version: String,
+}
+
 /// A page of a table, with the version of each row beside the rows themselves
 /// rather than in a column the reader would have to look at.
 #[derive(Debug, Serialize, TS)]
