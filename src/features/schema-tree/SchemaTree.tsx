@@ -1,8 +1,15 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState } from "react";
 import { describeError } from "../../lib/invoke";
-import { useRefreshSchemaTree, useSchemaTree } from "./hooks";
-import { KIND_LABELS, type TreeRow, treeRows } from "./rows";
+import { useColumnsOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
+import {
+  type ColumnsState,
+  KIND_LABELS,
+  openTables,
+  tableRowId,
+  type TreeRow,
+  treeRows,
+} from "./rows";
 
 const ROW_HEIGHT = 26;
 
@@ -28,7 +35,12 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
     });
   }
 
-  const rows = tree.data ? treeRows(tree.data, expanded, filter) : [];
+  // Only the tables that are open are read, and only once: the cache answers
+  // the second time a table is opened.
+  const columns = useColumnsOf(connectionId, openTables(expanded));
+  const columnsOf = (schema: string, table: string): ColumnsState =>
+    columns.get(tableRowId(schema, table)) ?? { status: "reading" };
+  const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf) : [];
 
   return (
     <section className="border-base-300 flex w-72 shrink-0 flex-col border-r">
@@ -121,6 +133,12 @@ function Row({
   onToggle: (id: string) => void;
   onOpenTable: (schema: string, table: string) => void;
 }) {
+  if (row.kind === "note") {
+    return (
+      <span className="text-base-content/50 truncate py-0.5 pr-2 pl-10 text-xs">{row.text}</span>
+    );
+  }
+
   if (row.kind === "column") {
     return (
       <span className="flex w-full items-baseline gap-2 truncate py-0.5 pr-2 pl-10 text-sm">
@@ -169,9 +187,7 @@ function Row({
         onClick={() => onOpenTable(row.schema, row.name)}
       >
         <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">
-          {KIND_LABELS[row.tableKind] || row.columns}
-        </span>
+        <span className="text-base-content/50 shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
       </button>
     </span>
   );

@@ -34,6 +34,7 @@ pub fn run() {
             commands::query::check_syntax,
             commands::query::query_history,
             commands::schema::schema_tree,
+            commands::schema::table_columns,
             commands::schema::table_definition,
             commands::preview::preview_table,
             commands::edit::table_shape,

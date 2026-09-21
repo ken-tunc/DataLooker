@@ -96,8 +96,8 @@ together, and nothing tries to compensate for it.
 ## Drivers
 
 `drivers/` is what talks to a database the reader connects to, one module per driver, and
-`Session` is the enum a connection opens. PostgreSQL is whole; BigQuery reaches a project
-and runs statements against it. What it cannot do yet, and what it will not do, both come
+`Session` is the enum a connection opens. PostgreSQL is whole; BigQuery reaches a project,
+runs statements against it and says what it holds. What it cannot do yet, and what it will not do, both come
 back as `AppError::Unsupported` with a sentence saying which.
 
 BigQuery sends every value as text, whatever its type, so the schema beside the rows is
@@ -197,6 +197,21 @@ called `o`, and opens one where a schema holds one. A name no schema qualifies c
 table in any schema the search path reaches, and which one is the server's
 answer rather than the tree's, so more than one match opens the ⌘O palette on
 that name instead of guessing at it.
+
+## What a connection holds
+
+The tree says what there is — schemas and their tables — and not what is in them. A
+BigQuery project can hold tens of thousands of tables and many times that many columns,
+and asking for every column of every table is what makes a tree slow enough to give up
+on; a table's columns are asked for when the table is opened, and the cache is what keeps
+a table opened twice from being read twice. PostgreSQL reads the same way, so that the
+tree is one shape whatever it came from.
+
+BigQuery answers out of `INFORMATION_SCHEMA` in the region its jobs run in, which is one
+catalog per region and named after it. What comes back is read page by page rather than
+row-limited, because every row of it is wanted — that is `query::collect`, beside the
+`execute` a reader's own statement goes through. A name the reader typed is sent as a
+query parameter rather than written into the statement.
 
 ## Syntax errors
 

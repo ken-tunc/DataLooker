@@ -12,6 +12,7 @@
 use std::env;
 
 use datalooker_lib::drivers::bigquery::BigQuerySession;
+use datalooker_lib::drivers::TableKind;
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -182,4 +183,99 @@ async fn a_statement_nobody_is_waiting_for_is_cancelled() {
         .expect_err("a cancelled statement");
 
     assert!(matches!(err, AppError::Cancelled), "got {err}");
+}
+
+/// A dataset of this test's own, so that what it asserts is what it made.
+/// Named after the run, since two of them can be in flight at once.
+struct Dataset {
+    session: BigQuerySession,
+    name: String,
+}
+
+impl Dataset {
+    async fn make(session: BigQuerySession, name: &str) -> Self {
+        let dataset = Self {
+            session,
+            name: name.to_string(),
+        };
+        dataset
+            .run(&format!(
+                "CREATE SCHEMA IF NOT EXISTS {name} OPTIONS (location = 'US')"
+            ))
+            .await;
+        dataset
+    }
+
+    async fn run(&self, sql: &str) {
+        self.session
+            .execute(sql, ROW_LIMIT, &CancellationToken::new())
+            .await
+            .unwrap_or_else(|e| panic!("BigQuery refused `{sql}`: {e}"));
+    }
+
+    async fn drop_it(&self) {
+        self.run(&format!("DROP SCHEMA IF EXISTS {} CASCADE", self.name))
+            .await;
+    }
+}
+
+#[tokio::test]
+async fn a_project_says_which_datasets_hold_which_tables() {
+    let Some(session) = session_or_skip() else {
+        return;
+    };
+    let dataset = Dataset::make(session, "datalooker_tree_test").await;
+    dataset
+        .run("CREATE OR REPLACE TABLE datalooker_tree_test.people (id INT64, name STRING)")
+        .await;
+    dataset
+        .run(
+            "CREATE OR REPLACE VIEW datalooker_tree_test.names AS \
+             SELECT name FROM datalooker_tree_test.people",
+        )
+        .await;
+
+    let tree = dataset.session.schema_tree().await.expect("the tree");
+
+    let found = tree
+        .schemas
+        .iter()
+        .find(|schema| schema.name == "datalooker_tree_test")
+        .expect("the dataset just made is in the tree");
+    let tables: Vec<(&str, &TableKind)> = found
+        .tables
+        .iter()
+        .map(|table| (table.name.as_str(), &table.kind))
+        .collect();
+    assert_eq!(
+        tables,
+        [("names", &TableKind::View), ("people", &TableKind::Table)]
+    );
+
+    // What a table holds is asked for on its own, in the order it was written.
+    let columns: Vec<(String, String, bool)> = dataset
+        .session
+        .columns("datalooker_tree_test", "people")
+        .await
+        .expect("the columns")
+        .into_iter()
+        .map(|column| (column.name, column.data_type, column.nullable))
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("id".to_string(), "INT64".to_string(), true),
+            ("name".to_string(), "STRING".to_string(), true)
+        ]
+    );
+
+    // A table nobody has holds nothing, rather than failing.
+    assert!(dataset
+        .session
+        .columns("datalooker_tree_test", "nothing")
+        .await
+        .expect("no columns")
+        .is_empty());
+
+    dataset.drop_it().await;
 }

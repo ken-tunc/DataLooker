@@ -40,12 +40,14 @@ pub struct Schema {
     pub tables: Vec<Table>,
 }
 
+/// What a table holds is not here: a project can hold tens of thousands of
+/// tables and many times that many columns, so the tree says what there is and
+/// a table's columns are asked for when it is opened.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct Table {
     pub name: String,
     pub kind: TableKind,
-    pub columns: Vec<Column>,
 }
 
 #[derive(Debug, Serialize, TS, PartialEq, Eq)]

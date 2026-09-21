@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::app::App;
-use crate::drivers::{SchemaTree, TableDefinition};
+use crate::drivers::{Column, SchemaTree, TableDefinition};
 use crate::error::AppError;
 
 #[tauri::command]
@@ -10,6 +10,16 @@ pub async fn schema_tree(
     app: State<'_, App>,
 ) -> Result<SchemaTree, AppError> {
     app.schema_tree(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn table_columns(
+    connection_id: String,
+    schema: String,
+    table: String,
+    app: State<'_, App>,
+) -> Result<Vec<Column>, AppError> {
+    app.table_columns(&connection_id, &schema, &table).await
 }
 
 #[tauri::command]

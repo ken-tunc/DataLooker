@@ -1,4 +1,5 @@
 mod query;
+mod schema;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -9,7 +10,7 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
-use crate::drivers::QueryResult;
+use crate::drivers::{Column, QueryResult, SchemaTree};
 use crate::error::AppError;
 
 /// Bounds the whole of `test`: reaching Google means an OAuth exchange and
@@ -87,6 +88,23 @@ impl BigQuerySession {
             row_limit,
             cancel,
             started,
+        )
+        .await
+    }
+
+    /// The datasets of the project and the tables in them. What a table holds
+    /// is `columns`, asked for one table at a time.
+    pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
+        schema::tree(self.client().await?, &self.project_id, &self.location).await
+    }
+
+    pub async fn columns(&self, dataset: &str, table: &str) -> Result<Vec<Column>, AppError> {
+        schema::columns(
+            self.client().await?,
+            &self.project_id,
+            &self.location,
+            dataset,
+            table,
         )
         .await
     }
