@@ -1,5 +1,6 @@
 import type { ConnectionRecord } from "../bindings/ConnectionRecord";
 import type { QueryResult } from "../bindings/QueryResult";
+import type { PreviewRequest } from "../bindings/PreviewRequest";
 import type { SchemaTree } from "../bindings/SchemaTree";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
 import { invoke } from "./invoke";
@@ -40,4 +41,8 @@ export function cancelQuery(queryId: string): Promise<void> {
 
 export function schemaTree(connectionId: string): Promise<SchemaTree> {
   return invoke<SchemaTree>("schema_tree", { connectionId });
+}
+
+export function previewTable(request: PreviewRequest): Promise<QueryResult> {
+  return invoke<QueryResult>("preview_table", { request });
 }

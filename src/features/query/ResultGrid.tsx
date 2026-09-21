@@ -1,20 +1,29 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type KeyboardEvent, type PointerEvent, type RefObject, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
+import type { Sort } from "../../bindings/Sort";
 import { formatCell } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
 
 const ROW_HEIGHT = 28;
-/** The header is one row tall, and it is what a row scrolls out from under. */
-const HEADER_HEIGHT = ROW_HEIGHT;
 
 type Cell = { row: number; column: number };
 
 /** Widths the reader dragged, and the columns they were dragged for. */
 type Dragged = { columns: string; widths: Record<number, number> };
 
-export function ResultGrid({ result }: { result: QueryResult }) {
-  const scroller = useRef<HTMLDivElement>(null);
+type Props = {
+  result: QueryResult;
+  /** Set together: a grid whose columns sort says so in its headers. */
+  sort?: Sort | null;
+  onSortColumn?: (column: string) => void;
+};
+
+export function ResultGrid({ result, sort, onSortColumn }: Props) {
+  // A ref would still be empty when the rows below measure it, because React
+  // attaches a parent's ref after its children have already run their effects.
+  // Holding the element in state renders them again with it in hand.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
 
@@ -56,19 +65,6 @@ export function ResultGrid({ result }: { result: QueryResult }) {
     });
   }
 
-  function scrollRowIntoView(index: number) {
-    const element = scroller.current;
-    if (!element) return;
-    // The header sits above the rows in flow before it sticks over them, so it
-    // both offsets every row and covers the top of the viewport.
-    const top = HEADER_HEIGHT + index * ROW_HEIGHT;
-    if (top < element.scrollTop + HEADER_HEIGHT) {
-      element.scrollTop = top - HEADER_HEIGHT;
-    } else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
-      element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
-    }
-  }
-
   function move(event: KeyboardEvent<HTMLDivElement>) {
     if (!selected) return;
     const keys: Record<string, Cell> = {
@@ -83,7 +79,6 @@ export function ResultGrid({ result }: { result: QueryResult }) {
       if (next.row < 0 || next.row >= result.rows.length) return;
       if (next.column < 0 || next.column >= result.columns.length) return;
       setSelected(next);
-      scrollRowIntoView(next.row);
       return;
     }
     if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
@@ -99,7 +94,7 @@ export function ResultGrid({ result }: { result: QueryResult }) {
     // The grid takes focus so that arrows and copy reach it without a control
     // inside every cell.
     <div
-      ref={scroller}
+      ref={setScroller}
       className="border-base-300 h-full overflow-auto rounded-box border font-mono text-sm outline-none"
       tabIndex={0}
       role="grid"
@@ -120,12 +115,11 @@ export function ResultGrid({ result }: { result: QueryResult }) {
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
             >
-              <span className="block truncate">
-                {column.name}
-                <span className="text-base-content/40 ml-2 font-normal lowercase">
-                  {column.type_name}
-                </span>
-              </span>
+              <HeaderLabel
+                column={column}
+                sorted={sort?.column === column.name ? sort : null}
+                onSort={onSortColumn}
+              />
               <div
                 role="separator"
                 aria-orientation="vertical"
@@ -150,6 +144,35 @@ export function ResultGrid({ result }: { result: QueryResult }) {
   );
 }
 
+function HeaderLabel({
+  column,
+  sorted,
+  onSort,
+}: {
+  column: QueryResult["columns"][number];
+  sorted: Sort | null;
+  onSort?: (column: string) => void;
+}) {
+  const label = (
+    <>
+      {column.name}
+      {sorted && <span className="ml-1">{sorted.descending ? "▾" : "▴"}</span>}
+      <span className="text-base-content/40 ml-2 font-normal lowercase">{column.type_name}</span>
+    </>
+  );
+
+  if (!onSort) return <span className="block truncate">{label}</span>;
+  return (
+    <button
+      type="button"
+      className="block w-full cursor-pointer truncate text-left"
+      onClick={() => onSort(column.name)}
+    >
+      {label}
+    </button>
+  );
+}
+
 /**
  * The virtualizer re-renders its component on every scroll, and the React
  * Compiler skips a component that uses it, so only the rows live here:
@@ -164,17 +187,27 @@ function Rows({
 }: {
   rows: QueryResult["rows"];
   widths: number[];
-  scroller: RefObject<HTMLDivElement | null>;
+  scroller: HTMLDivElement | null;
   selected: Cell | null;
   onSelect: (cell: Cell) => void;
 }) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => scroller.current,
+    getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
+    // The header sticks over the top of the scroll area, so a row scrolled to
+    // the top would end up underneath it.
+    scrollPaddingStart: ROW_HEIGHT,
   });
+
+  // The selected row is the one the arrows just moved to, and the virtualizer
+  // is what knows where it sits.
+  useEffect(() => {
+    if (selected) virtual.scrollToIndex(selected.row);
+    // eslint-disable-next-line react/exhaustive-deps
+  }, [selected?.row]);
 
   return (
     <div className="relative" style={{ height: virtual.getTotalSize() }}>

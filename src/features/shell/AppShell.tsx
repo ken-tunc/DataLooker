@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { ConnectionSidebar } from "../connections/ConnectionSidebar";
-import { QueryWorkspace } from "../query/QueryWorkspace";
+import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
-import { useSqlTabs } from "../sql-tabs/useSqlTabs";
+import { useTabs } from "../tabs/useTabs";
 
 /**
  * Holds what the sidebar and the workspace both need — which connection is in
@@ -10,7 +10,7 @@ import { useSqlTabs } from "../sql-tabs/useSqlTabs";
  */
 export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const tabs = useSqlTabs();
+  const tabs = useTabs();
 
   function select(id: string) {
     setSelectedId(id);
@@ -47,11 +47,17 @@ export function AppShell() {
         }}
       />
 
-      {selectedId && <SchemaTree key={selectedId} connectionId={selectedId} />}
+      {selectedId && (
+        <SchemaTree
+          key={selectedId}
+          connectionId={selectedId}
+          onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
+        />
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col">
         {selectedId ? (
-          <QueryWorkspace connectionId={selectedId} tabs={tabs} />
+          <Workspace connectionId={selectedId} tabs={tabs} />
         ) : (
           <div className="text-base-content/50 flex h-full items-center justify-center">
             Select a connection to start querying.

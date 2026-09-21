@@ -1,3 +1,4 @@
+mod preview;
 mod query;
 mod schema;
 mod value;
@@ -9,7 +10,7 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::drivers::{QueryResult, SchemaTree};
+use crate::drivers::{Preview, QueryResult, SchemaTree};
 use crate::error::AppError;
 
 /// Bounds opening a connection, and the whole of `test`: a server that accepts
@@ -65,6 +66,15 @@ impl PostgresSession {
             query::execute(conn, sql, row_limit, started).await
         })
         .await
+    }
+
+    pub async fn preview(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        self.with_connection(cancel, async |conn| preview::preview(conn, request).await)
+            .await
     }
 
     /// The tree shares the session, so it waits behind a query already running

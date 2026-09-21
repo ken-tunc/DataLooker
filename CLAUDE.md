@@ -93,7 +93,10 @@ Monaco's own entry point pulls every language and every editor feature it ships 
 its own the first time a connection is opened. Result rows are plain DOM, virtualized with
 `@tanstack/react-virtual`, which the 5,000-row limit makes practical and which keeps
 daisyUI's styling and real text selection. Virtualized rows get no help from the browser's
-table layout, so `columnWidths` sizes the columns from the first rows.
+table layout, so `columnWidths` sizes the columns from the first rows. A scroll container a
+child measures — the virtualizer's — is held in state rather than a ref, because React
+attaches a parent's ref only after its children have run their effects, and the child would
+measure nothing.
 
 ## Decisions
 

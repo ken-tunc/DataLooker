@@ -1,7 +1,7 @@
 pub mod postgres;
 pub mod session;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, TS)]
@@ -59,4 +59,25 @@ pub struct Column {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
+}
+
+/// How a table preview is ordered. `column` is an identifier the caller took
+/// from the table's own columns.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Sort {
+    pub column: String,
+    pub descending: bool,
+}
+
+/// One page of one table, as the driver reads it.
+#[derive(Clone, Copy)]
+pub struct Preview<'a> {
+    pub schema: &'a str,
+    pub table: &'a str,
+    /// A WHERE expression the reader wrote, or empty for none.
+    pub filter: &'a str,
+    pub sort: Option<&'a Sort>,
+    pub limit: usize,
+    pub offset: usize,
 }

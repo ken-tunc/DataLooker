@@ -1,4 +1,5 @@
 pub mod connections;
+pub mod preview;
 mod query;
 mod schema;
 

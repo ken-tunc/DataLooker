@@ -7,7 +7,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use datalooker_lib::drivers::postgres::PostgresSession;
-use datalooker_lib::drivers::{QueryResult, TableKind};
+use datalooker_lib::drivers::{Preview, QueryResult, Sort, TableKind};
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -299,4 +299,159 @@ async fn the_tree_leaves_out_the_catalogs() {
     let names: Vec<&str> = tree.schemas.iter().map(|s| s.name.as_str()).collect();
     assert!(!names.contains(&"pg_catalog"), "{names:?}");
     assert!(!names.contains(&"information_schema"), "{names:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_preview_reads_one_page_of_a_table_in_order() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    run(&session, "DROP SCHEMA IF EXISTS preview_test CASCADE")
+        .await
+        .unwrap();
+    run(&session, "CREATE SCHEMA preview_test").await.unwrap();
+    run(
+        &session,
+        "CREATE TABLE preview_test.numbers AS SELECT n, n % 2 = 0 AS even FROM generate_series(1, 10) AS n",
+    )
+    .await
+    .unwrap();
+
+    async fn page(
+        session: &PostgresSession,
+        page: usize,
+        filter: &str,
+        sort: Option<Sort>,
+    ) -> QueryResult {
+        session
+            .preview(
+                &Preview {
+                    schema: "preview_test",
+                    table: "numbers",
+                    filter,
+                    sort: sort.as_ref(),
+                    limit: 4,
+                    offset: page * 4,
+                },
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap()
+    }
+
+    let first = page(
+        &session,
+        0,
+        "",
+        Some(Sort {
+            column: "n".into(),
+            descending: false,
+        }),
+    )
+    .await;
+    assert_eq!(
+        first
+            .rows
+            .iter()
+            .map(|row| row[0].clone())
+            .collect::<Vec<_>>(),
+        [json!(1), json!(2), json!(3), json!(4)]
+    );
+    // A page with more behind it reports itself as truncated.
+    assert!(first.truncated);
+
+    let second = page(
+        &session,
+        1,
+        "",
+        Some(Sort {
+            column: "n".into(),
+            descending: false,
+        }),
+    )
+    .await;
+    assert_eq!(second.rows[0][0], json!(5));
+
+    let filtered = page(&session, 0, "even", None).await;
+    assert_eq!(filtered.rows.len(), 4);
+    assert!(filtered.rows.iter().all(|row| row[1] == json!(true)));
+
+    let descending = page(
+        &session,
+        0,
+        "",
+        Some(Sort {
+            column: "n".into(),
+            descending: true,
+        }),
+    )
+    .await;
+    assert_eq!(descending.rows[0][0], json!(10));
+
+    run(&session, "DROP SCHEMA preview_test CASCADE")
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_after_a_truncated_one_reads_its_own_rows() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+
+    let truncated = session
+        .execute(
+            "SELECT n FROM generate_series(1, 1000) AS n",
+            5,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(truncated.truncated);
+
+    let after = run(&session, "SELECT 'after' AS marker").await.unwrap();
+
+    assert_eq!(after.columns.len(), 1, "{:?}", after.columns);
+    assert_eq!(after.rows, vec![vec![json!("after")]]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    let session = std::sync::Arc::new(session);
+    let cancel = CancellationToken::new();
+
+    let slow = tokio::spawn({
+        let session = session.clone();
+        let cancel = cancel.clone();
+        async move {
+            session
+                .execute("SELECT pg_sleep(5)", ROW_LIMIT, &cancel)
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let waiting = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .execute(
+                    "SELECT 'behind' AS marker",
+                    ROW_LIMIT,
+                    &CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    cancel.cancel();
+
+    assert!(matches!(
+        slow.await.unwrap().unwrap_err(),
+        AppError::Cancelled
+    ));
+    let behind = waiting.await.unwrap().unwrap();
+    assert_eq!(behind.rows, vec![vec![json!("behind")]]);
 }
