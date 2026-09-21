@@ -146,6 +146,11 @@ It shows inside the table's own tab rather than in a tab of its own: a tab is th
 and its rows and its structure are two ways of looking at it. Switching between them
 leaves a pending edit pending and the reader on the page they were on.
 
+`components/SqlText.tsx` colours a statement with `editor.colorize`, the editor's own
+tokenizer, so a definition reads the way the same SQL does in a tab. It imports Monaco
+when the first statement is drawn rather than in its own chunk: opening a connection opens
+a SQL tab, which has loaded it already.
+
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries
@@ -207,7 +212,9 @@ Monaco in the page rather than two.
 - Monokai Pro is the only theme. It has no light counterpart, so no built-in daisyUI
   theme is enabled and nothing follows the OS light/dark preference. Monaco paints
   itself rather than reading the theme, so it is pinned to its own `vs-dark` — close
-  enough that a second palette to maintain is not worth it.
+  enough that a second palette to maintain is not worth it. That is set in
+  `features/sql-editor/monaco.ts` rather than on each editor, because Monaco holds one
+  theme for everything it draws, including the statements it colours outside an editor.
 - The table palette (⌘O) ranks names itself rather than through a fuzzy-search library.
   The haystack is a few thousand `schema.table` strings already in memory, and what makes
   one hit better than another here is structural — a run of letters that is contiguous,

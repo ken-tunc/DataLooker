@@ -1,4 +1,5 @@
 import type { NamedDefinition } from "../../bindings/NamedDefinition";
+import { SqlText } from "../../components/SqlText";
 import { describeError } from "../../lib/invoke";
 import { useTableDefinition } from "./hooks";
 
@@ -29,7 +30,7 @@ export function TableStructure({ connectionId, schema, table }: Props) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto">
-      <Statement>{definition.data.definition}</Statement>
+      <SqlText>{definition.data.definition}</SqlText>
       <List title="Indexes" items={definition.data.indexes} empty="No index of its own." />
       <List title="Triggers" items={definition.data.triggers} empty="No trigger." />
     </div>
@@ -43,16 +44,8 @@ function List({ title, items, empty }: { title: string; items: NamedDefinition[]
       {items.length === 0 ? (
         <p className="text-base-content/50 text-sm">{empty}</p>
       ) : (
-        items.map((item) => <Statement key={item.name}>{`${item.definition};`}</Statement>)
+        items.map((item) => <SqlText key={item.name}>{`${item.definition};`}</SqlText>)
       )}
     </section>
-  );
-}
-
-function Statement({ children }: { children: string }) {
-  return (
-    <pre className="bg-base-200 overflow-x-auto rounded-box p-3 font-mono text-xs whitespace-pre">
-      {children}
-    </pre>
   );
 }

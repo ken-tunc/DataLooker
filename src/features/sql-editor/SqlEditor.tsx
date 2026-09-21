@@ -44,7 +44,6 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     const instance = monaco.create(host.current as HTMLElement, {
       value,
       language: SQL_LANGUAGE,
-      theme: "vs-dark",
       automaticLayout: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
