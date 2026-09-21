@@ -24,15 +24,19 @@ code.
 - Do not hand-memoize. The React Compiler is on, so `useCallback`, `useMemo` and `memo`
   only add noise, and `no-restricted-imports` rejects them. Disable the rule on the line
   with a reason if a case ever needs one.
-- Tests sit next to the code they cover: `#[cfg(test)]` modules in Rust, `*.test.ts` in
-  TypeScript. When a test would be the only reason to export something, write it in-source
-  behind `import.meta.vitest` instead of widening the API.
+- Tests sit inside the file they cover: a `#[cfg(test)]` module in Rust, an
+  `import.meta.vitest` block at the foot of the file in TypeScript. Nothing is exported for
+  a test's sake, and there is no second file to keep in step with the first. The one
+  exception is a test that needs a browser, which has to be its own file — below. `define`
+  in `vite.config.ts` strips the blocks from the production bundle, and a hook in
+  `.claude/settings.json` refuses to write a `*.test.ts` that is not one of those browser
+  files.
 - A `*.browser.test.tsx` runs in a real Chromium and drives a component the way a reader
   does — clicking, typing, reading the screen. `src/test/harness.tsx` stands in for Tauri
   by replacing `window.__TAURI_INTERNALS__.invoke`, so everything from `lib/commands.ts`
   upwards runs unchanged and a test can assert on what would have been sent. Reach for one
-  when the behaviour lives in the wiring between components, and for a plain test when it
-  lives in a function.
+  when the behaviour lives in the wiring between components, and for an in-source test when
+  it lives in a function.
 - Validate with `vp check` (format, lint, type check; `--fix` applies fixes) and
   `vp test --run`, plus `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
   and `cargo test` in `src-tauri`. CI runs exactly these, with coverage: `--coverage` on
@@ -72,6 +76,11 @@ check there rather than reaching the frontend as an error nothing can branch on.
 
 `skills-lock.json` pins them; the skills themselves are not committed, so run `npx skills
 experimental_install` after cloning. Use the daisyUI skill whenever you touch the UI.
+
+`.claude/settings.json` holds the hooks. They bind an agent working in this repository and
+nothing else — an editor, a script or CI can still write whatever it likes — so a hook is
+where a rule can only be enforced at the moment something is written, and a linter or the
+type system is the place for everything a file can be checked for afterwards.
 
 ## Storage
 

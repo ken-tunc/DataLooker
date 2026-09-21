@@ -15,7 +15,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: "node",
-          includeSource: ["src/**/*.ts"],
+          // Every source file, `.tsx` included: a test written in a component's
+          // own file would otherwise be collected by nothing and pass by never
+          // having run.
+          includeSource: ["src/**/*.{ts,tsx}"],
           exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/*.browser.test.tsx"],
         },
       },
