@@ -132,6 +132,21 @@ scanner's tokens rather than searched for in the text, and falls back to the who
 statement. An error at end of input is dropped: that is what every statement looks like
 while it is still being typed.
 
+## Vim keybindings
+
+A toggle under the editor turns them on, and `features/sql-editor/vim.ts` holds the answer
+for all of them: every tab has an editor, and turning vim on is not something a reader does
+per tab. It is kept in `localStorage`, because it is how this window behaves rather than
+something DataLooker knows — nothing else that drives the app has an editor to apply it to.
+
+monaco-vim needs two lines in `vite.config.ts` that look arbitrary and are not. The entry
+its package offers a browser is a UMD bundle calling `require`, which no browser answers
+and which the dependency optimizer hangs on rather than rejecting, so the ESM build is
+named directly and the package is kept out of pre-bundling. That build then reaches into
+Monaco by a path Monaco does not publish (`./*` already maps to `./esm/vs/*.js`), so the
+prefix is aliased away — onto the same module the editor imports, which is what keeps one
+Monaco in the page rather than two.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives

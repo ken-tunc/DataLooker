@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
@@ -53,8 +54,28 @@ export default defineConfig({
   // Monaco is reached through 21 separate feature entry points, which Vite
   // otherwise discovers one crawl too late: it re-optimizes mid-run and reloads
   // the page under whichever test mounted the editor first.
+  resolve: {
+    alias: {
+      // The package entry a browser is offered is a UMD bundle that calls
+      // `require`, which nothing in a browser answers. This is the ESM build,
+      // named by its path because an alias replaces a prefix and the package's
+      // own name is the prefix. It imports the same Monaco module the editor
+      // already holds, so there is one of it.
+      "monaco-vim": join(import.meta.dirname, "node_modules/monaco-vim/dist/index.mjs"),
+      // That build reaches into Monaco by a path its package does not publish
+      // (`./*` maps to `./esm/vs/*.js`, so the prefix is applied twice). Taking
+      // the prefix off lands on the same module the editor imports, which is
+      // what keeps one Monaco in the page rather than two.
+      "monaco-editor/esm/vs/": "monaco-editor/",
+    },
+  },
+
   optimizeDeps: {
     include: ["monaco-editor/**"],
+    // monaco-vim's package entry for a browser is a UMD bundle that calls
+    // `require`, which the optimizer cannot pre-bundle — it sits there instead
+    // of failing. Left out of it, the ESM build is served as it is.
+    exclude: ["monaco-vim"],
   },
 
   // Strips the in-source tests from production bundles.

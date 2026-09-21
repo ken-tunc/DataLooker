@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
@@ -15,9 +16,10 @@ const slect: SyntaxError = {
 async function editor(replies: Record<string, unknown>, sql = "SLECT 1") {
   const ipc = stubIpc(replies);
   const onChange = vi.fn();
-  await renderApp(<SqlEditor value={sql} onChange={onChange} onSubmit={() => {}} />);
+  const screen = await renderApp(<SqlEditor value={sql} onChange={onChange} onSubmit={() => {}} />);
   const markers = () => monaco.getModelMarkers({ owner: "datalooker.syntax" });
-  return { ipc, markers };
+  const text = () => monaco.getEditors()[0]?.getValue();
+  return { ipc, screen, markers, onChange, text };
 }
 
 describe("SqlEditor", () => {
@@ -49,5 +51,23 @@ describe("SqlEditor", () => {
     });
 
     await vi.waitFor(() => expect(markers()).toEqual([]), { timeout: 3000 });
+  });
+});
+
+describe("SqlEditor in vim mode", () => {
+  it("takes normal-mode keys once it is turned on, and gives them back", async () => {
+    const { screen, text } = await editor({ check_syntax: [] }, "SELECT 1");
+    const vim = screen.getByRole("checkbox", { name: "Vim" });
+
+    await vim.click();
+    monaco.getEditors()[0]?.focus();
+    // `x` deletes a character in normal mode rather than typing one.
+    await userEvent.keyboard("x");
+    await vi.waitFor(() => expect(text()).toBe("ELECT 1"));
+
+    await vim.click();
+    monaco.getEditors()[0]?.focus();
+    await userEvent.keyboard("x");
+    await vi.waitFor(() => expect(text()).toBe("xELECT 1"));
   });
 });

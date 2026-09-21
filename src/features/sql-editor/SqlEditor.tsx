@@ -1,7 +1,9 @@
+import { initVimMode } from "monaco-vim";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
 import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE } from "./monaco";
+import { useVimMode } from "./vim";
 
 /** Whoever owns a marker can replace it, so the name has to be ours alone. */
 const SYNTAX = "datalooker.syntax";
@@ -26,6 +28,8 @@ type Props = {
 
 export default function SqlEditor({ value, onChange, onSubmit }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const status = useRef<HTMLSpanElement>(null);
+  const [vim, setVim] = useVimMode();
   const editor = useRef<monaco.IStandaloneCodeEditor | null>(null);
   // Monaco keeps the callback it was handed at mount, so the handlers reach it
   // through a ref. Writing that ref while rendering would publish handlers from
@@ -92,5 +96,29 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     };
   }, [value]);
 
-  return <div ref={host} className="h-full w-full" />;
+  useEffect(() => {
+    const instance = editor.current;
+    if (!instance || !vim) return;
+    const mode = initVimMode(instance, status.current);
+    return () => mode.dispose();
+  }, [vim]);
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <div ref={host} className="min-h-0 w-full flex-1" />
+      <div className="flex items-center gap-3 px-2 pt-1 text-xs">
+        {/* Where vim writes `-- INSERT --` and the `:` line it is reading. */}
+        <span ref={status} className="text-base-content/70 grow truncate font-mono" />
+        <label className="flex cursor-pointer items-center gap-1">
+          <input
+            type="checkbox"
+            className="toggle toggle-xs"
+            checked={vim}
+            onChange={(event) => setVim(event.target.checked)}
+          />
+          Vim
+        </label>
+      </div>
+    </div>
+  );
 }

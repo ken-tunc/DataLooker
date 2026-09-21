@@ -8,7 +8,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > tree shows what a database holds, a table is found by name from anywhere with ⌘O, and it
 > opens in a tab of its own where its rows can be filtered and sorted — and edited, when the
 > table has a primary key to name a row by. The editor marks what PostgreSQL would refuse to
-> parse, without asking a server. BigQuery follows PostgreSQL.
+> parse, without asking a server, and has vim keybindings behind a toggle. BigQuery follows
+> PostgreSQL.
 
 ## Prerequisites
 
