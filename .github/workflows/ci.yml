@@ -32,7 +32,23 @@ jobs:
       # `vp check` covers format, lint and type check.
       - run: vp check
 
-      - run: vp test --run
+      - run: vp test --run --coverage
+
+      # The report lives on the run's own page: nothing leaves GitHub, and no
+      # account has to be connected to read it.
+      - name: Report coverage
+        run: |
+          {
+            echo '## Frontend coverage'
+            echo '```'
+            cat coverage/coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: frontend-coverage
+          path: coverage/
 
   rust:
     runs-on: macos-26
@@ -53,4 +69,26 @@ jobs:
 
       - run: cargo clippy --all-targets -- -D warnings
 
-      - run: cargo test
+      - uses: taiki-e/install-action@v2.87.17
+        with:
+          tool: cargo-llvm-cov
+
+      # Runs the tests instrumented; the report comes from the same run.
+      - run: cargo llvm-cov --no-report
+
+      - name: Report coverage
+        run: |
+          cargo llvm-cov report --lcov --output-path lcov.info
+          {
+            echo '## Rust coverage'
+            echo '```'
+            cargo llvm-cov report --summary-only
+            echo '```'
+            echo 'The integration tests skip here — this runner has no Docker —'
+            echo 'so `drivers/` reads lower than it does against a database.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: rust-coverage
+          path: src-tauri/lcov.info

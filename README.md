@@ -55,6 +55,10 @@ docker compose up -d --wait                     # PostgreSQL for the integration
 cd src-tauri && cargo test                      # backend
 ```
 
+Both suites can report their coverage — `vp test --run --coverage` and, in `src-tauri`,
+`cargo llvm-cov` (`cargo install cargo-llvm-cov`). CI runs both and puts the tables on the
+run's summary page. Nothing is uploaded anywhere else, so no account or token is involved.
+
 The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
 itself when nothing is listening on its port, so `cargo test` still passes without Docker.
 `--wait` holds until the server is healthy, so the tests do not skip a container that is
@@ -70,7 +74,9 @@ still starting.
 | `vp run tauri build`                                         | Build a distributable `.app`                                |
 | `vp check`                                                   | Format, lint and type check (`--fix` applies fixes)         |
 | `vp test --run`                                              | Frontend tests                                              |
+| `vp test --run --coverage`                                   | Frontend tests with a coverage report                       |
 | `cargo test` (in `src-tauri`)                                | Rust tests                                                  |
+| `cargo llvm-cov` (in `src-tauri`)                            | Rust tests with a coverage report                           |
 | `cargo clippy --all-targets -- -D warnings` (in `src-tauri`) | Rust linter                                                 |
 | `cargo fmt` (in `src-tauri`)                                 | Rust formatter                                              |
 

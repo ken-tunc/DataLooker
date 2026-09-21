@@ -29,7 +29,10 @@ code.
   behind `import.meta.vitest` instead of widening the API.
 - Validate with `vp check` (format, lint, type check; `--fix` applies fixes) and
   `vp test --run`, plus `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
-  and `cargo test` in `src-tauri`. CI runs exactly these.
+  and `cargo test` in `src-tauri`. CI runs exactly these, with coverage: `--coverage` on
+  the frontend and `cargo llvm-cov` on the backend, both reported on the run's summary
+  page. No threshold gates a merge — the numbers are there to say where a test is missing,
+  and the backend's read low because the integration tests skip on a runner with no Docker.
 - Run the app with `vp run tauri dev`.
 - Update `README.md` and this file in the change that makes them stale.
 
