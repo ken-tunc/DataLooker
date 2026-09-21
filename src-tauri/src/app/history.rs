@@ -42,7 +42,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::tests::app;
-    use crate::db::connection::{insert, DriverConfig};
+    use crate::db::connection::{insert, ConnectionFields, DriverConfig};
 
     async fn app_with_connection() -> App {
         let app = app().await;
@@ -52,7 +52,17 @@ mod tests {
             database: "datalooker".into(),
             username: "admin".into(),
         };
-        insert(&app.pool, "c1", "Local", &config).await.unwrap();
+        insert(
+            &app.pool,
+            "c1",
+            ConnectionFields {
+                label: "Local",
+                config: &config,
+                command: None,
+            },
+        )
+        .await
+        .unwrap();
         app
     }
 

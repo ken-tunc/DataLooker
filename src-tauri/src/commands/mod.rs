@@ -3,6 +3,7 @@ pub mod edit;
 pub mod preview;
 pub mod query;
 pub mod schema;
+pub mod shell;
 
 /// Tauri resolves this from `package.json`; `CARGO_PKG_VERSION` is the unused `0.0.0`.
 #[tauri::command]

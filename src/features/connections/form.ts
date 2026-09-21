@@ -22,6 +22,10 @@ const schema = z.object({
   database: required("Database"),
   username: required("Username"),
   password: z.string(),
+  // What the reader runs before connecting, if anything: a port forward, an
+  // SSH tunnel. Nothing checks what it says — it is a shell command, and the
+  // shell is what reads it.
+  command: z.string().trim(),
 });
 
 export type ConnectionFormValues = z.input<typeof schema>;
@@ -35,6 +39,7 @@ export const EMPTY_FORM: ConnectionFormValues = {
   database: "",
   username: "",
   password: "",
+  command: "",
 };
 
 export type ParseResult =
@@ -76,6 +81,7 @@ export function parseConnectionForm(
         username: parsed.data.username,
       },
       secret: values.password === "" ? null : values.password,
+      command: parsed.data.command === "" ? null : parsed.data.command,
     },
   };
 }
@@ -88,6 +94,7 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
     database: record.config.database,
     username: record.config.username,
     password: "",
+    command: record.command ?? "",
   };
 }
 
@@ -101,6 +108,7 @@ if (import.meta.vitest) {
     database: "datalooker",
     username: "admin",
     password: "hunter2",
+    command: "",
   };
 
   describe("parseConnectionForm", () => {
@@ -119,6 +127,7 @@ if (import.meta.vitest) {
             username: "admin",
           },
           secret: "hunter2",
+          command: null,
         },
       });
     });
@@ -151,6 +160,13 @@ if (import.meta.vitest) {
       });
     });
 
+    it("sends a command of nothing at all as no command", () => {
+      const blank = parseConnectionForm({ ...valid, command: "   " }, "new", null);
+      const given = parseConnectionForm({ ...valid, command: " ssh -N host " }, "new", null);
+      expect(blank.ok && blank.input.command).toBeNull();
+      expect(given.ok && given.input.command).toBe("ssh -N host");
+    });
+
     it.each(["0", "70000", "abc", ""])("rejects the port %o", (port) => {
       const result = parseConnectionForm({ ...valid, port }, "new", null);
       expect(!result.ok && result.errors.port).toBeTruthy();
@@ -168,6 +184,7 @@ if (import.meta.vitest) {
         database: "datalooker",
         username: "admin",
       },
+      command: "ssh -L 5432:db:5432 bastion",
       created_at: "2026-09-20T00:00:00Z",
     };
 
@@ -179,6 +196,7 @@ if (import.meta.vitest) {
         database: "datalooker",
         username: "admin",
         password: "",
+        command: "ssh -L 5432:db:5432 bastion",
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");
     });

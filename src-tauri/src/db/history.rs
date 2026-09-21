@@ -100,8 +100,16 @@ fn row_to_entry(row: &sqlx::sqlite::SqliteRow) -> Result<HistoryEntry, AppError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::connection::{insert, DriverConfig};
+    use crate::db::connection::{insert, ConnectionFields, DriverConfig};
     use crate::db::open_in_memory;
+
+    fn fields<'a>(label: &'a str, config: &'a DriverConfig) -> ConnectionFields<'a> {
+        ConnectionFields {
+            label,
+            config,
+            command: None,
+        }
+    }
 
     async fn pool_with_connection() -> SqlitePool {
         let pool = open_in_memory().await.unwrap();
@@ -111,7 +119,7 @@ mod tests {
             database: "datalooker".into(),
             username: "admin".into(),
         };
-        insert(&pool, "c1", "Local", &config).await.unwrap();
+        insert(&pool, "c1", fields("Local", &config)).await.unwrap();
         pool
     }
 
@@ -178,7 +186,7 @@ mod tests {
             database: "other".into(),
             username: "admin".into(),
         };
-        insert(&pool, "c2", "Other", &config).await.unwrap();
+        insert(&pool, "c2", fields("Other", &config)).await.unwrap();
         run(&pool, "SELECT 1").await;
 
         assert_eq!(list(&pool, "c2", 10).await.unwrap(), []);

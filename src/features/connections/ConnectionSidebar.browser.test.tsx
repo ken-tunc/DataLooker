@@ -13,6 +13,7 @@ const local: ConnectionRecord = {
     database: "datalooker",
     username: "admin",
   },
+  command: null,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -104,5 +105,58 @@ describe("ConnectionSidebar", () => {
 
     await expect.element(screen.getByText("Deleted Local")).toBeVisible();
     expect(ipc.sent("delete_connection")).toEqual({ id: "id-1" });
+  });
+});
+
+describe("a connection's command", () => {
+  const tunnelled: ConnectionRecord = { ...local, command: "ssh -N -L 5432:db:5432 bastion" };
+
+  it("is offered only where there is one to run", async () => {
+    const { ipc, screen } = await sidebar({
+      list_connections: [local],
+      running_connection_commands: [],
+    });
+
+    await expect.element(screen.getByText("Local", { exact: true })).toBeVisible();
+    expect(screen.getByLabelText("Run the command for Local").elements()).toEqual([]);
+    // Nothing was asked on behalf of a connection with no command to run.
+    expect(ipc.calls.map((call) => call.command)).not.toContain("running_connection_commands");
+  });
+
+  it("tells the reader when one dies on its own, and what it last said", async () => {
+    const { ipc, screen } = await sidebar({
+      list_connections: [tunnelled],
+      running_connection_commands: ["id-1"],
+    });
+    await expect.element(screen.getByLabelText("Stop the command for Local")).toBeVisible();
+
+    ipc.emit("shell:exit", {
+      connection_id: "id-1",
+      code: 255,
+      stopped: false,
+      output: "ssh: connect to host bastion port 22: Connection refused",
+    });
+
+    await expect
+      .element(screen.getByText(/Local: the command exited with 255 — ssh: connect to host/))
+      .toBeVisible();
+  });
+
+  it("says nothing about one the reader stopped, and offers to run it again", async () => {
+    let running = ["id-1"];
+    const { ipc, screen } = await sidebar({
+      list_connections: [tunnelled],
+      running_connection_commands: () => running,
+      stop_connection_command: () => {
+        running = [];
+        return null;
+      },
+    });
+
+    await screen.getByLabelText("Stop the command for Local").click();
+    ipc.emit("shell:exit", { connection_id: "id-1", code: null, stopped: true, output: "" });
+
+    await expect.element(screen.getByLabelText("Run the command for Local")).toBeVisible();
+    expect(screen.getByTestId("toast").elements()).toEqual([]);
   });
 });

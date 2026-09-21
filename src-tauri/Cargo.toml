@@ -35,7 +35,7 @@ sqlx = { version = "0.9.0", default-features = false, features = [
 tauri = { version = "2", features = [] }
 thiserror = "2"
 time = "0.3"
-tokio = { version = "1", features = ["macros", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 tokio-util = "0.7"
 ts-rs = "12"
 uuid = { version = "1.26.1", features = ["v4"] }
@@ -46,6 +46,11 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+[target.'cfg(unix)'.dependencies]
+# For killing a command's whole process group. A safe wrapper over `killpg`,
+# which is the only way to reach what the reader's command forked.
+nix = { version = "0.30", default-features = false, features = ["signal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }

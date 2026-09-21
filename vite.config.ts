@@ -74,7 +74,10 @@ export default defineConfig({
   },
 
   optimizeDeps: {
-    include: ["monaco-editor/**"],
+    // Entries nothing imports until something happens — an editor is opened,
+    // an event is listened for. Found mid-run, they are optimized mid-run, and
+    // the page reloads under whatever was already on it.
+    include: ["monaco-editor/**", "@tauri-apps/api/event"],
     // monaco-vim's package entry for a browser is a UMD bundle that calls
     // `require`, which the optimizer cannot pre-bundle — it sits there instead
     // of failing. Left out of it, the ESM build is served as it is.

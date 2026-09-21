@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
+import { CommandButton } from "../connection-command/CommandButton";
+import { useCommandExits } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import type { FormMode } from "./form";
@@ -24,6 +26,9 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRecord | null>(null);
 
+  // The list is where a command is started, so it is where its ending belongs.
+  useCommandExits();
+
   function runTest(connection: ConnectionRecord) {
     test.mutate(connection.id, {
       onSuccess: (elapsedMs) => show(`Reached ${connection.label} in ${elapsedMs} ms`, "success"),
@@ -42,8 +47,10 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
     });
   }
 
+  // Wide enough for a label beside the buttons the row carries: a name
+  // truncated to make room for them says less than the room is worth.
   return (
-    <aside className="border-base-300 bg-base-200 flex w-64 shrink-0 flex-col border-r">
+    <aside className="border-base-300 bg-base-200 flex w-72 shrink-0 flex-col border-r">
       <header className="flex items-center justify-between p-3">
         <h1 className="font-semibold">Connections</h1>
         <button
@@ -91,6 +98,9 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
                 </button>
                 {test.isPending && test.variables === connection.id && (
                   <span className="loading loading-spinner loading-xs shrink-0" />
+                )}
+                {connection.command && (
+                  <CommandButton connection={connection} command={connection.command} />
                 )}
                 <details className="dropdown dropdown-end shrink-0">
                   <summary

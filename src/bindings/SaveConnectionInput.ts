@@ -10,4 +10,8 @@ id: string | null, label: string, config: DriverConfig,
  * Absent leaves the stored secret alone, which is how an edit that does
  * not touch the password arrives.
  */
-secret: string | null, };
+secret: string | null, 
+/**
+ * A shell command to run before connecting, or nothing to run.
+ */
+command: string | null, };

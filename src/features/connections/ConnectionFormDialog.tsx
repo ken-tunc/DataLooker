@@ -72,7 +72,9 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
         if (save.isPending) event.preventDefault();
       }}
     >
-      <div className="modal-box">
+      {/* Wider than a modal's own width: a command is a line of shell, and
+          reading one wrapped across a narrow box is reading it twice. */}
+      <div className="modal-box w-11/12 max-w-2xl">
         <form onSubmit={handleSubmit}>
           <fieldset className="fieldset">
             <legend className="fieldset-legend text-lg">{TITLES[mode]}</legend>
@@ -140,6 +142,22 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 type="password"
                 value={values.password}
                 onChange={(event) => update("password", event.target.value)}
+              />
+            </Field>
+
+            <Field
+              id={`${fieldId}-command`}
+              label="Command"
+              error={errors.command}
+              hint="Run before connecting, from the connection list: a port forward or an SSH tunnel. Optional."
+            >
+              <input
+                id={`${fieldId}-command`}
+                className={`${inputClass(errors.command)} font-mono`}
+                spellCheck={false}
+                placeholder="ssh -N -L 5432:db.internal:5432 bastion"
+                value={values.command}
+                onChange={(event) => update("command", event.target.value)}
               />
             </Field>
           </fieldset>

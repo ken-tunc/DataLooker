@@ -22,12 +22,22 @@ pub struct ConnectionRecord {
     pub id: String,
     pub label: String,
     pub config: DriverConfig,
+    /// A shell command the reader runs before connecting, if they gave one.
+    pub command: Option<String>,
     pub created_at: String,
+}
+
+/// Everything a save writes. A struct rather than a run of arguments, so that
+/// a call says which value is which.
+pub struct ConnectionFields<'a> {
+    pub label: &'a str,
+    pub config: &'a DriverConfig,
+    pub command: Option<&'a str>,
 }
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, label, config, created_at FROM connections ORDER BY created_at, id",
+        "SELECT id, label, config, command, created_at FROM connections ORDER BY created_at, id",
     )
     .fetch_all(pool)
     .await?;
@@ -35,23 +45,24 @@ pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppErr
 }
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ConnectionRecord>, AppError> {
-    let row = sqlx::query("SELECT id, label, config, created_at FROM connections WHERE id = ?1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT id, label, config, command, created_at FROM connections WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
     row.as_ref().map(row_to_record).transpose()
 }
 
 pub async fn insert<'e>(
     executor: impl Executor<'e, Database = Sqlite>,
     id: &str,
-    label: &str,
-    config: &DriverConfig,
+    fields: ConnectionFields<'_>,
 ) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO connections (id, label, config) VALUES (?1, ?2, ?3)")
+    sqlx::query("INSERT INTO connections (id, label, config, command) VALUES (?1, ?2, ?3, ?4)")
         .bind(id)
-        .bind(label)
-        .bind(encode(config)?)
+        .bind(fields.label)
+        .bind(encode(fields.config)?)
+        .bind(fields.command)
         .execute(executor)
         .await?;
     Ok(())
@@ -60,15 +71,16 @@ pub async fn insert<'e>(
 pub async fn update<'e>(
     executor: impl Executor<'e, Database = Sqlite>,
     id: &str,
-    label: &str,
-    config: &DriverConfig,
+    fields: ConnectionFields<'_>,
 ) -> Result<bool, AppError> {
-    let result = sqlx::query("UPDATE connections SET label = ?2, config = ?3 WHERE id = ?1")
-        .bind(id)
-        .bind(label)
-        .bind(encode(config)?)
-        .execute(executor)
-        .await?;
+    let result =
+        sqlx::query("UPDATE connections SET label = ?2, config = ?3, command = ?4 WHERE id = ?1")
+            .bind(id)
+            .bind(fields.label)
+            .bind(encode(fields.config)?)
+            .bind(fields.command)
+            .execute(executor)
+            .await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -93,6 +105,7 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ConnectionRecord, AppE
         id: row.try_get("id")?,
         label: row.try_get("label")?,
         config: serde_json::from_str(&config).map_err(|e| AppError::Database(e.to_string()))?,
+        command: row.try_get("command")?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -111,28 +124,67 @@ mod tests {
         }
     }
 
+    fn fields<'a>(label: &'a str, config: &'a DriverConfig) -> ConnectionFields<'a> {
+        ConnectionFields {
+            label,
+            config,
+            command: None,
+        }
+    }
+
     #[tokio::test]
     async fn round_trips_a_connection() {
         let pool = open_in_memory().await.unwrap();
-        insert(&pool, "id-1", "Local", &postgres_config())
+        let config = postgres_config();
+        insert(&pool, "id-1", fields("Local", &config))
             .await
             .unwrap();
 
         let found = find_by_id(&pool, "id-1").await.unwrap().unwrap();
         assert_eq!(found.label, "Local");
         assert_eq!(found.config, postgres_config());
+        assert_eq!(found.command, None);
         assert!(!found.created_at.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_command_is_kept_and_can_be_taken_away() {
+        let pool = open_in_memory().await.unwrap();
+        let config = postgres_config();
+        insert(
+            &pool,
+            "id-1",
+            ConnectionFields {
+                command: Some("ssh -L 5432:db:5432 bastion"),
+                ..fields("Local", &config)
+            },
+        )
+        .await
+        .unwrap();
+
+        let found = find_by_id(&pool, "id-1").await.unwrap().unwrap();
+        assert_eq!(
+            found.command.as_deref(),
+            Some("ssh -L 5432:db:5432 bastion")
+        );
+
+        update(&pool, "id-1", fields("Local", &config))
+            .await
+            .unwrap();
+        let found = find_by_id(&pool, "id-1").await.unwrap().unwrap();
+        assert_eq!(found.command, None);
     }
 
     #[tokio::test]
     async fn update_keeps_created_at() {
         let pool = open_in_memory().await.unwrap();
-        insert(&pool, "id-1", "Local", &postgres_config())
+        let config = postgres_config();
+        insert(&pool, "id-1", fields("Local", &config))
             .await
             .unwrap();
         let first = find_by_id(&pool, "id-1").await.unwrap().unwrap();
 
-        let updated = update(&pool, "id-1", "Renamed", &postgres_config())
+        let updated = update(&pool, "id-1", fields("Renamed", &config))
             .await
             .unwrap();
 
@@ -146,7 +198,8 @@ mod tests {
     #[tokio::test]
     async fn update_reports_a_missing_row() {
         let pool = open_in_memory().await.unwrap();
-        let updated = update(&pool, "ghost", "Local", &postgres_config())
+        let config = postgres_config();
+        let updated = update(&pool, "ghost", fields("Local", &config))
             .await
             .unwrap();
         assert!(!updated);
@@ -161,12 +214,9 @@ mod tests {
     #[tokio::test]
     async fn delete_removes_only_the_named_row() {
         let pool = open_in_memory().await.unwrap();
-        insert(&pool, "id-1", "One", &postgres_config())
-            .await
-            .unwrap();
-        insert(&pool, "id-2", "Two", &postgres_config())
-            .await
-            .unwrap();
+        let config = postgres_config();
+        insert(&pool, "id-1", fields("One", &config)).await.unwrap();
+        insert(&pool, "id-2", fields("Two", &config)).await.unwrap();
 
         delete(&pool, "id-1").await.unwrap();
 

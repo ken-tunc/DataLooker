@@ -112,11 +112,19 @@ mod tests {
         }
     }
 
+    fn fields(config: &DriverConfig) -> connection::ConnectionFields<'_> {
+        connection::ConnectionFields {
+            label: "Local",
+            config,
+            command: None,
+        }
+    }
+
     #[tokio::test]
     async fn the_same_connection_id_gets_the_same_session() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
-        connection::insert(&pool, "id-1", "Local", &config())
+        connection::insert(&pool, "id-1", fields(&config()))
             .await
             .unwrap();
         secrets.set("id-1", "hunter2").unwrap();
@@ -135,7 +143,7 @@ mod tests {
     async fn close_forgets_the_session_and_counts_the_close() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
-        connection::insert(&pool, "id-1", "Local", &config())
+        connection::insert(&pool, "id-1", fields(&config()))
             .await
             .unwrap();
         secrets.set("id-1", "hunter2").unwrap();
@@ -166,7 +174,7 @@ mod tests {
     async fn a_connection_without_a_stored_password_fails() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
-        connection::insert(&pool, "id-1", "Local", &config())
+        connection::insert(&pool, "id-1", fields(&config()))
             .await
             .unwrap();
         let registry = SessionRegistry::default();
