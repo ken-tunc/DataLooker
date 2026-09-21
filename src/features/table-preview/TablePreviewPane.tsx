@@ -104,6 +104,11 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
     return key && isDeleted(edits, key) ? "bg-error/15 line-through opacity-60" : undefined;
   }
 
+  // A save takes the edits as they are when it starts, and clears them when it
+  // succeeds, so anything changed while it is in flight would be thrown away
+  // unsent.
+  const editingNow = editingPage && !commit.isPending;
+
   /**
    * Which row is selected has to survive what moves the rows: a draft added
    * above them shifts every index down, and a refetch can replace them all.
@@ -123,9 +128,14 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   function stillShown(): boolean {
     if (target === null) return false;
     if ("draft" in target) return drafts.some((row) => row.id === target.draft);
+    // A row that came back with a new version is someone else's row now: the
+    // selection is a cursor, not a decision, so it is dropped rather than
+    // carried into a delete that would be refused anyway.
     return (page?.result.rows ?? []).some((_, index) => {
       const key = keyOfRow(index);
-      return key !== null && rowKeyOf(key) === target.id;
+      return (
+        key !== null && rowKeyOf(key) === target.id && page?.versions[index] === target.version
+      );
     });
   }
 
@@ -183,6 +193,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             <button
               type="button"
               className="btn btn-sm"
+              disabled={commit.isPending}
               onClick={() => setEdits((current) => withNewRow(current, crypto.randomUUID()))}
             >
               New row
@@ -190,7 +201,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             <button
               type="button"
               className="btn btn-sm"
-              disabled={!stillShown()}
+              disabled={commit.isPending || !stillShown()}
               onClick={toggleDelete}
             >
               Remove row
@@ -260,7 +271,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             sort={tab.sort}
             onSortColumn={sortBy}
             onSelectRow={(row) => setTarget(targetAt(row))}
-            editing={editingPage ? { pendingValue, onEdit: edit, rowClass } : undefined}
+            editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
           />
         ) : (
           <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
