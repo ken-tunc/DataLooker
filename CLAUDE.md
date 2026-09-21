@@ -159,8 +159,9 @@ identifier the cursor is in, and the schema qualifying it if one does, folded
 to lower case unless it was quoted — which is what PostgreSQL does to a name,
 so that what is read compares to a catalog's by equality.
 
-It is the line that is read rather than the statement parsed, so an alias is a
-name like any other and leads nowhere. A name no schema qualifies can mean a
+It is the line that is read rather than the statement parsed, so nothing here
+tells an alias from a table: `o` in `from orders o` is looked up as a table
+called `o`, and opens one where a schema holds one. A name no schema qualifies can mean a
 table in any schema the search path reaches, and which one is the server's
 answer rather than the tree's, so more than one match opens the ⌘O palette on
 that name instead of guessing at it.

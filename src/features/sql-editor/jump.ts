@@ -24,11 +24,15 @@ function scan(line: string): Token[] {
   while (at < line.length) {
     const char = line[at] as string;
     if (char === '"') {
+      let close = at + 1;
+      // A doubled quote is a quote in the name rather than the end of it.
+      while (close < line.length && (line[close] !== '"' || line[close + 1] === '"')) {
+        close += line[close] === '"' ? 2 : 1;
+      }
       // A quote nothing closes is a name still being typed, and the rest of
       // the line is as much of it as there is.
-      const close = line.indexOf('"', at + 1);
-      const text = line.slice(at + 1, close === -1 ? line.length : close);
-      const end = close === -1 ? line.length : close + 1;
+      const text = line.slice(at + 1, Math.min(close, line.length)).replaceAll('""', '"');
+      const end = Math.min(close + 1, line.length);
       tokens.push({ text, start: at, end });
       at = end;
       continue;
@@ -140,6 +144,13 @@ if (import.meta.vitest) {
     it("has nothing to say about a cursor on nothing", () => {
       expect(cursor("select * from orders |")).toBeNull();
       expect(at("")).toBeNull();
+    });
+
+    it("reads a quote the name quoted twice to hold", () => {
+      expect(cursor('select * from "order""it|ems"')).toEqual({
+        schema: null,
+        name: 'order"items',
+      });
     });
 
     it("survives a quote nothing closes", () => {

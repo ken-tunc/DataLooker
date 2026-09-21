@@ -46,7 +46,18 @@ export function QueryTabPane({
    * more than one is handed to the palette rather than guessed at.
    */
   function jump(name: QualifiedName) {
-    const found = tree.data ? tablesNamed(tree.data, name) : [];
+    // Nothing is missing while the tree is still on its way, and nothing is
+    // known once reading it failed. Either way, saying the name is not there
+    // would be saying more than is known.
+    if (tree.isPending) {
+      show("The schema is still being read.", "info");
+      return;
+    }
+    if (!tree.data) {
+      show(`${describeError(tree.error)} — no name can be looked up.`, "error");
+      return;
+    }
+    const found = tablesNamed(tree.data, name);
     const first = found[0];
     if (found.length === 1 && first) onOpenStructure(first.schema, first.table);
     else if (found.length > 1) onFindTable(name.name);
