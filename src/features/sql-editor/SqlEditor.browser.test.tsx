@@ -57,10 +57,22 @@ describe("SqlEditor", () => {
   });
 });
 
+/**
+ * Vim mode is remembered outside the component — in `localStorage`, and in the
+ * module that reads it — so it is whatever the last test or the last run left
+ * behind, and a test that assumes it starts off would turn it on by turning it
+ * off.
+ */
+async function vimToggle(screen: Awaited<ReturnType<typeof editor>>["screen"]) {
+  const toggle = screen.getByRole("checkbox", { name: "Vim" });
+  if ((toggle.element() as HTMLInputElement).checked) await toggle.click();
+  return toggle;
+}
+
 describe("SqlEditor in vim mode", () => {
   it("takes normal-mode keys once it is turned on, and gives them back", async () => {
     const { screen, text } = await editor({ check_syntax: [] }, "SELECT 1");
-    const vim = screen.getByRole("checkbox", { name: "Vim" });
+    const vim = await vimToggle(screen);
 
     await vim.click();
     monaco.getEditors()[0]?.focus();
@@ -72,5 +84,18 @@ describe("SqlEditor in vim mode", () => {
     monaco.getEditors()[0]?.focus();
     await userEvent.keyboard("x");
     await vi.waitFor(() => expect(text()).toBe("xELECT 1"));
+  });
+
+  it("leaves the toggle where it was once it is turned off again", async () => {
+    const { screen } = await editor({ check_syntax: [] }, "SELECT 1");
+    const vim = await vimToggle(screen);
+    const at = () => vim.element().getBoundingClientRect().left;
+    const before = at();
+
+    await vim.click();
+    await expect.element(screen.getByText("--NORMAL--")).toBeVisible();
+    await vim.click();
+
+    await vi.waitFor(() => expect(at()).toBe(before));
   });
 });
