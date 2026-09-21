@@ -9,8 +9,9 @@ export type TableTab = Extract<Tab, { kind: "table" }>;
 /** A table's shape changes far less often than the rows in it. */
 const SHAPE_STALE_TIME = 5 * 60_000;
 
-export function useTableShape(connectionId: string, schema: string, table: string) {
+export function useTableShape(connectionId: string, schema: string, table: string, ready: boolean) {
   return useQuery({
+    enabled: ready,
     queryKey: previewKeys.shape(connectionId, schema, table),
     queryFn: () => tableShape(connectionId, schema, table),
     staleTime: SHAPE_STALE_TIME,

@@ -9,7 +9,17 @@ use crate::drivers::{NamedDefinition, TableDefinition};
 /// constraint, a view's body — and the columns, which have to be written out
 /// from `pg_attribute`. So the statement below is rebuilt rather than read.
 const RELATION: &str = "
-    SELECT c.oid, c.relkind
+    SELECT c.oid,
+           c.relkind,
+           c.relpersistence,
+           c.relispartition,
+           -- False only for a materialized view that was made WITH NO DATA,
+           -- which cannot be read until it is refreshed.
+           c.relispopulated,
+           pg_get_expr(c.relpartbound, c.oid) AS partition_bound,
+           (SELECT p.oid::regclass::text
+              FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent
+             WHERE i.inhrelid = c.oid) AS parent
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = $1 AND c.relname = $2
@@ -59,6 +69,17 @@ const TRIGGERS: &str = "
      ORDER BY tgname
 ";
 
+/// What `pg_class` says about the relation, which decides what its statement
+/// has to say.
+struct Relation {
+    oid: Oid,
+    relkind: char,
+    persistence: char,
+    populated: bool,
+    /// The parent it is a partition of, and the bound that makes it this one.
+    partition_of: Option<(String, String)>,
+}
+
 struct ColumnDefinition {
     name: String,
     type_name: String,
@@ -85,10 +106,22 @@ pub async fn definition(
     };
     let oid: Oid = row.try_get("oid")?;
     let relkind = row.try_get::<i8, _>("relkind")? as u8 as char;
+    let relation = Relation {
+        oid,
+        relkind,
+        persistence: row.try_get::<i8, _>("relpersistence")? as u8 as char,
+        populated: row.try_get("relispopulated")?,
+        // A partition is written as what it is part of: its columns are the
+        // parent's, and what makes it this partition is the bound.
+        partition_of: row
+            .try_get::<Option<String>, _>("parent")?
+            .filter(|_| row.try_get::<bool, _>("relispartition").unwrap_or(false))
+            .zip(row.try_get::<Option<String>, _>("partition_bound")?),
+    };
 
     let definition = match relkind {
-        'v' | 'm' => view(conn, oid, relkind, schema, table).await?,
-        _ => relation(conn, oid, relkind, schema, table).await?,
+        'v' | 'm' => view(conn, &relation, schema, table).await?,
+        _ => table_statement(conn, &relation, schema, table).await?,
     };
 
     Ok(Some(TableDefinition {
@@ -100,37 +133,50 @@ pub async fn definition(
 
 async fn view(
     conn: &mut PgConnection,
-    oid: Oid,
-    relkind: char,
+    relation: &Relation,
     schema: &str,
     table: &str,
 ) -> Result<String, sqlx::Error> {
     // `true` pretty-prints it, which is what makes a view worth reading.
     let body: String = sqlx::query_scalar("SELECT pg_get_viewdef($1, true)")
-        .bind(oid)
+        .bind(relation.oid)
         .fetch_one(conn)
         .await?;
-    let keyword = if relkind == 'm' {
+    Ok(create_view(relation, schema, table, &body))
+}
+
+fn create_view(relation: &Relation, schema: &str, table: &str, body: &str) -> String {
+    let materialized = relation.relkind == 'm';
+    let keyword = if materialized {
         "CREATE MATERIALIZED VIEW"
     } else {
         "CREATE VIEW"
     };
-    Ok(format!(
-        "{keyword} {}.{} AS\n{}",
+    // `pg_get_viewdef` ends the query with a semicolon of its own, and what
+    // follows a materialized view's body goes before it.
+    let body = body.trim_end().trim_end_matches(';');
+    let unpopulated = if materialized && !relation.populated {
+        "\nWITH NO DATA"
+    } else {
+        ""
+    };
+    format!(
+        "{keyword} {}.{} AS\n{body}{unpopulated};",
         quote(schema),
-        quote(table),
-        body.trim_end()
-    ))
+        quote(table)
+    )
 }
 
-async fn relation(
+async fn table_statement(
     conn: &mut PgConnection,
-    oid: Oid,
-    relkind: char,
+    relation: &Relation,
     schema: &str,
     table: &str,
 ) -> Result<String, sqlx::Error> {
-    let rows = sqlx::query(COLUMNS).bind(oid).fetch_all(&mut *conn).await?;
+    let rows = sqlx::query(COLUMNS)
+        .bind(relation.oid)
+        .fetch_all(&mut *conn)
+        .await?;
     let mut columns = Vec::with_capacity(rows.len());
     for row in &rows {
         columns.push(ColumnDefinition {
@@ -143,14 +189,14 @@ async fn relation(
         });
     }
 
-    let constraints = named(&mut *conn, CONSTRAINTS, oid).await?;
+    let constraints = named(&mut *conn, CONSTRAINTS, relation.oid).await?;
 
     // A partitioned table is one whose partition key the statement has to
     // carry, or what it says is a different table.
-    let partition: Option<String> = if relkind == 'p' {
+    let partition: Option<String> = if relation.relkind == 'p' {
         Some(
             sqlx::query_scalar("SELECT pg_get_partkeydef($1)")
-                .bind(oid)
+                .bind(relation.oid)
                 .fetch_one(conn)
                 .await?,
         )
@@ -159,7 +205,7 @@ async fn relation(
     };
 
     Ok(create_table(
-        keyword(relkind),
+        relation,
         schema,
         table,
         &columns,
@@ -168,21 +214,38 @@ async fn relation(
     ))
 }
 
-fn keyword(relkind: char) -> &'static str {
-    match relkind {
-        'f' => "CREATE FOREIGN TABLE",
+/// What a table is made with, which is not always `CREATE TABLE`: an unlogged
+/// table that says it is one would be made with a WAL it does not have.
+fn keyword(relation: &Relation) -> &'static str {
+    match (relation.relkind, relation.persistence) {
+        ('f', _) => "CREATE FOREIGN TABLE",
+        (_, 'u') => "CREATE UNLOGGED TABLE",
+        (_, 't') => "CREATE TEMPORARY TABLE",
         _ => "CREATE TABLE",
     }
 }
 
 fn create_table(
-    keyword: &str,
+    relation: &Relation,
     schema: &str,
     table: &str,
     columns: &[ColumnDefinition],
     constraints: &[NamedDefinition],
     partition: Option<&str>,
 ) -> String {
+    let keyword = keyword(relation);
+    let partition_by = partition.map_or(String::new(), |by| format!(" PARTITION BY {by}"));
+
+    // A partition takes its columns from the table it is part of, so what says
+    // which rows are in it is the bound and not a column list.
+    if let Some((parent, bound)) = &relation.partition_of {
+        return format!(
+            "{keyword} {}.{} PARTITION OF {parent} {bound}{partition_by};",
+            quote(schema),
+            quote(table)
+        );
+    }
+
     let mut parts: Vec<String> = columns.iter().map(column).collect();
     parts.extend(
         constraints
@@ -195,9 +258,8 @@ fn create_table(
     } else {
         format!("\n    {}\n", parts.join(",\n    "))
     };
-    let partition = partition.map_or(String::new(), |by| format!(" PARTITION BY {by}"));
     format!(
-        "{keyword} {}.{} ({body}){partition};",
+        "{keyword} {}.{} ({body}){partition_by};",
         quote(schema),
         quote(table)
     )
@@ -242,6 +304,16 @@ async fn named(
 mod tests {
     use super::*;
 
+    fn relation(relkind: char) -> Relation {
+        Relation {
+            oid: Oid(1),
+            relkind,
+            persistence: 'p',
+            populated: true,
+            partition_of: None,
+        }
+    }
+
     fn plain(name: &str, type_name: &str) -> ColumnDefinition {
         ColumnDefinition {
             name: name.into(),
@@ -269,7 +341,7 @@ mod tests {
         }];
 
         let sql = create_table(
-            "CREATE TABLE",
+            &relation('r'),
             "shop",
             "orders",
             &columns,
@@ -292,7 +364,7 @@ mod tests {
     #[test]
     fn a_table_with_nothing_in_it_is_still_a_statement() {
         assert_eq!(
-            create_table("CREATE TABLE", "public", "empty", &[], &[], None),
+            create_table(&relation('r'), "public", "empty", &[], &[], None),
             "CREATE TABLE \"public\".\"empty\" ();"
         );
     }
@@ -300,7 +372,7 @@ mod tests {
     #[test]
     fn a_partitioned_table_carries_the_key_it_is_split_on() {
         let sql = create_table(
-            "CREATE TABLE",
+            &relation('p'),
             "public",
             "events",
             &[plain("at", "date")],
@@ -309,6 +381,54 @@ mod tests {
         );
 
         assert!(sql.ends_with(") PARTITION BY RANGE (at);"), "{sql}");
+    }
+
+    #[test]
+    fn a_partition_is_written_as_part_of_what_it_belongs_to() {
+        let partition = Relation {
+            partition_of: Some((
+                "public.events".into(),
+                "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')".into(),
+            )),
+            ..relation('r')
+        };
+
+        let sql = create_table(
+            &partition,
+            "public",
+            "events_2026",
+            &[plain("at", "date")],
+            &[],
+            None,
+        );
+
+        assert_eq!(
+            sql,
+            "CREATE TABLE \"public\".\"events_2026\" PARTITION OF public.events \
+             FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');"
+        );
+    }
+
+    #[test]
+    fn a_partition_that_is_split_again_says_so_too() {
+        let partition = Relation {
+            partition_of: Some(("public.events".into(), "FOR VALUES IN ('jp')".into())),
+            ..relation('p')
+        };
+
+        let sql = create_table(
+            &partition,
+            "public",
+            "events_jp",
+            &[],
+            &[],
+            Some("RANGE (at)"),
+        );
+
+        assert!(
+            sql.ends_with("FOR VALUES IN ('jp') PARTITION BY RANGE (at);"),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -342,7 +462,7 @@ mod tests {
     #[test]
     fn a_name_that_would_end_the_quoting_is_written_twice() {
         let sql = create_table(
-            "CREATE TABLE",
+            &relation('r'),
             "public",
             "odd\"name",
             &[plain("a\"b", "text")],
@@ -358,9 +478,49 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_table_is_not_called_a_table() {
-        assert_eq!(keyword('f'), "CREATE FOREIGN TABLE");
-        assert_eq!(keyword('r'), "CREATE TABLE");
-        assert_eq!(keyword('p'), "CREATE TABLE");
+    fn a_table_is_made_the_way_it_is_kept() {
+        assert_eq!(keyword(&relation('f')), "CREATE FOREIGN TABLE");
+        assert_eq!(keyword(&relation('r')), "CREATE TABLE");
+        assert_eq!(keyword(&relation('p')), "CREATE TABLE");
+        let unlogged = Relation {
+            persistence: 'u',
+            ..relation('r')
+        };
+        assert_eq!(keyword(&unlogged), "CREATE UNLOGGED TABLE");
+        let temporary = Relation {
+            persistence: 't',
+            ..relation('r')
+        };
+        assert_eq!(keyword(&temporary), "CREATE TEMPORARY TABLE");
+    }
+
+    #[test]
+    fn a_view_keeps_the_semicolon_its_body_came_with() {
+        let sql = create_view(
+            &relation('v'),
+            "shop",
+            "names",
+            "SELECT name\n  FROM people;\n",
+        );
+
+        assert_eq!(
+            sql,
+            "CREATE VIEW \"shop\".\"names\" AS\nSELECT name\n  FROM people;"
+        );
+    }
+
+    #[test]
+    fn a_materialized_view_that_holds_nothing_yet_says_so() {
+        let empty = Relation {
+            populated: false,
+            ..relation('m')
+        };
+
+        let sql = create_view(&empty, "shop", "counted", "SELECT count(*) FROM people;");
+
+        assert_eq!(
+            sql,
+            "CREATE MATERIALIZED VIEW \"shop\".\"counted\" AS\nSELECT count(*) FROM people\nWITH NO DATA;"
+        );
     }
 }

@@ -136,8 +136,11 @@ that are objects of their own — an index, a trigger, a constraint, a view's bo
 `drivers/postgres/ddl.rs` rebuilds the `CREATE` statement around them out of
 `pg_attribute`. An index that backs a constraint is left out of the index list, since the
 statement already names it as that constraint, and a trigger PostgreSQL marks internal is
-left out too, because a foreign key wrote it rather than a reader. A foreign table's
-server and its options are not rebuilt.
+left out too, because a foreign key wrote it rather than a reader. What the statement does
+carry is everything that changes what the relation is: an unlogged table is made unlogged,
+a partition is written as part of the table it belongs to rather than as a table of its
+own, and a materialized view that was never filled says so. A foreign table's server and
+its options are not rebuilt.
 
 It shows inside the table's own tab rather than in a tab of its own: a tab is the table,
 and its rows and its structure are two ways of looking at it. Switching between them

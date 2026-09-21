@@ -196,6 +196,15 @@ describe("TablePreviewPane showing the structure", () => {
     });
   });
 
+  it("asks the server for nothing but the structure", async () => {
+    const { ipc, screen } = await preview({}, "structure");
+
+    await expect.element(screen.getByText(/CREATE TABLE/)).toBeVisible();
+    // One connection serves a connection's queries in turn, so a page nobody
+    // is looking at would hold up the definition that is on screen.
+    expect(ipc.calls.map((call) => call.command)).toEqual(["table_definition"]);
+  });
+
   it("leaves the filter and the row buttons behind with the rows", async () => {
     const { screen } = await preview({}, "structure");
 

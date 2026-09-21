@@ -33,13 +33,19 @@ type Props = {
 };
 
 export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
-  const shape = useTableShape(connectionId, tab.schema, tab.table);
+  // The rows keep their state while the structure is read — a pending edit is
+  // still pending, and the page is still the page the reader was on — but
+  // nothing asks the server for them: one connection serves a connection's
+  // queries in turn, so a page nobody is looking at would hold up the
+  // definition that is on screen.
+  const structure = tab.shows === "structure";
+  const shape = useTableShape(connectionId, tab.schema, tab.table, !structure);
   // A row can only be written when it can be named, which is what a primary
   // key is for. A view has none, and neither has a table nobody gave one.
   const primaryKey = shape.data?.primary_key ?? [];
   const editable = primaryKey.length > 0;
 
-  const preview = useTablePreview(connectionId, tab, editable, !shape.isPending);
+  const preview = useTablePreview(connectionId, tab, editable, !structure && !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
@@ -170,9 +176,6 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   }
 
   const rows = page?.result.rows.length ?? 0;
-  // The rows keep their state while the structure is read: a pending edit is
-  // still pending, and the page is still the page the reader was on.
-  const structure = tab.shows === "structure";
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col gap-2 p-3 ${hidden ? "hidden" : ""}`}>
@@ -275,7 +278,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </div>
       )}
 
-      {shape.isError && (
+      {!structure && shape.isError && (
         <div role="alert" className="alert alert-error">
           <span className="text-sm">
             {describeError(shape.error)} — the rows can still be read, but nothing here knows how to

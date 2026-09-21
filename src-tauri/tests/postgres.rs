@@ -936,3 +936,83 @@ async fn a_relation_that_is_not_there_has_no_definition() {
         .unwrap()
         .is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_partition_is_written_as_part_of_the_table_it_belongs_to() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    for statement in [
+        "DROP SCHEMA IF EXISTS ddl_parts CASCADE",
+        "CREATE SCHEMA ddl_parts",
+        "CREATE TABLE ddl_parts.events (at date NOT NULL, note text) PARTITION BY RANGE (at)",
+        "CREATE TABLE ddl_parts.events_2026 PARTITION OF ddl_parts.events
+             FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+        "CREATE UNLOGGED TABLE ddl_parts.scratch (id int)",
+    ] {
+        run(&session, statement).await.unwrap();
+    }
+
+    let parent = session
+        .definition("ddl_parts", "events")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        parent.definition.ends_with(") PARTITION BY RANGE (at);"),
+        "{}",
+        parent.definition
+    );
+
+    let part = session
+        .definition("ddl_parts", "events_2026")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        part.definition,
+        "CREATE TABLE \"ddl_parts\".\"events_2026\" PARTITION OF ddl_parts.events \
+         FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');"
+    );
+
+    let unlogged = session
+        .definition("ddl_parts", "scratch")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        unlogged
+            .definition
+            .starts_with("CREATE UNLOGGED TABLE \"ddl_parts\".\"scratch\""),
+        "{}",
+        unlogged.definition
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_materialized_view_with_nothing_in_it_yet_says_so() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    for statement in [
+        "DROP SCHEMA IF EXISTS ddl_empty CASCADE",
+        "CREATE SCHEMA ddl_empty",
+        "CREATE TABLE ddl_empty.people (id int)",
+        "CREATE MATERIALIZED VIEW ddl_empty.counted AS SELECT count(*) AS n FROM ddl_empty.people
+             WITH NO DATA",
+    ] {
+        run(&session, statement).await.unwrap();
+    }
+
+    let found = session
+        .definition("ddl_empty", "counted")
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        found.definition.ends_with("\nWITH NO DATA;"),
+        "{}",
+        found.definition
+    );
+}
