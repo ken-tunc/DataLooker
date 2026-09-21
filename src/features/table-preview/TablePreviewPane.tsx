@@ -1,9 +1,22 @@
 import { type FormEvent, useState } from "react";
+import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
 import { formatCell } from "../query/cell";
 import { ResultGrid } from "../query/ResultGrid";
 import type { TableView } from "../tabs/tabs";
-import { editCount, type PendingEdits, rowKeyOf, updatesOf, withEdit } from "./edits";
+import {
+  editCount,
+  isDeleted,
+  NO_EDITS,
+  type PendingEdits,
+  rowKeyOf,
+  tableEdits,
+  withDeleted,
+  withEdit,
+  withNewRow,
+  withNewValue,
+  withoutNewRow,
+} from "./edits";
 import { type TableTab, useCommitEdits, useTablePreview, useTableShape } from "./hooks";
 
 type Props = {
@@ -22,19 +35,29 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
 
   const preview = useTablePreview(connectionId, tab, editable, !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
-  const [edits, setEdits] = useState<PendingEdits>({});
+  const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
   // The filter applies when it is submitted, not as it is typed: half a
   // predicate is a syntax error, and every keystroke would be a query.
   const [draft, setDraft] = useState(tab.filter);
 
   const page = preview.data;
   const columns = page?.result.columns ?? [];
-  // The page on screen may be the previous one, still there while the next
-  // arrives. An edit belongs to a row of the page it was typed into, so it
-  // needs that page's versions, not the next page's.
   const editingPage =
     editable && page !== undefined && page.versions.length === page.result.rows.length;
   const pending = editCount(edits);
+
+  // New rows sit above the table's own, so a row index below their count is a
+  // draft and the rest are the page's, shifted by it.
+  const drafts = edits.inserts;
+  const shown: QueryResult | undefined = page && {
+    ...page.result,
+    rows: [
+      ...drafts.map((row) => columns.map((column) => row.values[column.name])),
+      ...page.result.rows,
+    ],
+  };
+  const dataRow = (row: number) => row - drafts.length;
 
   function keyOfRow(row: number): Record<string, string | null> | null {
     const values = page?.result.rows[row];
@@ -51,27 +74,49 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   }
 
   function edit(row: number, column: string, value: string | null) {
-    const key = keyOfRow(row);
-    const version = page?.versions[row];
+    const index = dataRow(row);
+    const draftRow = drafts[row];
+    if (draftRow) {
+      setEdits((current) => withNewValue(current, draftRow.id, column, value));
+      return;
+    }
+    const key = keyOfRow(index);
+    const version = page?.versions[index];
     if (!key || version === undefined) return;
     setEdits((current) => withEdit(current, { key, version, set: {} }, column, value));
   }
 
   function pendingValue(row: number, column: string) {
-    const key = keyOfRow(row);
-    return key ? edits[rowKeyOf(key)]?.set[column] : undefined;
+    const draftRow = drafts[row];
+    if (draftRow) return draftRow.values[column];
+    const key = keyOfRow(dataRow(row));
+    return key ? edits.updates[rowKeyOf(key)]?.set[column] : undefined;
+  }
+
+  function rowClass(row: number) {
+    if (drafts[row]) return "bg-success/10";
+    const key = keyOfRow(dataRow(row));
+    return key && isDeleted(edits, key) ? "bg-error/15 line-through opacity-60" : undefined;
+  }
+
+  function toggleDelete() {
+    if (selectedRow === null) return;
+    const draftRow = drafts[selectedRow];
+    if (draftRow) {
+      setEdits((current) => withoutNewRow(current, draftRow.id));
+      return;
+    }
+    const index = dataRow(selectedRow);
+    const key = keyOfRow(index);
+    const version = page?.versions[index];
+    if (!key || version === undefined) return;
+    setEdits((current) => withDeleted(current, key, version));
   }
 
   function save() {
-    commit.mutate(
-      {
-        connection_id: connectionId,
-        schema: tab.schema,
-        table: tab.table,
-        updates: updatesOf(edits),
-      },
-      { onSuccess: () => setEdits({}) },
-    );
+    commit.mutate(tableEdits(connectionId, tab.schema, tab.table, edits), {
+      onSuccess: () => setEdits(NO_EDITS),
+    });
   }
 
   function applyFilter(event: FormEvent) {
@@ -108,19 +153,38 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             Filter
           </button>
         </form>
+        {editingPage && (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setEdits((current) => withNewRow(current, crypto.randomUUID()))}
+            >
+              New row
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={selectedRow === null}
+              onClick={toggleDelete}
+            >
+              Remove row
+            </button>
+          </>
+        )}
         {preview.isFetching && <span className="loading loading-spinner loading-xs" />}
       </div>
 
       {pending > 0 && (
         <div className="bg-warning/15 flex items-center gap-2 rounded-box px-3 py-2 text-sm">
           <span className="grow">
-            {pending} {pending === 1 ? "cell" : "cells"} changed
+            {pending} unsaved {pending === 1 ? "change" : "changes"}
           </span>
           <button
             type="button"
             className="btn btn-sm btn-ghost"
             disabled={commit.isPending}
-            onClick={() => setEdits({})}
+            onClick={() => setEdits(NO_EDITS)}
           >
             Discard
           </button>
@@ -165,12 +229,13 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       )}
 
       <div className="min-h-0 flex-1">
-        {page && columns.length > 0 ? (
+        {shown && columns.length > 0 ? (
           <ResultGrid
-            result={page.result}
+            result={shown}
             sort={tab.sort}
             onSortColumn={sortBy}
-            editing={editingPage ? { pendingValue, onEdit: edit } : undefined}
+            onSelectRow={setSelectedRow}
+            editing={editingPage ? { pendingValue, onEdit: edit, rowClass } : undefined}
           />
         ) : (
           <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
@@ -202,7 +267,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </span>
         {page && <span>{page.result.elapsed_ms} ms</span>}
         <span className="grow" />
-        <span>{editingHint(editable, shape.isError)}</span>
+        <span>{editingHint(editingPage, shape.isError)}</span>
       </div>
     </div>
   );
@@ -210,6 +275,6 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
 
 function editingHint(editable: boolean, shapeFailed: boolean): string {
   if (shapeFailed) return "Read-only: the table's shape could not be read.";
-  if (editable) return "Double-click a cell to edit it; ⌘⌫ sets it to NULL.";
-  return "Read-only: this relation has no primary key.";
+  if (!editable) return "Read-only: this relation has no primary key.";
+  return "Double-click a cell to edit it; ⌘⌫ sets it to NULL. A new row's empty cells take the table's defaults.";
 }

@@ -1,6 +1,6 @@
-import type { RowUpdate } from "../../bindings/RowUpdate";
+import type { TableEdits } from "../../bindings/TableEdits";
 
-/** A row the reader has changed but not saved, and what it takes to save it. */
+/** A row the reader changed but has not saved, and what it takes to save it. */
 export type PendingRow = {
   key: Record<string, string | null>;
   /** The row's version when it was read, which is what a save is checked against. */
@@ -8,8 +8,16 @@ export type PendingRow = {
   set: Record<string, string | null>;
 };
 
-/** Pending rows by their key, so that a second edit to a row joins the first. */
-export type PendingEdits = Record<string, PendingRow>;
+/** A row the reader is adding. A column it leaves out takes the table's default. */
+export type DraftRow = { id: string; values: Record<string, string | null> };
+
+export type PendingEdits = {
+  updates: Record<string, PendingRow>;
+  deletes: Record<string, { key: Record<string, string | null>; version: string }>;
+  inserts: DraftRow[];
+};
+
+export const NO_EDITS: PendingEdits = { updates: {}, deletes: {}, inserts: [] };
 
 /**
  * Names a row by its primary key. The parts are encoded rather than joined,
@@ -30,68 +38,145 @@ export function withEdit(
   value: string | null,
 ): PendingEdits {
   const id = rowKeyOf(row.key);
-  const existing = edits[id];
+  const existing = edits.updates[id];
   return {
     ...edits,
-    [id]: {
-      ...row,
-      // The version is the one the row was read with the first time it was
-      // edited: a page that has since been refetched must not quietly carry an
-      // edit onto a row someone else has rewritten.
-      version: existing?.version ?? row.version,
-      set: { ...existing?.set, [column]: value },
+    updates: {
+      ...edits.updates,
+      [id]: {
+        ...row,
+        // The version is the one the row was read with the first time it was
+        // edited: a page that has since been refetched must not quietly carry
+        // an edit onto a row someone else has rewritten.
+        version: existing?.version ?? row.version,
+        set: { ...existing?.set, [column]: value },
+      },
     },
   };
 }
 
-export function editCount(edits: PendingEdits): number {
-  return Object.values(edits).reduce((cells, row) => cells + Object.keys(row.set).length, 0);
+/** Marking a row again unmarks it, which is the only way back from a mistake. */
+export function withDeleted(
+  edits: PendingEdits,
+  key: Record<string, string | null>,
+  version: string,
+): PendingEdits {
+  const id = rowKeyOf(key);
+  const { [id]: marked, ...rest } = edits.deletes;
+  return { ...edits, deletes: marked ? rest : { ...edits.deletes, [id]: { key, version } } };
 }
 
-export function updatesOf(edits: PendingEdits): RowUpdate[] {
-  return Object.values(edits).map((row) => ({
-    key: row.key,
-    set: row.set,
-    version: row.version,
-  }));
+export function isDeleted(edits: PendingEdits, key: Record<string, string | null>): boolean {
+  return edits.deletes[rowKeyOf(key)] !== undefined;
+}
+
+export function withNewRow(edits: PendingEdits, id: string): PendingEdits {
+  return { ...edits, inserts: [...edits.inserts, { id, values: {} }] };
+}
+
+export function withNewValue(
+  edits: PendingEdits,
+  id: string,
+  column: string,
+  value: string | null,
+): PendingEdits {
+  return {
+    ...edits,
+    inserts: edits.inserts.map((row) =>
+      row.id === id ? { ...row, values: { ...row.values, [column]: value } } : row,
+    ),
+  };
+}
+
+export function withoutNewRow(edits: PendingEdits, id: string): PendingEdits {
+  return { ...edits, inserts: edits.inserts.filter((row) => row.id !== id) };
+}
+
+/** What the reader would lose by discarding: rows added or removed, cells changed. */
+export function editCount(edits: PendingEdits): number {
+  const cells = Object.values(edits.updates).reduce(
+    (total, row) => total + Object.keys(row.set).length,
+    0,
+  );
+  return cells + Object.keys(edits.deletes).length + edits.inserts.length;
+}
+
+export function tableEdits(
+  connectionId: string,
+  schema: string,
+  table: string,
+  edits: PendingEdits,
+): TableEdits {
+  return {
+    connection_id: connectionId,
+    schema,
+    table,
+    inserts: edits.inserts.map((row) => ({ values: row.values })),
+    updates: Object.values(edits.updates).map((row) => ({
+      key: row.key,
+      set: row.set,
+      version: row.version,
+    })),
+    deletes: Object.values(edits.deletes),
+  };
 }
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
-  const row = (id: string, version = "100"): PendingRow => ({
-    key: { id },
-    version,
-    set: {},
-  });
+  const row = (id: string, version = "100"): PendingRow => ({ key: { id }, version, set: {} });
+  const saved = (edits: PendingEdits) => tableEdits("c1", "shop", "people", edits);
 
   describe("withEdit", () => {
     it("keeps both changes to one row together", () => {
-      const first = withEdit({}, row("1"), "name", "Ada");
+      const first = withEdit(NO_EDITS, row("1"), "name", "Ada");
       const second = withEdit(first, row("1"), "note", null);
 
-      expect(Object.keys(second)).toHaveLength(1);
-      expect(updatesOf(second)).toEqual([
+      expect(saved(second).updates).toEqual([
         { key: { id: "1" }, set: { name: "Ada", note: null }, version: "100" },
       ]);
     });
 
     it("keeps the version the row was first edited at", () => {
-      const first = withEdit({}, row("1", "100"), "name", "Ada");
+      const first = withEdit(NO_EDITS, row("1", "100"), "name", "Ada");
       const refetched = withEdit(first, row("1", "200"), "name", "Grace");
 
-      expect(updatesOf(refetched)[0]?.version).toBe("100");
-    });
-
-    it("keeps rows apart", () => {
-      const edits = withEdit(withEdit({}, row("1"), "name", "a"), row("2"), "name", "b");
-      expect(editCount(edits)).toBe(2);
+      expect(saved(refetched).updates[0]?.version).toBe("100");
     });
 
     it("counts a column changed twice once", () => {
-      const edits = withEdit(withEdit({}, row("1"), "name", "a"), row("1"), "name", "b");
+      const edits = withEdit(withEdit(NO_EDITS, row("1"), "name", "a"), row("1"), "name", "b");
       expect(editCount(edits)).toBe(1);
-      expect(updatesOf(edits)[0]?.set).toEqual({ name: "b" });
+    });
+  });
+
+  describe("withDeleted", () => {
+    it("marks a row and unmarks it again", () => {
+      const marked = withDeleted(NO_EDITS, { id: "1" }, "100");
+      expect(isDeleted(marked, { id: "1" })).toBe(true);
+      expect(saved(marked).deletes).toEqual([{ key: { id: "1" }, version: "100" }]);
+
+      const unmarked = withDeleted(marked, { id: "1" }, "100");
+      expect(isDeleted(unmarked, { id: "1" })).toBe(false);
+      expect(editCount(unmarked)).toBe(0);
+    });
+  });
+
+  describe("new rows", () => {
+    it("carries only the columns the reader filled in", () => {
+      const started = withNewRow(NO_EDITS, "draft-1");
+      const filled = withNewValue(started, "draft-1", "name", "Katherine");
+
+      expect(saved(filled).inserts).toEqual([{ values: { name: "Katherine" } }]);
+    });
+
+    it("drops one draft without touching the others", () => {
+      const two = withNewRow(withNewRow(NO_EDITS, "draft-1"), "draft-2");
+      expect(withoutNewRow(two, "draft-1").inserts.map((row) => row.id)).toEqual(["draft-2"]);
+    });
+
+    it("counts a row the reader has not filled in yet", () => {
+      expect(editCount(withNewRow(NO_EDITS, "draft-1"))).toBe(1);
     });
   });
 

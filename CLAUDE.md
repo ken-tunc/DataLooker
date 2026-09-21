@@ -98,6 +98,16 @@ child measures — the virtualizer's — is held in state rather than a ref, bec
 attaches a parent's ref only after its children have run their effects, and the child would
 measure nothing.
 
+## Editing a table
+
+A value the reader types is sent as text and cast to the column's own type
+(`SET "price" = $1::numeric(10,2)`), so PostgreSQL parses it with the input functions it uses
+everywhere else and a bad value comes back as its own complaint. A save is checked against
+the row's `xmin` — the transaction that last wrote it — which needs no round trip through
+our rendering of a value, and catches any concurrent change to the row. One save is one
+transaction: a row that matches nothing refuses the lot. A relation with no primary key
+cannot name a row, so it is read-only.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives
