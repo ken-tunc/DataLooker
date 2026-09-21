@@ -152,8 +152,8 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       {shape.isError && (
         <div role="alert" className="alert alert-error">
           <span className="text-sm">
-            {describeError(shape.error)} — the rows are shown, but nothing here knows how to name
-            one, so they cannot be edited.
+            {describeError(shape.error)} — the rows can still be read, but nothing here knows how to
+            name one, so they cannot be edited.
           </span>
         </div>
       )}
