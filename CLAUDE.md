@@ -207,6 +207,17 @@ on; a table's columns are asked for when the table is opened, and the cache is w
 a table opened twice from being read twice. PostgreSQL reads the same way, so that the
 tree is one shape whatever it came from.
 
+A name ending in a date — `events_20250101` and the years of days beside it — is
+one day of a table written a day at a time, so the tree folds a set of them into
+one row and lists the days inside it, newest first. That is read out of the
+names rather than asked of a driver, because the convention is a naming one and
+nothing in a catalog says a table is a shard; a prefix only one table carries
+stays that table, since a row that opens onto a single table hides it rather
+than summing it up. What the schema holds is what decides that, and a filter
+only decides which days are shown: a set of a thousand is still a set when the
+reader has narrowed it to one. The ⌘O palette still offers every day by name, which is how
+one of them is reached directly.
+
 BigQuery answers out of `INFORMATION_SCHEMA` in the region its jobs run in, which is one
 catalog per region and named after it. What comes back is read page by page rather than
 row-limited, because every row of it is wanted — that is `query::collect`, beside the

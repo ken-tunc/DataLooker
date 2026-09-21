@@ -13,6 +13,9 @@ import {
 
 const ROW_HEIGHT = 26;
 
+/** How far in a row of each depth sits, since nesting is all a flat list has. */
+const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14"];
+
 type Props = {
   connectionId: string;
   onOpenTable: (schema: string, table: string) => void;
@@ -133,15 +136,19 @@ function Row({
   onToggle: (id: string) => void;
   onOpenTable: (schema: string, table: string) => void;
 }) {
+  const indent = INDENTS[row.indent] ?? "pl-14";
+
   if (row.kind === "note") {
     return (
-      <span className="text-base-content/50 truncate py-0.5 pr-2 pl-10 text-xs">{row.text}</span>
+      <span className={`text-base-content/50 truncate py-0.5 pr-2 text-xs ${indent}`}>
+        {row.text}
+      </span>
     );
   }
 
   if (row.kind === "column") {
     return (
-      <span className="flex w-full items-baseline gap-2 truncate py-0.5 pr-2 pl-10 text-sm">
+      <span className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}>
         <span className="truncate">{row.name}</span>
         <span className="text-base-content/50 truncate text-xs">
           {row.dataType}
@@ -151,26 +158,33 @@ function Row({
     );
   }
 
-  // A schema's row is one control — it only expands — while a table's row is
+  // A schema's row is one control — it only expands — and so is a group of
+  // shards, which stands for tables rather than being one. A table's row is
   // two: the chevron shows its columns, and the name (with the space after it)
   // opens the table.
-  if (row.kind === "schema") {
+  if (row.kind === "schema" || row.kind === "shards") {
+    const [name, beside] =
+      row.kind === "schema"
+        ? [row.name, String(row.tables)]
+        : [`${row.prefix}_*`, `${row.shards} shard${row.shards === 1 ? "" : "s"}`];
     return (
       <button
         type="button"
         aria-expanded={row.expanded}
-        className="hover:bg-base-200 flex w-full cursor-pointer items-baseline gap-1 py-0.5 pr-2 pl-2 text-left text-sm font-medium"
+        className={`hover:bg-base-200 flex w-full cursor-pointer items-baseline gap-1 py-0.5 pr-2 text-left text-sm ${row.kind === "schema" ? "font-medium" : ""} ${indent}`}
         onClick={() => onToggle(row.id)}
       >
         <Chevron expanded={row.expanded} />
-        <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">{row.tables}</span>
+        <span className="truncate">{name}</span>
+        <span className="text-base-content/50 shrink-0 text-xs">{beside}</span>
       </button>
     );
   }
 
   return (
-    <span className="hover:bg-base-200 flex w-full items-baseline gap-1 py-0.5 pr-2 pl-6 text-sm">
+    <span
+      className={`hover:bg-base-200 flex w-full items-baseline gap-1 py-0.5 pr-2 text-sm ${indent}`}
+    >
       <button
         type="button"
         aria-expanded={row.expanded}

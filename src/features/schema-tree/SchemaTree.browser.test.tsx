@@ -13,6 +13,14 @@ const tree: Tree = {
       ],
     },
     { name: "analytics", tables: [{ name: "daily", kind: "table" }] },
+    {
+      name: "logs",
+      tables: [
+        { name: "events_20250101", kind: "table" },
+        { name: "events_20250102", kind: "table" },
+        { name: "events_20250103", kind: "table" },
+      ],
+    },
   ],
 };
 
@@ -93,6 +101,20 @@ describe("SchemaTree", () => {
     await screen.getByLabelText("Expand orders").click();
 
     await expect.element(screen.getByText("the dataset is gone")).toBeVisible();
+  });
+
+  it("shows a set of shards as one row, holding the days it was written on", async () => {
+    const { onOpenTable, screen } = await schemaTree();
+    await screen.getByText("logs").click();
+
+    await expect.element(screen.getByText("events_*")).toBeVisible();
+    await expect.element(screen.getByText("3 shards")).toBeVisible();
+    expect(screen.getByText("events_20250103").elements()).toEqual([]);
+
+    await screen.getByText("events_*").click();
+    await screen.getByText("events_20250103").click();
+
+    expect(onOpenTable).toHaveBeenCalledWith("logs", "events_20250103");
   });
 
   it("opens the table a reader clicks, rather than its columns", async () => {
