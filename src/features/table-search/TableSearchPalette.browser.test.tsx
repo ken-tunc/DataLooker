@@ -69,6 +69,16 @@ describe("TableSearchPalette", () => {
     expect(onOpenTable).toHaveBeenCalledWith("public", "people");
   });
 
+  it("keeps the keyboard on the query when Tab is pressed", async () => {
+    const { find, onOpenTable } = await palette();
+
+    await find.fill("people");
+    // Were an option to take the focus, the arrow would go to it instead.
+    await userEvent.keyboard("{Tab}{ArrowDown}{Enter}");
+
+    expect(onOpenTable).toHaveBeenCalledWith("analytics", "people_daily");
+  });
+
   it("opens the table a click lands on", async () => {
     const { screen, onOpenTable } = await palette();
 

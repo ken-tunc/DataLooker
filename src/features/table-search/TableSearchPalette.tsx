@@ -68,7 +68,12 @@ export function TableSearchPalette({ connectionId, onOpenTable, onClose }: Props
     if (event.key === "Enter") {
       event.preventDefault();
       open(selected);
+      return;
     }
+    // Nothing else in the palette takes the keyboard, and Chromium answers a
+    // Tab it cannot place by dropping the focus on the body, where the query
+    // would stop hearing what is typed.
+    if (event.key === "Tab") event.preventDefault();
   }
 
   return (
@@ -112,11 +117,14 @@ export function TableSearchPalette({ connectionId, onOpenTable, onClose }: Props
           aria-label="Tables"
         >
           {matches.map((match, index) => (
-            <li key={`${match.schema}.${match.table}`} className="w-full">
+            <li key={`${match.schema}.${match.table}`} role="presentation" className="w-full">
               <button
                 type="button"
                 id={optionId(index)}
                 role="option"
+                // Out of the Tab order: the input owns the keyboard, and a
+                // focused option would take the arrows and Enter away from it.
+                tabIndex={-1}
                 aria-selected={index === selected}
                 className={`flex w-full items-baseline gap-2 ${index === selected ? "menu-active" : ""}`}
                 // The input keeps the focus, so the list stays keyboard-driven
@@ -151,7 +159,11 @@ export function TableSearchPalette({ connectionId, onOpenTable, onClose }: Props
         )}
       </div>
       <form method="dialog" className="modal-backdrop">
-        <button type="submit">Close</button>
+        {/* The backdrop is there to be clicked. Tabbing to it would move the
+            keyboard off the query and onto a button nothing is drawn for. */}
+        <button type="submit" tabIndex={-1}>
+          Close
+        </button>
       </form>
     </dialog>
   );

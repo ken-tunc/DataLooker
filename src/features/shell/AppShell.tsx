@@ -22,6 +22,9 @@ export function AppShell() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!selectedId) return;
+      // The palette is modal on screen, so the shortcuts behind it stay quiet
+      // until it closes — a tab opened under it would go unnoticed.
+      if (searching) return;
       // Opening a tab is what gets a connection out of having none, so it comes
       // before the shortcuts that need one.
       if (event.key === "t" && event.metaKey) {
@@ -41,7 +44,7 @@ export function AppShell() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, tabs]);
+  }, [searching, selectedId, tabs]);
 
   return (
     <div className="flex h-full">
