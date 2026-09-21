@@ -3,7 +3,6 @@ export function formatCell(value: unknown): string {
   if (value === null) return "NULL";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  // Whatever is left is a document or an array, the only other JSON shapes.
   return JSON.stringify(value) ?? "";
 }
 
