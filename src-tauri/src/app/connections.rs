@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 use ts_rs::TS;
 
 use crate::app::App;
-use crate::db::connection::{self, ConnectionRecord, DriverConfig};
+use crate::db::connection::{self, ConnectionFields, ConnectionRecord, DriverConfig};
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 
@@ -27,6 +27,10 @@ impl App {
     pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
         let deleted = delete(id, &self.pool, self.secrets.as_ref()).await;
         self.sessions.close(id);
+        // Nothing would be left to stop the command with: the row the run
+        // button lives on is going. A save leaves it running on purpose —
+        // renaming a connection is no reason to drop the reader's tunnel.
+        self.stop_command(id);
         deleted
     }
 }
@@ -41,6 +45,8 @@ pub struct SaveConnectionInput {
     /// Absent leaves the stored secret alone, which is how an edit that does
     /// not touch the password arrives.
     pub secret: Option<String>,
+    /// A shell command to run before connecting, or nothing to run.
+    pub command: Option<String>,
 }
 
 /// The keychain write sits inside the transaction: if it fails, dropping the
@@ -60,21 +66,30 @@ async fn save(
     secrets: &dyn SecretStore,
 ) -> Result<String, AppError> {
     validate(&input)?;
-    let label = input.label.trim();
+    let command = input
+        .command
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty());
+    let fields = ConnectionFields {
+        label: input.label.trim(),
+        config: &input.config,
+        command,
+    };
     let mut tx = pool.begin().await?;
 
     let id = match &input.id {
         Some(id) => {
             // An id the database does not hold is not an edit: inserting it
             // here would make a connection whose password was never required.
-            if !connection::update(&mut *tx, id, label, &input.config).await? {
+            if !connection::update(&mut *tx, id, fields).await? {
                 return Err(AppError::NotFound(id.clone()));
             }
             id.clone()
         }
         None => {
             let id = uuid::Uuid::new_v4().to_string();
-            connection::insert(&mut *tx, &id, label, &input.config).await?;
+            connection::insert(&mut *tx, &id, fields).await?;
             id
         }
     };
@@ -175,7 +190,28 @@ mod tests {
             label: label.into(),
             config: postgres_config(),
             secret: secret.map(str::to_string),
+            command: None,
         }
+    }
+
+    #[tokio::test]
+    async fn a_command_of_nothing_but_spaces_is_no_command() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+
+        let id = save(
+            SaveConnectionInput {
+                command: Some("   ".into()),
+                ..input(None, "Local", Some("hunter2"))
+            },
+            &pool,
+            &secrets,
+        )
+        .await
+        .unwrap();
+
+        let stored = connection::find_by_id(&pool, &id).await.unwrap().unwrap();
+        assert_eq!(stored.command, None);
     }
 
     #[tokio::test]

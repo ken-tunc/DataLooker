@@ -142,6 +142,22 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 onChange={(event) => update("password", event.target.value)}
               />
             </Field>
+
+            <Field
+              id={`${fieldId}-command`}
+              label="Command"
+              error={errors.command}
+              hint="Run before connecting, from the connection list: a port forward or an SSH tunnel. Optional."
+            >
+              <input
+                id={`${fieldId}-command`}
+                className={`${inputClass(errors.command)} font-mono`}
+                spellCheck={false}
+                placeholder="ssh -N -L 5432:db.internal:5432 bastion"
+                value={values.command}
+                onChange={(event) => update("command", event.target.value)}
+              />
+            </Field>
           </fieldset>
 
           <div className="modal-action">

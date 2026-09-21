@@ -175,6 +175,25 @@ its own. Only the newest runs of a connection are kept, so a long-lived `meta.db
 bounded. A log that cannot be written never fails the query it describes: the rows are
 already in hand, and there is nothing the reader could do about it.
 
+## A connection's command
+
+A connection can carry a shell command the reader runs before connecting — a port forward,
+an SSH tunnel — started and stopped from its row in the list. It is the reader's, not the
+driver's, so it sits in a column of its own rather than in `config`.
+
+`shell/` runs it through the reader's login shell (`$SHELL -l -c`), because a window opened
+from Finder inherits a `PATH` with none of the places `ssh` or `kubectl` are installed and
+the login profile is what puts them back. The shell leads a process group of its own and
+stopping kills the group: what the reader wrote is rarely one process, and killing the
+shell alone would leave the tunnel holding its port while the window says it stopped. The
+group also goes when the app does — a tunnel that outlives the window which opened it is
+one nothing here can stop any more.
+
+A command that ends is announced rather than returned: `app::App` has no window to tell and
+no way to reach one, so it publishes the ending on a broadcast channel and
+`commands/shell.rs` is what turns that into a Tauri event. `lib/events.ts` is to an event
+what `lib/commands.ts` is to a command — the only module that names one.
+
 ## Vim keybindings
 
 A toggle under the editor turns them on, and `features/sql-editor/vim.ts` holds the answer

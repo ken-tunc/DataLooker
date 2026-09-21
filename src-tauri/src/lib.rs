@@ -4,6 +4,7 @@ pub mod db;
 pub mod drivers;
 pub mod error;
 mod secrets;
+pub mod shell;
 
 use tauri::Manager;
 
@@ -17,7 +18,9 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;
             let service = app.config().identifier.clone();
-            app.manage(App::new(pool, Box::new(KeyringStore::new(service)?)));
+            let state = App::new(pool, Box::new(KeyringStore::new(service)?));
+            commands::shell::forward_exits(app.handle().clone(), &state);
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,8 +37,19 @@ pub fn run() {
             commands::schema::table_definition,
             commands::preview::preview_table,
             commands::edit::table_shape,
-            commands::edit::commit_table_edits
+            commands::edit::commit_table_edits,
+            commands::shell::run_connection_command,
+            commands::shell::stop_connection_command,
+            commands::shell::running_connection_commands
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|handle, event| {
+            // A command runs until it is stopped, and closing the window is
+            // one way of stopping it. Nothing else would: the tunnel is a
+            // process of its own, and the app that started it is gone.
+            if matches!(event, tauri::RunEvent::Exit) {
+                handle.state::<App>().stop_all_commands();
+            }
+        });
 }

@@ -21,6 +21,9 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    #[error("Shell error: {0}")]
+    Shell(String),
+
     #[error("Cancelled")]
     Cancelled,
 

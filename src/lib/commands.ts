@@ -68,6 +68,23 @@ export function tableDefinition(
   return invoke<TableDefinition>("table_definition", { connectionId, schema, table });
 }
 
+/**
+ * Start the connection's command — a port forward, a tunnel — and leave it
+ * running. It ends when it is stopped, when it fails, or when the app quits.
+ */
+export function runConnectionCommand(connectionId: string): Promise<void> {
+  return invoke<void>("run_connection_command", { connectionId });
+}
+
+export function stopConnectionCommand(connectionId: string): Promise<void> {
+  return invoke<void>("stop_connection_command", { connectionId });
+}
+
+/** The connections whose command is running right now. */
+export function runningConnectionCommands(): Promise<string[]> {
+  return invoke<string[]>("running_connection_commands");
+}
+
 export function previewTable(request: PreviewRequest): Promise<TablePage> {
   return invoke<TablePage>("preview_table", { request });
 }

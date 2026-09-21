@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
+import { CommandButton } from "../connection-command/CommandButton";
+import { useCommandExits } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import type { FormMode } from "./form";
@@ -23,6 +25,9 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
   const test = useTestConnection();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRecord | null>(null);
+
+  // The list is where a command is started, so it is where its ending belongs.
+  useCommandExits();
 
   function runTest(connection: ConnectionRecord) {
     test.mutate(connection.id, {
@@ -91,6 +96,9 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
                 </button>
                 {test.isPending && test.variables === connection.id && (
                   <span className="loading loading-spinner loading-xs shrink-0" />
+                )}
+                {connection.command && (
+                  <CommandButton connection={connection} command={connection.command} />
                 )}
                 <details className="dropdown dropdown-end shrink-0">
                   <summary

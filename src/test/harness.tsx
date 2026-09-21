@@ -15,6 +15,8 @@ export type Ipc = {
   calls: { command: string; args: Record<string, unknown> }[];
   /** What was sent the last time `command` was called, or undefined. */
   sent(command: string): Record<string, unknown> | undefined;
+  /** Announce what the backend would have announced, to whoever is listening. */
+  emit(event: string, payload: unknown): void;
 };
 
 /**
@@ -25,9 +27,23 @@ export type Ipc = {
  */
 export function stubIpc(replies: Record<string, Reply>): Ipc {
   const calls: Ipc["calls"] = [];
+  // What `listen` handed over, by the number it was given. Tauri passes a
+  // callback to the backend as a number and calls it back by that number; the
+  // frontend never sees either, so neither does a test.
+  const listeners = new Map<number, { event: string; handler: (message: unknown) => void }>();
+  let nextHandler = 0;
 
   const invoke = async (command: string, args: Record<string, unknown> = {}) => {
     calls.push({ command, args });
+    if (command === "plugin:event|listen") {
+      const handler = listeners.get(args.handler as number);
+      if (handler) handler.event = args.event as string;
+      return args.handler;
+    }
+    if (command === "plugin:event|unlisten") {
+      listeners.delete(args.eventId as number);
+      return null;
+    }
     const reply = replies[command];
     if (reply === undefined) {
       throw { kind: "NotFound", message: `no stub for ${command}` };
@@ -38,7 +54,21 @@ export function stubIpc(replies: Record<string, Reply>): Ipc {
   };
 
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
-    value: { invoke },
+    value: {
+      invoke,
+      transformCallback: (handler: (message: unknown) => void) => {
+        nextHandler += 1;
+        listeners.set(nextHandler, { event: "", handler });
+        return nextHandler;
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+  // `listen` tells the event plugin's own bookkeeping that a listener is going
+  // away. Nothing here keeps that book, but unlistening must not throw.
+  Object.defineProperty(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+    value: { unregisterListener: () => {} },
     configurable: true,
     writable: true,
   });
@@ -46,6 +76,11 @@ export function stubIpc(replies: Record<string, Reply>): Ipc {
   return {
     calls,
     sent: (command) => calls.filter((call) => call.command === command).at(-1)?.args,
+    emit: (event, payload) => {
+      for (const [id, listener] of listeners) {
+        if (listener.event === event) listener.handler({ event, id, payload });
+      }
+    },
   };
 }
 
