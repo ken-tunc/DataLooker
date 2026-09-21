@@ -66,6 +66,9 @@ describe("SqlEditor", () => {
 
 describe("SqlEditor asked what a name is", () => {
   const STATEMENT = "select * from shop.orders";
+  // Monaco reads `CtrlCmd` as ⌘ on a Mac and as Ctrl everywhere else. The app
+  // is a Mac one, but the tests also run where the other half of that is true.
+  const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
   /** The column before `orders`, counting from one as Monaco does. */
   const ON_ORDERS = STATEMENT.indexOf("orders") + 1;
 
@@ -75,7 +78,7 @@ describe("SqlEditor asked what a name is", () => {
 
     instance?.focus();
     instance?.setPosition({ lineNumber: 1, column: ON_ORDERS });
-    await userEvent.keyboard("{Meta>}{Shift>}D{/Shift}{/Meta}");
+    await userEvent.keyboard(`{${CTRL_CMD}>}{Shift>}D{/Shift}{/${CTRL_CMD}}`);
 
     await vi.waitFor(() => expect(onJump).toHaveBeenCalledWith({ schema: "shop", name: "orders" }));
   });
@@ -102,7 +105,7 @@ describe("SqlEditor asked what a name is", () => {
     await userEvent.click(locator, { position });
     expect(onJump).not.toHaveBeenCalled();
 
-    await userEvent.click(locator, { position, modifiers: ["Meta"] });
+    await userEvent.click(locator, { position, modifiers: [CTRL_CMD] });
     await vi.waitFor(() => expect(onJump).toHaveBeenCalledWith({ schema: "shop", name: "orders" }));
   });
 });
