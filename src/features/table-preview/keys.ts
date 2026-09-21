@@ -2,6 +2,10 @@ import type { Sort } from "../../bindings/Sort";
 
 export const previewKeys = {
   all: ["preview"] as const,
+  table: (connectionId: string, schema: string, table: string) =>
+    [...previewKeys.all, connectionId, schema, table] as const,
+  shape: (connectionId: string, schema: string, table: string) =>
+    [...previewKeys.table(connectionId, schema, table), "shape"] as const,
   page: (
     connectionId: string,
     schema: string,
@@ -9,5 +13,14 @@ export const previewKeys = {
     filter: string,
     sort: Sort | null,
     page: number,
-  ) => [...previewKeys.all, connectionId, schema, table, filter, sort, page] as const,
+    versioned: boolean,
+  ) =>
+    [
+      ...previewKeys.table(connectionId, schema, table),
+      "page",
+      filter,
+      sort,
+      page,
+      versioned,
+    ] as const,
 };

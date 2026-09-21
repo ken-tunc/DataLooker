@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use sqlx::PgConnection;
 
-use crate::drivers::postgres::query;
-use crate::drivers::{Preview, QueryResult};
+use crate::drivers::postgres::{query, quote};
+use crate::drivers::{Preview, TablePage};
 
 /// Builds the `SELECT` a table preview runs. The filter is a WHERE expression
 /// the reader wrote — no less trusted than the editor beside it, and not
@@ -17,9 +17,21 @@ pub fn preview_sql(preview: &Preview) -> String {
         sort,
         limit,
         offset,
+        versioned,
     } = preview;
 
-    let mut sql = format!("SELECT * FROM {}.{}", quote(schema), quote(table));
+    // The version comes last so that stripping it off the result is the same
+    // work whatever the table holds.
+    let columns = if *versioned {
+        "t.*, t.xmin::text"
+    } else {
+        "t.*"
+    };
+    let mut sql = format!(
+        "SELECT {columns} FROM {}.{} AS t",
+        quote(schema),
+        quote(table)
+    );
     if !filter.trim().is_empty() {
         sql.push_str(&format!(" WHERE {}", filter.trim()));
     }
@@ -34,7 +46,7 @@ pub fn preview_sql(preview: &Preview) -> String {
 pub async fn preview(
     conn: &mut PgConnection,
     request: &Preview<'_>,
-) -> Result<QueryResult, sqlx::Error> {
+) -> Result<TablePage, sqlx::Error> {
     let started = Instant::now();
     // Selecting one row past the page is how the reader learns there is another
     // one: `execute` keeps the page and reports the extra row as `truncated`.
@@ -42,13 +54,23 @@ pub async fn preview(
         limit: request.limit + 1,
         ..*request
     });
-    query::execute(conn, &sql, request.limit, started).await
-}
+    let mut result = query::execute(conn, &sql, request.limit, started).await?;
 
-/// A double quote inside an identifier is written twice, which is how a name
-/// like `weird"name` stays one identifier instead of ending the quoting.
-fn quote(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\"\""))
+    let versions = if request.versioned {
+        result.columns.pop();
+        result
+            .rows
+            .iter_mut()
+            .map(|row| match row.pop() {
+                Some(serde_json::Value::String(version)) => version,
+                _ => String::new(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(TablePage { result, versions })
 }
 
 #[cfg(test)]
@@ -64,6 +86,7 @@ mod tests {
             sort: None,
             limit: 100,
             offset: 0,
+            versioned: false,
         }
     }
 
@@ -71,7 +94,7 @@ mod tests {
     fn selects_the_table_with_its_identifiers_quoted() {
         assert_eq!(
             preview_sql(&preview_of("public", "people")),
-            r#"SELECT * FROM "public"."people" LIMIT 100 OFFSET 0"#
+            r#"SELECT t.* FROM "public"."people" AS t LIMIT 100 OFFSET 0"#
         );
     }
 
@@ -79,7 +102,7 @@ mod tests {
     fn a_quote_in_a_name_is_doubled_rather_than_ending_the_name() {
         assert_eq!(
             preview_sql(&preview_of("we\"ird", "ta\"ble")),
-            r#"SELECT * FROM "we""ird"."ta""ble" LIMIT 100 OFFSET 0"#
+            r#"SELECT t.* FROM "we""ird"."ta""ble" AS t LIMIT 100 OFFSET 0"#
         );
     }
 
@@ -100,9 +123,21 @@ mod tests {
         assert_eq!(
             sql,
             concat!(
-                r#"SELECT * FROM "public"."people" WHERE age > 30"#,
+                r#"SELECT t.* FROM "public"."people" AS t WHERE age > 30"#,
                 r#" ORDER BY "created_at" DESC LIMIT 50 OFFSET 100"#
             )
+        );
+    }
+
+    #[test]
+    fn a_versioned_page_reads_the_row_version_last() {
+        let sql = preview_sql(&Preview {
+            versioned: true,
+            ..preview_of("public", "people")
+        });
+        assert!(
+            sql.starts_with(r#"SELECT t.*, t.xmin::text FROM "public"."people" AS t"#),
+            "{sql}"
         );
     }
 

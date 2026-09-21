@@ -1,6 +1,9 @@
 import type { ConnectionRecord } from "../bindings/ConnectionRecord";
 import type { QueryResult } from "../bindings/QueryResult";
 import type { PreviewRequest } from "../bindings/PreviewRequest";
+import type { TableEdits } from "../bindings/TableEdits";
+import type { TablePage } from "../bindings/TablePage";
+import type { TableShape } from "../bindings/TableShape";
 import type { SchemaTree } from "../bindings/SchemaTree";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
 import { invoke } from "./invoke";
@@ -43,6 +46,19 @@ export function schemaTree(connectionId: string): Promise<SchemaTree> {
   return invoke<SchemaTree>("schema_tree", { connectionId });
 }
 
-export function previewTable(request: PreviewRequest): Promise<QueryResult> {
-  return invoke<QueryResult>("preview_table", { request });
+export function previewTable(request: PreviewRequest): Promise<TablePage> {
+  return invoke<TablePage>("preview_table", { request });
+}
+
+export function tableShape(
+  connectionId: string,
+  schema: string,
+  table: string,
+): Promise<TableShape> {
+  return invoke<TableShape>("table_shape", { connectionId, schema, table });
+}
+
+/** Resolves to how many rows changed, which is every update or none. */
+export function commitTableEdits(edits: TableEdits): Promise<number> {
+  return invoke<number>("commit_table_edits", { edits });
 }

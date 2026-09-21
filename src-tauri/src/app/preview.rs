@@ -3,7 +3,7 @@ use ts_rs::TS;
 
 use crate::app::query::Registration;
 use crate::app::App;
-use crate::drivers::{Preview, QueryResult, Sort};
+use crate::drivers::{Preview, Sort, TablePage};
 use crate::error::AppError;
 
 /// A page of a table. Small enough that paging through one is quick, large
@@ -19,6 +19,9 @@ pub struct PreviewRequest {
     /// A WHERE expression the reader wrote, or empty for none.
     pub filter: String,
     pub sort: Option<Sort>,
+    /// Read each row's version too, which a caller asks for when it means to
+    /// offer editing.
+    pub versioned: bool,
     pub page: u32,
     /// Registers the preview where a running query would be, so `cancel_query`
     /// stops either of them.
@@ -26,7 +29,7 @@ pub struct PreviewRequest {
 }
 
 impl App {
-    pub async fn preview_table(&self, request: PreviewRequest) -> Result<QueryResult, AppError> {
+    pub async fn preview_table(&self, request: PreviewRequest) -> Result<TablePage, AppError> {
         let cancel = self.queries.register(&request.query_id)?;
         let _registration = Registration {
             registry: &self.queries,
@@ -42,6 +45,7 @@ impl App {
                     sort: request.sort.as_ref(),
                     limit: PAGE,
                     offset: request.page as usize * PAGE,
+                    versioned: request.versioned,
                 },
                 &cancel,
             )
@@ -65,6 +69,7 @@ mod tests {
                 table: "people".into(),
                 filter: String::new(),
                 sort: None,
+                versioned: true,
                 page: 0,
                 query_id: "q1".into(),
             })

@@ -1,7 +1,11 @@
 pub mod postgres;
 pub mod session;
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+
+use crate::error::AppError;
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, TS)]
@@ -73,6 +77,9 @@ pub struct Sort {
 /// One page of one table, as the driver reads it.
 #[derive(Clone, Copy)]
 pub struct Preview<'a> {
+    /// Read each row's version as well, which only a table has. A view has no
+    /// primary key either, so nothing asks for one.
+    pub versioned: bool,
     pub schema: &'a str,
     pub table: &'a str,
     /// A WHERE expression the reader wrote, or empty for none.
@@ -80,4 +87,59 @@ pub struct Preview<'a> {
     pub sort: Option<&'a Sort>,
     pub limit: usize,
     pub offset: usize,
+}
+
+/// One row the reader changed. Values travel as the text they typed, or null
+/// for SQL NULL. `key` is the row's primary key, and `version` is the `xmin`
+/// the row was read with: PostgreSQL writes the transaction that last touched
+/// a row there, so a row someone else has changed no longer matches.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct RowUpdate {
+    pub key: HashMap<String, Option<String>>,
+    pub set: HashMap<String, Option<String>>,
+    pub version: String,
+}
+
+/// A page of a table, with the version of each row beside the rows themselves
+/// rather than in a column the reader would have to look at.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TablePage {
+    pub result: QueryResult,
+    pub versions: Vec<String>,
+}
+
+/// What a driver can fail with. `Refused` is the driver declining to do
+/// something the database never heard about, which — unlike a protocol failure
+/// — leaves the session as healthy as it found it.
+#[derive(Debug)]
+pub enum DriverError {
+    Sql(sqlx::Error),
+    Refused(String),
+}
+
+impl From<sqlx::Error> for DriverError {
+    fn from(e: sqlx::Error) -> Self {
+        DriverError::Sql(e)
+    }
+}
+
+impl From<DriverError> for AppError {
+    fn from(e: DriverError) -> Self {
+        match e {
+            DriverError::Sql(e) => e.into(),
+            DriverError::Refused(message) => AppError::Conflict(message),
+        }
+    }
+}
+
+/// What a table's columns are called, what type each one has as PostgreSQL
+/// prints it, and which of them the primary key is made of. A table with no
+/// primary key cannot name a row, so it cannot be edited.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TableShape {
+    pub types: HashMap<String, String>,
+    pub primary_key: Vec<String>,
 }

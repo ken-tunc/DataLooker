@@ -7,7 +7,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use datalooker_lib::drivers::postgres::PostgresSession;
-use datalooker_lib::drivers::{Preview, QueryResult, Sort, TableKind};
+use datalooker_lib::drivers::{Preview, QueryResult, RowUpdate, Sort, TableKind, TablePage};
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -322,7 +322,7 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
         page: usize,
         filter: &str,
         sort: Option<Sort>,
-    ) -> QueryResult {
+    ) -> TablePage {
         session
             .preview(
                 &Preview {
@@ -332,6 +332,7 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
                     sort: sort.as_ref(),
                     limit: 4,
                     offset: page * 4,
+                    versioned: false,
                 },
                 &CancellationToken::new(),
             )
@@ -351,6 +352,7 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
     .await;
     assert_eq!(
         first
+            .result
             .rows
             .iter()
             .map(|row| row[0].clone())
@@ -358,7 +360,7 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
         [json!(1), json!(2), json!(3), json!(4)]
     );
     // A page with more behind it reports itself as truncated.
-    assert!(first.truncated);
+    assert!(first.result.truncated);
 
     let second = page(
         &session,
@@ -370,11 +372,11 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
         }),
     )
     .await;
-    assert_eq!(second.rows[0][0], json!(5));
+    assert_eq!(second.result.rows[0][0], json!(5));
 
     let filtered = page(&session, 0, "even", None).await;
-    assert_eq!(filtered.rows.len(), 4);
-    assert!(filtered.rows.iter().all(|row| row[1] == json!(true)));
+    assert_eq!(filtered.result.rows.len(), 4);
+    assert!(filtered.result.rows.iter().all(|row| row[1] == json!(true)));
 
     let descending = page(
         &session,
@@ -386,7 +388,7 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
         }),
     )
     .await;
-    assert_eq!(descending.rows[0][0], json!(10));
+    assert_eq!(descending.result.rows[0][0], json!(10));
 
     run(&session, "DROP SCHEMA preview_test CASCADE")
         .await
@@ -454,4 +456,194 @@ async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
     ));
     let behind = waiting.await.unwrap().unwrap();
     assert_eq!(behind.rows, vec![vec![json!("behind")]]);
+}
+
+/// A table of its own for each edit test: they run at the same time, and a
+/// schema they shared would be torn down under one of them.
+async fn edit_table(session: &PostgresSession, schema: &str) {
+    for statement in [
+        format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+        format!("CREATE SCHEMA {schema}"),
+        format!("CREATE TABLE {schema}.people (id int PRIMARY KEY, name text NOT NULL, note text)"),
+        format!("INSERT INTO {schema}.people VALUES (1, 'Ada', 'first'), (2, 'Grace', NULL)"),
+    ] {
+        run(session, &statement).await.unwrap();
+    }
+}
+
+fn update(id: &str, set: &[(&str, Option<&str>)], version: &str) -> RowUpdate {
+    RowUpdate {
+        key: std::collections::HashMap::from([("id".to_string(), Some(id.to_string()))]),
+        set: set
+            .iter()
+            .map(|(column, value)| ((*column).to_string(), value.map(str::to_string)))
+            .collect(),
+        version: version.to_string(),
+    }
+}
+
+/// The version of each row of an edit test's table, in id order.
+async fn versions(session: &PostgresSession, schema: &str, table: &str) -> Vec<String> {
+    session
+        .preview(
+            &Preview {
+                schema,
+                table,
+                filter: "",
+                sort: Some(&Sort {
+                    column: "id".into(),
+                    descending: false,
+                }),
+                limit: 10,
+                offset: 0,
+                versioned: true,
+            },
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .versions
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_writes_the_value_the_reader_typed() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_write").await;
+
+    let read = versions(&session, "edit_write", "people").await;
+
+    let applied = session
+        .update_rows(
+            "edit_write",
+            "people",
+            &[
+                update("1", &[("name", Some("Ada Lovelace"))], &read[0]),
+                update("2", &[("note", Some("added"))], &read[1]),
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(applied, 2);
+    let rows = run(
+        &session,
+        "SELECT name, note FROM edit_write.people ORDER BY id",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.rows,
+        vec![
+            vec![json!("Ada Lovelace"), json!("first")],
+            vec![json!("Grace"), json!("added")],
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_row_that_changed_underneath_saves_nothing_at_all() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_conflict").await;
+
+    let read = versions(&session, "edit_conflict", "people").await;
+    // Someone else writes to Grace after the page was read, which is what
+    // makes the second update below stale.
+    run(
+        &session,
+        "UPDATE edit_conflict.people SET note = 'theirs' WHERE id = 2",
+    )
+    .await
+    .unwrap();
+
+    let refused = session
+        .update_rows(
+            "edit_conflict",
+            "people",
+            &[
+                update("1", &[("name", Some("Written"))], &read[0]),
+                update("2", &[("name", Some("Hopper"))], &read[1]),
+            ],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+    let rows = run(
+        &session,
+        "SELECT name FROM edit_conflict.people ORDER BY id",
+    )
+    .await
+    .unwrap();
+    assert_eq!(rows.rows, vec![vec![json!("Ada")], vec![json!("Grace")]]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_value_the_column_cannot_hold_is_the_database_saying_so() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_bad_value").await;
+
+    let err = session
+        .update_rows(
+            "edit_bad_value",
+            "people",
+            &[update("1", &[("id", Some("not a number"))], "1")],
+        )
+        .await
+        .unwrap_err();
+
+    let message = err.to_string().to_lowercase();
+    assert!(message.contains("invalid input syntax"), "{message}");
+    // The session survived the rejection.
+    assert_eq!(
+        run(&session, "SELECT count(*) FROM edit_bad_value.people")
+            .await
+            .unwrap()
+            .rows,
+        vec![vec![json!(2)]]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_table_without_a_primary_key_cannot_name_a_row() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_no_key").await;
+    run(&session, "CREATE TABLE edit_no_key.notes (body text)")
+        .await
+        .unwrap();
+
+    let shape = session.shape("edit_no_key", "notes").await.unwrap();
+    assert!(shape.primary_key.is_empty());
+
+    let refused = session
+        .update_rows(
+            "edit_no_key",
+            "notes",
+            &[update("1", &[("body", Some("x"))], "1")],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shape_says_what_a_row_is_named_by_and_what_its_columns_hold() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_shape").await;
+
+    let shape = session.shape("edit_shape", "people").await.unwrap();
+
+    assert_eq!(shape.primary_key, ["id"]);
+    assert_eq!(shape.types.get("id").map(String::as_str), Some("integer"));
+    assert_eq!(shape.types.get("note").map(String::as_str), Some("text"));
 }
