@@ -9,6 +9,8 @@ import "monaco-editor/features/cursorUndo/register.js";
 import "monaco-editor/features/find/register.js";
 import "monaco-editor/features/folding/register.js";
 import "monaco-editor/features/gotoLine/register.js";
+// Reads out a syntax error where it is marked.
+import "monaco-editor/features/hover/register.js";
 import "monaco-editor/features/indentation/register.js";
 import "monaco-editor/features/linesOperations/register.js";
 import "monaco-editor/features/multicursor/register.js";
@@ -22,7 +24,13 @@ import "monaco-editor/features/wordPartOperations/register.js";
 import "monaco-editor/languages/definitions/pgsql/register.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 
-export { KeyCode, KeyMod, editor, languages } from "monaco-editor/editor/editor.api.js";
+export {
+  KeyCode,
+  KeyMod,
+  MarkerSeverity,
+  editor,
+  languages,
+} from "monaco-editor/editor/editor.api.js";
 
 self.MonacoEnvironment = {
   getWorker() {

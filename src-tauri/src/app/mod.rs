@@ -3,6 +3,7 @@ pub mod edit;
 pub mod preview;
 mod query;
 mod schema;
+pub mod syntax;
 
 use std::sync::Arc;
 

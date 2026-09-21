@@ -74,6 +74,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      # Tauri links against the webkit2gtk stack; libclang is bindgen's, which
+      # pg_query runs over the PostgreSQL parser it builds. macOS has both in
+      # the Command Line Tools.
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -82,7 +85,8 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             libsoup-3.0-dev \
             libgtk-3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            libclang-dev
 
       - name: Install Rust toolchain
         run: rustup show
