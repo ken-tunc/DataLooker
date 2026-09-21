@@ -19,6 +19,11 @@ import {
 } from "./edits";
 import { type TableTab, useCommitEdits, useTablePreview, useTableShape } from "./hooks";
 
+/** The row "Remove row" acts on: a draft by its id, a stored row by its key. */
+type DeleteTarget =
+  | { draft: string }
+  | { id: string; key: Record<string, string | null>; version: string };
+
 type Props = {
   connectionId: string;
   tab: TableTab;
@@ -36,7 +41,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   const preview = useTablePreview(connectionId, tab, editable, !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [target, setTarget] = useState<DeleteTarget | null>(null);
   // The filter applies when it is submitted, not as it is typed: half a
   // predicate is a syntax error, and every keystroke would be a query.
   const [draft, setDraft] = useState(tab.filter);
@@ -99,18 +104,38 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
     return key && isDeleted(edits, key) ? "bg-error/15 line-through opacity-60" : undefined;
   }
 
-  function toggleDelete() {
-    if (selectedRow === null) return;
-    const draftRow = drafts[selectedRow];
-    if (draftRow) {
-      setEdits((current) => withoutNewRow(current, draftRow.id));
-      return;
-    }
-    const index = dataRow(selectedRow);
+  /**
+   * Which row is selected has to survive what moves the rows: a draft added
+   * above them shifts every index down, and a refetch can replace them all.
+   * So a selection is resolved to the row itself, and forgotten once that row
+   * is no longer on the page.
+   */
+  function targetAt(row: number | null): DeleteTarget | null {
+    if (row === null) return null;
+    const draftRow = drafts[row];
+    if (draftRow) return { draft: draftRow.id };
+    const index = dataRow(row);
     const key = keyOfRow(index);
     const version = page?.versions[index];
-    if (!key || version === undefined) return;
-    setEdits((current) => withDeleted(current, key, version));
+    return key && version !== undefined ? { id: rowKeyOf(key), key, version } : null;
+  }
+
+  function stillShown(): boolean {
+    if (target === null) return false;
+    if ("draft" in target) return drafts.some((row) => row.id === target.draft);
+    return (page?.result.rows ?? []).some((_, index) => {
+      const key = keyOfRow(index);
+      return key !== null && rowKeyOf(key) === target.id;
+    });
+  }
+
+  function toggleDelete() {
+    if (target === null || !stillShown()) return;
+    if ("draft" in target) {
+      setEdits((current) => withoutNewRow(current, target.draft));
+      return;
+    }
+    setEdits((current) => withDeleted(current, target.key, target.version));
   }
 
   function save() {
@@ -165,7 +190,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             <button
               type="button"
               className="btn btn-sm"
-              disabled={selectedRow === null}
+              disabled={!stillShown()}
               onClick={toggleDelete}
             >
               Remove row
@@ -234,7 +259,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             result={shown}
             sort={tab.sort}
             onSortColumn={sortBy}
-            onSelectRow={setSelectedRow}
+            onSelectRow={(row) => setTarget(targetAt(row))}
             editing={editingPage ? { pendingValue, onEdit: edit, rowClass } : undefined}
           />
         ) : (

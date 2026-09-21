@@ -484,8 +484,13 @@ fn update(id: &str, set: &[(&str, Option<&str>)], version: &str) -> RowUpdate {
     }
 }
 
-/// The version of each row of an edit test's table, in id order.
-async fn versions(session: &PostgresSession, schema: &str, table: &str) -> Vec<String> {
+/// The version of each row of an edit test's table, in `order` order.
+async fn versions(
+    session: &PostgresSession,
+    schema: &str,
+    table: &str,
+    order: &str,
+) -> Vec<String> {
     session
         .preview(
             &Preview {
@@ -493,7 +498,7 @@ async fn versions(session: &PostgresSession, schema: &str, table: &str) -> Vec<S
                 table,
                 filter: "",
                 sort: Some(&Sort {
-                    column: "id".into(),
+                    column: order.into(),
                     descending: false,
                 }),
                 limit: 10,
@@ -514,7 +519,7 @@ async fn an_edit_writes_the_value_the_reader_typed() {
     };
     edit_table(&session, "edit_write").await;
 
-    let read = versions(&session, "edit_write", "people").await;
+    let read = versions(&session, "edit_write", "people", "id").await;
 
     let applied = session
         .apply_edits(
@@ -553,7 +558,7 @@ async fn a_row_that_changed_underneath_saves_nothing_at_all() {
     };
     edit_table(&session, "edit_conflict").await;
 
-    let read = versions(&session, "edit_conflict", "people").await;
+    let read = versions(&session, "edit_conflict", "people", "id").await;
     // Someone else writes to Grace after the page was read, which is what
     // makes the second update below stale.
     run(
@@ -664,7 +669,7 @@ async fn a_save_adds_and_removes_rows_in_one_go() {
         return;
     };
     edit_table(&session, "edit_rows").await;
-    let read = versions(&session, "edit_rows", "people").await;
+    let read = versions(&session, "edit_rows", "people", "id").await;
 
     let applied = session
         .apply_edits(
@@ -708,7 +713,7 @@ async fn a_row_deleted_from_under_the_reader_saves_nothing() {
         return;
     };
     edit_table(&session, "edit_gone").await;
-    let read = versions(&session, "edit_gone", "people").await;
+    let read = versions(&session, "edit_gone", "people", "id").await;
     run(&session, "DELETE FROM edit_gone.people WHERE id = 2")
         .await
         .unwrap();
@@ -728,4 +733,45 @@ async fn a_row_deleted_from_under_the_reader_saves_nothing() {
         .unwrap_err();
 
     assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+}
+
+/// Two rows written by one transaction share an `xmin`, so a key that names
+/// only part of the primary key would match both of them.
+#[tokio::test(flavor = "multi_thread")]
+async fn half_a_primary_key_names_no_row_at_all() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    for statement in [
+        "DROP SCHEMA IF EXISTS edit_half CASCADE",
+        "CREATE SCHEMA edit_half",
+        "CREATE TABLE edit_half.sales (region text, day date, total int, PRIMARY KEY (region, day))",
+        "INSERT INTO edit_half.sales VALUES ('north', '2026-09-20', 1), ('north', '2026-09-21', 2)",
+    ] {
+        run(&session, statement).await.unwrap();
+    }
+    let read = versions(&session, "edit_half", "sales", "day").await;
+
+    let refused = session
+        .apply_edits(
+            "edit_half",
+            "sales",
+            &[],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([(
+                    "region".to_string(),
+                    Some("north".to_string()),
+                )]),
+                version: read[0].clone(),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+    let rows = run(&session, "SELECT count(*) FROM edit_half.sales")
+        .await
+        .unwrap();
+    assert_eq!(rows.rows, vec![vec![json!(2)]]);
 }

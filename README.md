@@ -6,7 +6,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > and deleted — stored locally, with their passwords in the OS keychain — and each one
 > opens a window of SQL tabs: a Monaco editor per tab, the rows in a grid below it. A schema
 > tree shows what a database holds, and a table opens in a tab of its own where its rows can
-> be filtered, sorted and edited. BigQuery follows PostgreSQL.
+> be filtered and sorted — and edited, when the table has a primary key to name a row by.
+> BigQuery follows PostgreSQL.
 
 ## Prerequisites
 

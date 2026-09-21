@@ -92,12 +92,19 @@ export function withoutNewRow(edits: PendingEdits, id: string): PendingEdits {
   return { ...edits, inserts: edits.inserts.filter((row) => row.id !== id) };
 }
 
+/**
+ * A row marked for deletion drops whatever was typed into it: the delete runs
+ * first, so an update behind it would match nothing and refuse the whole save.
+ */
+function liveUpdates(edits: PendingEdits): PendingRow[] {
+  return Object.entries(edits.updates)
+    .filter(([id]) => edits.deletes[id] === undefined)
+    .map(([, row]) => row);
+}
+
 /** What the reader would lose by discarding: rows added or removed, cells changed. */
 export function editCount(edits: PendingEdits): number {
-  const cells = Object.values(edits.updates).reduce(
-    (total, row) => total + Object.keys(row.set).length,
-    0,
-  );
+  const cells = liveUpdates(edits).reduce((total, row) => total + Object.keys(row.set).length, 0);
   return cells + Object.keys(edits.deletes).length + edits.inserts.length;
 }
 
@@ -112,7 +119,7 @@ export function tableEdits(
     schema,
     table,
     inserts: edits.inserts.map((row) => ({ values: row.values })),
-    updates: Object.values(edits.updates).map((row) => ({
+    updates: liveUpdates(edits).map((row) => ({
       key: row.key,
       set: row.set,
       version: row.version,
@@ -151,6 +158,16 @@ if (import.meta.vitest) {
   });
 
   describe("withDeleted", () => {
+    it("drops an edit to a row that is being removed", () => {
+      const edited = withEdit(NO_EDITS, row("1"), "name", "Ada");
+      const removed = withDeleted(edited, { id: "1" }, "100");
+
+      expect(saved(removed).updates).toEqual([]);
+      expect(editCount(removed)).toBe(1);
+      // Unmarking the row brings the edit back — it was never thrown away.
+      expect(saved(withDeleted(removed, { id: "1" }, "100")).updates).toHaveLength(1);
+    });
+
     it("marks a row and unmarks it again", () => {
       const marked = withDeleted(NO_EDITS, { id: "1" }, "100");
       expect(isDeleted(marked, { id: "1" })).toBe(true);

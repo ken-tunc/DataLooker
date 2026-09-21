@@ -58,9 +58,11 @@ pub async fn apply(
 
     let mut statements: Vec<Statement> = Vec::new();
     for delete in edits.deletes {
+        names_one_row(shape, &delete.key)?;
         statements.push(Statement::delete(shape, schema, table, delete));
     }
     for update in edits.updates {
+        names_one_row(shape, &update.key)?;
         statements.push(Statement::update(shape, schema, table, update));
     }
     for insert in edits.inserts {
@@ -75,12 +77,15 @@ pub async fn apply(
         for value in statement.values {
             query = query.bind(value);
         }
-        // A row that matches nothing is a row that changed after it was read;
-        // dropping the transaction here puts the others back as well.
-        if query.execute(&mut *tx).await?.rows_affected() == 0 {
-            return Err(DriverError::Refused(
-                "a row changed after it was read, so nothing was saved".into(),
-            ));
+        // One row is the only outcome that means what was asked for; dropping
+        // the transaction here puts the statements before it back as well.
+        let affected = query.execute(&mut *tx).await?.rows_affected();
+        if affected != 1 {
+            return Err(DriverError::Refused(if affected == 0 {
+                "a row changed after it was read, so nothing was saved".into()
+            } else {
+                format!("a key named {affected} rows rather than one, so nothing was saved")
+            }));
         }
         applied += 1;
     }
@@ -211,6 +216,28 @@ impl Statement {
     }
 }
 
+/// A key is what names the one row a statement is allowed to touch, so it has
+/// to be the whole primary key: a key missing a column widens the WHERE clause
+/// to every row that shares the rest of it, and `xmin` narrows nothing when the
+/// rows were written by the same transaction.
+fn names_one_row(
+    shape: &TableShape,
+    key: &HashMap<String, Option<String>>,
+) -> Result<(), DriverError> {
+    let whole = key.len() == shape.primary_key.len()
+        && shape
+            .primary_key
+            .iter()
+            .all(|column| key.contains_key(column));
+    if whole {
+        return Ok(());
+    }
+    Err(DriverError::Refused(format!(
+        "a row is named by ({}), so nothing was saved",
+        shape.primary_key.join(", ")
+    )))
+}
+
 /// A value is cast to its column's type, which PostgreSQL printed for us.
 /// A column the table does not have is left as text for the database to
 /// reject by name.
@@ -254,6 +281,36 @@ mod tests {
             set: HashMap::from([("price".into(), Some("12.50".into()))]),
             version: "4242".into(),
         }
+    }
+
+    #[test]
+    fn a_key_has_to_be_the_whole_primary_key() {
+        let composite = TableShape {
+            primary_key: vec!["id".into(), "day".into()],
+            ..shape()
+        };
+
+        let half = HashMap::from([("id".into(), Some("7".into()))]);
+        assert!(matches!(
+            names_one_row(&composite, &half),
+            Err(DriverError::Refused(_))
+        ));
+
+        let extra = HashMap::from([
+            ("id".into(), Some("7".into())),
+            ("day".into(), Some("2026-09-21".into())),
+            ("name".into(), Some("Ada".into())),
+        ]);
+        assert!(matches!(
+            names_one_row(&composite, &extra),
+            Err(DriverError::Refused(_))
+        ));
+
+        let whole = HashMap::from([
+            ("id".into(), Some("7".into())),
+            ("day".into(), Some("2026-09-21".into())),
+        ]);
+        assert!(names_one_row(&composite, &whole).is_ok());
     }
 
     #[test]
