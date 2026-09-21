@@ -28,7 +28,11 @@ export default defineConfig({
             enabled: true,
             provider: playwright(),
             headless: true,
-            instances: [{ browser: "chromium" }],
+            // The window `tauri.conf.json` opens. The default viewport is a
+            // phone's, which is not a shape this app is ever asked to be:
+            // the grid's virtualized rows and the sidebar beside them both
+            // depend on how much room there is.
+            instances: [{ browser: "chromium", viewport: { width: 1280, height: 800 } }],
           },
         },
       },
