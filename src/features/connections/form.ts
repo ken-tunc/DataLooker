@@ -84,14 +84,16 @@ export type ParseResult =
 
 /**
  * An edit may leave the secret blank, which means "keep the stored one"; a new
- * or duplicated connection has nothing stored yet, so it must carry one. Only
- * the fields of the driver that was picked are read: the others hold whatever
- * the reader typed before changing their mind.
+ * or duplicated connection has nothing stored yet, so it must carry one. So
+ * does an edit that changes the driver: what is stored is a password where a
+ * service account key is now wanted, or the other way round. Only the fields
+ * of the driver that was picked are read: the others hold whatever the reader
+ * typed before changing their mind.
  */
 export function parseConnectionForm(
   values: ConnectionFormValues,
   mode: FormMode,
-  sourceId: string | null,
+  source: ConnectionRecord | null,
 ): ParseResult {
   const parsed =
     values.kind === "postgres" ? postgres.safeParse(values) : bigquery.safeParse(values);
@@ -102,7 +104,8 @@ export function parseConnectionForm(
       if (field && !errors[field]) errors[field] = issue.message;
     }
   }
-  if (mode !== "edit" && values.secret === "") {
+  const stored = mode === "edit" && values.kind === source?.config.kind;
+  if (!stored && values.secret === "") {
     errors.secret = `${SECRET_LABELS[values.kind]} is required`;
   }
   if (Object.keys(errors).length > 0 || !parsed.success) return { ok: false, errors };
@@ -110,7 +113,7 @@ export function parseConnectionForm(
   return {
     ok: true,
     input: {
-      id: mode === "edit" ? sourceId : null,
+      id: mode === "edit" ? (source?.id ?? null) : null,
       label: parsed.data.label,
       config:
         parsed.data.kind === "postgres"
@@ -152,6 +155,20 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
 
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
+
+  const record: ConnectionRecord = {
+    id: "id-1",
+    label: "Local",
+    config: {
+      kind: "postgres",
+      host: "db.example.com",
+      port: 6543,
+      database: "datalooker",
+      username: "admin",
+    },
+    command: "ssh -L 5432:db:5432 bastion",
+    created_at: "2026-09-20T00:00:00Z",
+  };
 
   const valid: ConnectionFormValues = {
     ...EMPTY_FORM,
@@ -219,15 +236,21 @@ if (import.meta.vitest) {
     });
 
     it("keeps the id when editing, and drops it when duplicating", () => {
-      const edit = parseConnectionForm(valid, "edit", "id-1");
-      const duplicate = parseConnectionForm(valid, "duplicate", "id-1");
+      const edit = parseConnectionForm(valid, "edit", record);
+      const duplicate = parseConnectionForm(valid, "duplicate", record);
       expect(edit.ok && edit.input.id).toBe("id-1");
       expect(duplicate.ok && duplicate.input.id).toBeNull();
     });
 
     it("sends no secret when an edit leaves it blank", () => {
-      const result = parseConnectionForm({ ...valid, secret: "" }, "edit", "id-1");
+      const result = parseConnectionForm({ ...valid, secret: "" }, "edit", record);
       expect(result.ok && result.input.secret).toBeNull();
+    });
+
+    it("asks for a new secret when an edit changes the driver", () => {
+      // What is stored is a password, and this connection now wants a key.
+      const result = parseConnectionForm({ ...bq, secret: "" }, "edit", record);
+      expect(!result.ok && result.errors.secret).toBe("Service account key is required");
     });
 
     it("reports one message per blank field", () => {
@@ -252,20 +275,6 @@ if (import.meta.vitest) {
   });
 
   describe("formValuesFrom", () => {
-    const record: ConnectionRecord = {
-      id: "id-1",
-      label: "Local",
-      config: {
-        kind: "postgres",
-        host: "db.example.com",
-        port: 6543,
-        database: "datalooker",
-        username: "admin",
-      },
-      command: "ssh -L 5432:db:5432 bastion",
-      created_at: "2026-09-20T00:00:00Z",
-    };
-
     it("marks a duplicate in its label and never carries a secret over", () => {
       expect(formValuesFrom(record, "duplicate")).toEqual({
         ...EMPTY_FORM,

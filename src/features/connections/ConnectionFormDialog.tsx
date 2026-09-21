@@ -48,7 +48,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const parsed = parseConnectionForm(values, mode, source?.id ?? null);
+    const parsed = parseConnectionForm(values, mode, source);
     if (!parsed.ok) {
       setErrors(parsed.errors);
       return;
@@ -180,8 +180,10 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
               id={`${fieldId}-secret`}
               label={SECRET_LABELS[values.kind]}
               error={errors.secret}
+              // What is stored belongs to the driver it was stored for, so
+              // changing the driver asks for the new one's secret.
               hint={
-                mode === "edit"
+                mode === "edit" && values.kind === source?.config.kind
                   ? `Leave blank to keep the stored ${SECRET_LABELS[values.kind].toLowerCase()}.`
                   : undefined
               }
