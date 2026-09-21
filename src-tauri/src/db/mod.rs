@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod history;
 
 use std::path::Path;
 

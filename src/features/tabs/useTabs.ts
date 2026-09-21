@@ -37,8 +37,8 @@ export function useTabs() {
 
   return {
     of: (connectionId: string): TabsState | undefined => byConnection[connectionId],
-    open: (connectionId: string) =>
-      write(connectionId, openSqlTab(byConnection[connectionId], crypto.randomUUID())),
+    open: (connectionId: string, sql?: string) =>
+      write(connectionId, openSqlTab(byConnection[connectionId], crypto.randomUUID(), sql)),
     openTable: (connectionId: string, schema: string, table: string) =>
       write(
         connectionId,
