@@ -118,6 +118,10 @@ Queries on one connection therefore run one at a time. A cancelled query leaves 
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
 
+`tests/bigquery.rs` reaches a real BigQuery project, and skips unless
+`DATALOOKER_TEST_BQ_KEY` and `DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery
+to stand up in a container. Only their absence is a skip.
+
 `src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
 --wait`) and each test skips itself when nothing is listening on that port. A server that
 does answer has to work: only absence is a skip, never a failure. CI starts the container

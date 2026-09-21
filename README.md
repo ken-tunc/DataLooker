@@ -94,6 +94,15 @@ itself when nothing is listening on its port, so `cargo test` still passes witho
 `--wait` holds until the server is healthy, so the tests do not skip a container that is
 still starting.
 
+`tests/bigquery.rs` needs a real project, which it skips unless one is named:
+
+```sh
+DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test --test bigquery
+```
+
+`DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key
+that is named has to work: only its absence is a skip.
+
 ## Scripts
 
 | Command                                                      | What it does                                                |
