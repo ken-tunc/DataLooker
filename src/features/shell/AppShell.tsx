@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ConnectionSidebar } from "../connections/ConnectionSidebar";
 import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
+import { TableSearchPalette } from "../table-search/TableSearchPalette";
 import { useTabs } from "../tabs/useTabs";
 
 /**
@@ -10,6 +11,7 @@ import { useTabs } from "../tabs/useTabs";
  */
 export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const tabs = useTabs();
 
   function select(id: string) {
@@ -20,11 +22,19 @@ export function AppShell() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!selectedId) return;
+      // The palette is modal on screen, so the shortcuts behind it stay quiet
+      // until it closes — a tab opened under it would go unnoticed.
+      if (searching) return;
       // Opening a tab is what gets a connection out of having none, so it comes
       // before the shortcuts that need one.
       if (event.key === "t" && event.metaKey) {
         event.preventDefault();
         tabs.open(selectedId);
+        return;
+      }
+      if (event.key === "o" && event.metaKey) {
+        event.preventDefault();
+        setSearching(true);
         return;
       }
       if (event.key === "Tab" && event.ctrlKey) {
@@ -34,7 +44,7 @@ export function AppShell() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, tabs]);
+  }, [searching, selectedId, tabs]);
 
   return (
     <div className="flex h-full">
@@ -52,6 +62,14 @@ export function AppShell() {
           key={selectedId}
           connectionId={selectedId}
           onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
+        />
+      )}
+
+      {selectedId && searching && (
+        <TableSearchPalette
+          connectionId={selectedId}
+          onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
+          onClose={() => setSearching(false)}
         />
       )}
 
