@@ -50,6 +50,13 @@ export default defineConfig({
       skipFull: false,
     },
   },
+  // Monaco is reached through 21 separate feature entry points, which Vite
+  // otherwise discovers one crawl too late: it re-optimizes mid-run and reloads
+  // the page under whichever test mounted the editor first.
+  optimizeDeps: {
+    include: ["monaco-editor/**"],
+  },
+
   // Strips the in-source tests from production bundles.
   define: {
     "import.meta.vitest": "undefined",

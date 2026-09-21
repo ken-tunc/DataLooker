@@ -120,6 +120,18 @@ our rendering of a value, and catches any concurrent change to the row. One save
 transaction: a row that matches nothing refuses the lot. A relation with no primary key
 cannot name a row, so it is read-only.
 
+## Syntax errors
+
+`app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries
+(the `pg_query` crate), so no server is asked and an editor with no connection open still
+gets them. The text is scanned into tokens once, split into statements at the semicolons,
+and each statement parsed on its own, so one mistake does not silence the statements after
+it. The parser reports only a message — the crate drops the cursor position libpg_query
+returns — so the mark is placed on the token the message quotes, matched against the
+scanner's tokens rather than searched for in the text, and falls back to the whole
+statement. An error at end of input is dropped: that is what every statement looks like
+while it is still being typed.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives

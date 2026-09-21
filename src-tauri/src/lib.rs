@@ -28,6 +28,7 @@ pub fn run() {
             commands::query::test_connection,
             commands::query::execute_query,
             commands::query::cancel_query,
+            commands::query::check_syntax,
             commands::schema::schema_tree,
             commands::preview::preview_table,
             commands::edit::table_shape,
