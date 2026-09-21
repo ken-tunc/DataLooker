@@ -11,7 +11,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
 ## Prerequisites
 
-- **macOS** (Linux and Windows are not validated)
+- **macOS** to run the app (Linux and Windows are not validated; Linux is where CI runs
+  the tests, which need no window)
 - **[Vite+](https://viteplus.dev/)** — the `vp` CLI drives the frontend toolchain and
   installs the Node.js and pnpm versions this project pins:
   ```sh
