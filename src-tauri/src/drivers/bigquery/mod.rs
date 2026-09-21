@@ -1,10 +1,15 @@
-use std::time::Duration;
+mod query;
+mod value;
+
+use std::time::{Duration, Instant};
 
 use gcp_bigquery_client::model::query_request::QueryRequest;
 use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
+use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
+use crate::drivers::QueryResult;
 use crate::error::AppError;
 
 /// Bounds the whole of `test`: reaching Google means an OAuth exchange and
@@ -41,17 +46,49 @@ impl BigQuerySession {
         })
     }
 
-    /// The client, built on first use and kept. It is asked for a read-only
-    /// scope: nothing here writes to BigQuery, and a token that cannot write
-    /// is one that cannot be made to.
+    /// The client, built on first use and kept. The token is not asked to be
+    /// read-only: what the reader may do is the service account's to say, the
+    /// way it is the role's to say on a PostgreSQL connection. A statement
+    /// they are entitled to run is one this editor runs.
     async fn client(&self) -> Result<&Client, AppError> {
         self.client
             .get_or_try_init(|| async {
-                Client::from_service_account_key(self.key.clone(), true)
+                Client::from_service_account_key(self.key.clone(), false)
                     .await
                     .map_err(|e| AppError::Database(format!("BigQuery refused the key: {e}")))
             })
             .await
+    }
+
+    /// A statement is a job of its own, so nothing is carried over from the
+    /// one before it — no transaction, no session settings, nothing temporary.
+    pub async fn execute(
+        &self,
+        sql: &str,
+        row_limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        // Started before the client is asked for, so that the first query of a
+        // connection is timed with the exchange that authenticated it.
+        let started = Instant::now();
+        // That exchange is the first thing a query waits on and the last thing
+        // that would notice it had been called off, so it is raced against the
+        // cancellation too. Dropping it leaves the client unbuilt, which is
+        // what the next query finds and builds.
+        let client = tokio::select! {
+            client = self.client() => client?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+        query::execute(
+            client,
+            &self.project_id,
+            &self.location,
+            sql,
+            row_limit,
+            cancel,
+            started,
+        )
+        .await
     }
 
     pub async fn test(&self) -> Result<(), AppError> {

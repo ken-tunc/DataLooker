@@ -57,7 +57,7 @@ impl Session {
     ) -> Result<QueryResult, AppError> {
         match self {
             Session::Postgres(session) => session.execute(sql, row_limit, cancel).await,
-            Session::BigQuery(_) => Err(not_yet("run a statement")),
+            Session::BigQuery(session) => session.execute(sql, row_limit, cancel).await,
         }
     }
 

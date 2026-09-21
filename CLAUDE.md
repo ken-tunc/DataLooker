@@ -96,16 +96,27 @@ together, and nothing tries to compensate for it.
 ## Drivers
 
 `drivers/` is what talks to a database the reader connects to, one module per driver, and
-`Session` is the enum a connection opens. PostgreSQL is whole; BigQuery so far reaches a
-project and answers whether it can be. What it cannot do yet, and what it will not do,
-both come back as `AppError::Unsupported` with a sentence saying which.
+`Session` is the enum a connection opens. PostgreSQL is whole; BigQuery reaches a project
+and runs statements against it. What it cannot do yet, and what it will not do, both come
+back as `AppError::Unsupported` with a sentence saying which.
+
+BigQuery sends every value as text, whatever its type, so the schema beside the rows is
+the only thing that says how to read one — `bigquery/value.rs` is that reading, and it
+follows the same rules the PostgreSQL driver does: a whole number past what JavaScript
+keeps, and anything with more digits than a JSON number holds, arrive as strings. A
+statement is a job, and a job outlives the request that started it, so a query still
+running is asked after until it finishes rather than refused for taking too long.
+Cancelling cancels the job, which is billed for what it reads whether or not anyone is
+listening — except in the moment before BigQuery has said which job it started, when
+there is nothing yet to name.
 
 A BigQuery connection is a project and a location — where its jobs run and where the
 catalog describing it lives — and its secret is the service account key, which is where
-the account it reads as is named. The client asks for a read-only scope: nothing here
-writes to BigQuery, and a token that cannot write is one that cannot be made to. There is
-no session to hold open, since every statement is a job of its own, so what a session
-keeps is the authenticated client — building one is an exchange with Google.
+the account it reads as is named. The token is not asked to be read-only: what the reader
+may do is the service account's to say, the way it is the role's to say on a PostgreSQL
+connection, and a statement they are entitled to run is one this editor runs. There is no
+session to hold open, since every statement is a job of its own, so what a session keeps
+is the authenticated client — building one is an exchange with Google.
 
 A BigQuery table is read-only for a further reason: a row is written here by naming it,
 and a key to name one by is what BigQuery has no notion of.
