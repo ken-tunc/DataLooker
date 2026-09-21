@@ -136,6 +136,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          # Nothing is checked out here, so `gh` is told which repository this
+          # is rather than reading it from a working copy.
+          GH_REPO: ${{ github.repository }}
           FRONTEND: ${{ needs.frontend.outputs.report }}
           RUST: ${{ needs.rust.outputs.report }}
         run: |
