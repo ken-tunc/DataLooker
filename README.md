@@ -13,7 +13,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
 > what it names. A connection can carry a shell command — a port
 > forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
-> connection can be made, tested and queried; reading what a project holds comes next.
+> connection can be made, tested, queried, and its datasets read like any other schema
+> tree.
 
 ## Prerequisites
 

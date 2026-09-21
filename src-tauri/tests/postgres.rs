@@ -258,22 +258,31 @@ async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
     let tables: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tables, ["names", "people"]);
 
-    let people = &schema.tables[1];
-    assert_eq!(people.kind, TableKind::Table);
-    let columns: Vec<(&str, &str, bool)> = people
-        .columns
-        .iter()
-        .map(|c| (c.name.as_str(), c.data_type.as_str(), c.nullable))
+    assert_eq!(schema.tables[1].kind, TableKind::Table);
+    assert_eq!(schema.tables[0].kind, TableKind::View);
+
+    // What a table holds is asked for on its own, in the order it was written
+    // with.
+    let columns: Vec<(String, String, bool)> = session
+        .columns("tree_test", "people")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|column| (column.name, column.data_type, column.nullable))
         .collect();
     assert_eq!(
         columns,
         [
-            ("id", "integer", false),
-            ("name", "text", false),
-            ("email", "text", true)
+            ("id".to_string(), "integer".to_string(), false),
+            ("name".to_string(), "text".to_string(), false),
+            ("email".to_string(), "text".to_string(), true)
         ]
     );
-    assert_eq!(schema.tables[0].kind, TableKind::View);
+    assert!(session
+        .columns("tree_test", "nothing")
+        .await
+        .unwrap()
+        .is_empty());
 
     let empty = tree
         .schemas

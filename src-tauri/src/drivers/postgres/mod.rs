@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::drivers::postgres::edit::Edits;
 use crate::drivers::{
-    DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree,
+    Column, DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree,
     TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
@@ -132,6 +132,13 @@ impl PostgresSession {
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
             Ok(schema::tree(conn).await?)
+        })
+        .await
+    }
+
+    pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
+        self.with_connection(&CancellationToken::new(), async |conn| {
+            Ok(schema::columns(conn, schema, table).await?)
         })
         .await
     }

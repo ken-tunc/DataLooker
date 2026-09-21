@@ -9,8 +9,8 @@ use crate::db::connection::{self, DriverConfig};
 use crate::drivers::bigquery::BigQuerySession;
 use crate::drivers::postgres::PostgresSession;
 use crate::drivers::{
-    Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TableDefinition, TablePage,
-    TableShape,
+    Column, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TableDefinition,
+    TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -64,7 +64,14 @@ impl Session {
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         match self {
             Session::Postgres(session) => session.schema_tree().await,
-            Session::BigQuery(_) => Err(not_yet("say what a project holds")),
+            Session::BigQuery(session) => session.schema_tree().await,
+        }
+    }
+
+    pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
+        match self {
+            Session::Postgres(session) => session.columns(schema, table).await,
+            Session::BigQuery(session) => session.columns(schema, table).await,
         }
     }
 
