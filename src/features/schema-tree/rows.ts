@@ -59,9 +59,10 @@ const columnRowId = (schema: string, table: string, column: string) =>
  * project can hold years of them — `events_20250101`, `events_20250102`, and
  * tens of thousands more. They are one table to the reader, so the tree shows
  * them as one row. Only a table is folded this way: a view named like a day is
- * not one of a set.
+ * not one of a set, and neither is a year before 1000, which is a number that
+ * happens to have four digits rather than a year anything was written in.
  */
-const SHARD = /^(.+)_(\d{4})(\d{2})(\d{2})$/;
+const SHARD = /^(.+)_([1-9]\d{3})(\d{2})(\d{2})$/;
 
 export function shardPrefix(name: string): string | null {
   const match = SHARD.exec(name);
@@ -459,6 +460,7 @@ if (import.meta.vitest) {
       expect(shardPrefix("events_20250230")).toBeNull();
       expect(shardPrefix("events_20250431")).toBeNull();
       expect(shardPrefix("events_20250229")).toBeNull();
+      expect(shardPrefix("events_00990101")).toBeNull();
       expect(shardPrefix("events_20240229")).toBe("events");
     });
   });
