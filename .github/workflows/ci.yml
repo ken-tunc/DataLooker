@@ -17,7 +17,7 @@ env:
 
 jobs:
   frontend:
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -50,13 +50,27 @@ jobs:
           name: frontend-coverage
           path: coverage/
 
+  # Linux runs the tests because it is where a PostgreSQL container can run
+  # beside them: on a macOS runner every integration test skips itself, which
+  # is the whole `drivers/` suite. The release is pinned to the one carrying
+  # the webkit2gtk 4.1 packages Tauri links against.
   rust:
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: src-tauri
     steps:
       - uses: actions/checkout@v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            librsvg2-dev
 
       - name: Install Rust toolchain
         run: rustup show
@@ -73,6 +87,10 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      - name: Start PostgreSQL
+        working-directory: .
+        run: docker compose up -d --wait
+
       # Runs the tests instrumented; the report comes from the same run.
       - run: cargo llvm-cov --no-report
 
@@ -84,11 +102,29 @@ jobs:
             echo '```'
             cargo llvm-cov report --summary-only
             echo '```'
-            echo 'The integration tests skip here — this runner has no Docker —'
-            echo 'so `drivers/` reads lower than it does against a database.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: rust-coverage
           path: src-tauri/lcov.info
+
+  # The keychain is the one thing only macOS compiles, and the app ships
+  # nowhere else, so this builds what Linux cannot rather than running a suite
+  # that has nothing platform-specific left to say.
+  macos:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - run: cargo clippy --all-targets -- -D warnings

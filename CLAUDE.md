@@ -31,8 +31,7 @@ code.
   `vp test --run`, plus `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
   and `cargo test` in `src-tauri`. CI runs exactly these, with coverage: `--coverage` on
   the frontend and `cargo llvm-cov` on the backend, both reported on the run's summary
-  page. No threshold gates a merge — the numbers are there to say where a test is missing,
-  and the backend's read low because the integration tests skip on a runner with no Docker.
+  page. No threshold gates a merge — the numbers are there to say where a test is missing.
 - Run the app with `vp run tauri dev`.
 - Update `README.md` and this file in the change that makes them stale.
 
@@ -87,7 +86,9 @@ the server reported leaves the session usable and keeps it.
 
 `src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
 --wait`) and each test skips itself when nothing is listening on that port. A server that
-does answer has to work: only absence is a skip, never a failure.
+does answer has to work: only absence is a skip, never a failure. CI starts the container
+on a Linux runner so that these tests actually run there; the macOS job compiles the
+keychain, which is the only code that runner can see and Linux cannot.
 
 ## The editor and the grid
 
