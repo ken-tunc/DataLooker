@@ -73,4 +73,17 @@ describe("SqlEditor in vim mode", () => {
     await userEvent.keyboard("x");
     await vi.waitFor(() => expect(text()).toBe("xELECT 1"));
   });
+
+  it("leaves the toggle where it was once it is turned off again", async () => {
+    const { screen } = await editor({ check_syntax: [] }, "SELECT 1");
+    const vim = screen.getByRole("checkbox", { name: "Vim" });
+    const at = () => vim.element().getBoundingClientRect().left;
+    const before = at();
+
+    await vim.click();
+    await expect.element(screen.getByText("--NORMAL--")).toBeVisible();
+    await vim.click();
+
+    await vi.waitFor(() => expect(at()).toBe(before));
+  });
 });

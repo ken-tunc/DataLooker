@@ -107,8 +107,13 @@ export default function SqlEditor({ value, onChange, onSubmit }: Props) {
     <div className="flex h-full min-h-0 w-full flex-col">
       <div ref={host} className="min-h-0 w-full flex-1" />
       <div className="flex items-center gap-3 px-2 pt-1 text-xs">
-        {/* Where vim writes `-- INSERT --` and the `:` line it is reading. */}
-        <span ref={status} className="text-base-content/70 grow truncate font-mono" />
+        {/* Where vim writes `-- INSERT --` and the `:` line it is reading. It
+            hides the node it was handed when it is turned off, and a hidden
+            node holds no space, so what keeps the row's shape is the span
+            around it rather than the one vim writes to. */}
+        <span className="text-base-content/70 grow truncate font-mono">
+          <span ref={status} />
+        </span>
         <label className="flex cursor-pointer items-center gap-1">
           <input
             type="checkbox"
