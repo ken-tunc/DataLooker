@@ -2,15 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState } from "react";
 import { describeError } from "../../lib/invoke";
 import { useRefreshSchemaTree, useSchemaTree } from "./hooks";
-import type { TableKind } from "../../bindings/TableKind";
-import { type TreeRow, treeRows } from "./rows";
-
-const KIND_LABELS: Record<TableKind, string> = {
-  table: "",
-  view: "view",
-  materialized_view: "materialized view",
-  foreign_table: "foreign table",
-};
+import { KIND_LABELS, type TreeRow, treeRows } from "./rows";
 
 const ROW_HEIGHT = 26;
 

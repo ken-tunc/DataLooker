@@ -1,6 +1,13 @@
 import type { SchemaTree } from "../../bindings/SchemaTree";
 import type { TableKind } from "../../bindings/TableKind";
 
+export const KIND_LABELS: Record<TableKind, string> = {
+  table: "",
+  view: "view",
+  materialized_view: "materialized view",
+  foreign_table: "foreign table",
+};
+
 export type TreeRow =
   | { kind: "schema"; id: string; name: string; tables: number; expanded: boolean }
   | {

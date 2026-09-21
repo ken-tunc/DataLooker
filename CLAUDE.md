@@ -143,6 +143,12 @@ cannot name a row, so it is read-only.
   theme is enabled and nothing follows the OS light/dark preference. Monaco paints
   itself rather than reading the theme, so it is pinned to its own `vs-dark` — close
   enough that a second palette to maintain is not worth it.
+- The table palette (⌘O) ranks names itself rather than through a fuzzy-search library.
+  The haystack is a few thousand `schema.table` strings already in memory, and what makes
+  one hit better than another here is structural — a run of letters that is contiguous,
+  that starts a word, and that lands in the table's own name rather than its schema's —
+  where a library tuned for typos in prose scores by edit distance. Doing it in
+  `features/table-search/search.ts` also hands the palette the positions it marks up.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.
