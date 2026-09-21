@@ -120,6 +120,35 @@ our rendering of a value, and catches any concurrent change to the row. One save
 transaction: a row that matches nothing refuses the lot. A relation with no primary key
 cannot name a row, so it is read-only.
 
+## Syntax errors
+
+`app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries
+(the `pg_query` crate), so no server is asked and an editor with no connection open still
+gets them. The text is scanned into tokens once, split into statements at the semicolons,
+and each statement parsed on its own, so one mistake does not silence the statements after
+it. The parser reports only a message — the crate drops the cursor position libpg_query
+returns — so the mark is placed on the token the message quotes, matched against the
+scanner's tokens rather than searched for in the text, and only when the statement uses
+that word once — `WHERE a = 1 AND FROM b` names `FROM`, and the first one in the text is
+the one that parsed. Otherwise the whole statement is marked, which says less than the
+truth rather than something other than it. An error at end of input is dropped: that is what every statement looks like
+while it is still being typed.
+
+## Vim keybindings
+
+A toggle under the editor turns them on, and `features/sql-editor/vim.ts` holds the answer
+for all of them: every tab has an editor, and turning vim on is not something a reader does
+per tab. It is kept in `localStorage`, because it is how this window behaves rather than
+something DataLooker knows — nothing else that drives the app has an editor to apply it to.
+
+monaco-vim needs two lines in `vite.config.ts` that look arbitrary and are not. The entry
+its package offers a browser is a UMD bundle calling `require`, which no browser answers
+and which the dependency optimizer hangs on rather than rejecting, so the ESM build is
+named directly and the package is kept out of pre-bundling. That build then reaches into
+Monaco by a path Monaco does not publish (`./*` already maps to `./esm/vs/*.js`), so the
+prefix is aliased away — onto the same module the editor imports, which is what keeps one
+Monaco in the page rather than two.
+
 ## Decisions
 
 - The bundle identifier `org.kentunc.datalooker` also decides where application data lives

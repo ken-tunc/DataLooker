@@ -5,6 +5,7 @@ import type { TableEdits } from "../bindings/TableEdits";
 import type { TablePage } from "../bindings/TablePage";
 import type { TableShape } from "../bindings/TableShape";
 import type { SchemaTree } from "../bindings/SchemaTree";
+import type { SyntaxError } from "../bindings/SyntaxError";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
 import { invoke } from "./invoke";
 
@@ -40,6 +41,11 @@ export function executeQuery(
 
 export function cancelQuery(queryId: string): Promise<void> {
   return invoke<void>("cancel_query", { queryId });
+}
+
+/** What PostgreSQL would refuse to parse. Needs no connection: the grammar is built in. */
+export function checkSyntax(sql: string): Promise<SyntaxError[]> {
+  return invoke<SyntaxError[]>("check_syntax", { sql });
 }
 
 export function schemaTree(connectionId: string): Promise<SchemaTree> {
