@@ -11,7 +11,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 
 ## Prerequisites
 
-- **macOS** (Linux and Windows are not validated)
+- **macOS** to run the app (Linux and Windows are not validated; Linux is where CI runs
+  the tests, which need no window)
 - **[Vite+](https://viteplus.dev/)** — the `vp` CLI drives the frontend toolchain and
   installs the Node.js and pnpm versions this project pins:
   ```sh
@@ -55,6 +56,12 @@ docker compose up -d --wait                     # PostgreSQL for the integration
 cd src-tauri && cargo test                      # backend
 ```
 
+Both suites can report their coverage — `vp test --run --coverage` and, in `src-tauri`,
+`cargo llvm-cov` (`cargo install cargo-llvm-cov`). CI runs both and puts the tables on the
+run's summary page. No external coverage service is involved, so there is nothing to sign
+up for and no secret to keep — the workflow posts its comment with the token GitHub already
+gives the run.
+
 The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
 itself when nothing is listening on its port, so `cargo test` still passes without Docker.
 `--wait` holds until the server is healthy, so the tests do not skip a container that is
@@ -70,7 +77,9 @@ still starting.
 | `vp run tauri build`                                         | Build a distributable `.app`                                |
 | `vp check`                                                   | Format, lint and type check (`--fix` applies fixes)         |
 | `vp test --run`                                              | Frontend tests                                              |
+| `vp test --run --coverage`                                   | Frontend tests with a coverage report                       |
 | `cargo test` (in `src-tauri`)                                | Rust tests                                                  |
+| `cargo llvm-cov` (in `src-tauri`)                            | Rust tests with a coverage report                           |
 | `cargo clippy --all-targets -- -D warnings` (in `src-tauri`) | Rust linter                                                 |
 | `cargo fmt` (in `src-tauri`)                                 | Rust formatter                                              |
 

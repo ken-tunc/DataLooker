@@ -74,7 +74,6 @@ pub struct Sort {
     pub descending: bool,
 }
 
-/// One page of one table, as the driver reads it.
 #[derive(Clone, Copy)]
 pub struct Preview<'a> {
     /// Read each row's version as well, which only a table has. A view has no

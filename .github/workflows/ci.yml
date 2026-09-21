@@ -10,6 +10,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Reading the repository is all any of this needs; the one job that writes
+# says so itself.
+permissions:
+  contents: read
+
 # CI never debugs the binary, so dev-profile debug symbols are pure compile and
 # cache-IO overhead here. Local `cargo` builds are unaffected.
 env:
@@ -17,7 +22,9 @@ env:
 
 jobs:
   frontend:
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
+    outputs:
+      report: ${{ steps.report.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -32,9 +39,150 @@ jobs:
       # `vp check` covers format, lint and type check.
       - run: vp check
 
-      - run: vp test --run
+      - run: vp test --run --coverage
 
+      - name: Summarize coverage
+        run: |
+          {
+            echo '## Frontend coverage'
+            echo '```'
+            cat coverage/coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7.0.1
+        id: report
+        with:
+          name: frontend-coverage
+          path: coverage/
+
+  # Linux runs the tests because it is where a PostgreSQL container can run
+  # beside them: on a macOS runner every integration test skips itself, which
+  # is the whole `drivers/` suite. The release is pinned to the one carrying
+  # the webkit2gtk 4.1 packages Tauri links against.
   rust:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src-tauri
+    outputs:
+      report: ${{ steps.report.outputs.artifact-url }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            librsvg2-dev
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - uses: taiki-e/install-action@v2.87.17
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Start PostgreSQL
+        working-directory: .
+        run: docker compose up -d --wait
+
+      # Runs the tests instrumented; the report comes from the same run.
+      # `--no-report` leaves old counters where they are, and the cache brings
+      # a previous run's back, so the clean is what keeps the report to this
+      # run's own data.
+      - run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report
+
+      - name: Summarize coverage
+        run: |
+          cargo llvm-cov report --html --output-dir coverage
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --summary-only > coverage/coverage.txt
+          {
+            echo '## Rust coverage'
+            echo '```'
+            cat coverage/coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7.0.1
+        id: report
+        with:
+          name: rust-coverage
+          path: src-tauri/coverage/
+
+  # The tables are on each run's summary page either way; this puts them where
+  # the review happens, as one comment that later runs rewrite rather than a
+  # new one per push.
+  coverage:
+    needs: [frontend, rust]
+    # A pull request from a fork carries a read-only token, and a comment it
+    # cannot post would only be a red mark on someone else's contribution.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: "*-coverage"
+          path: reports
+
+      - name: Comment on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          # Nothing is checked out here, so `gh` is told which repository this
+          # is rather than reading it from a working copy.
+          GH_REPO: ${{ github.repository }}
+          FRONTEND: ${{ needs.frontend.outputs.report }}
+          RUST: ${{ needs.rust.outputs.report }}
+        run: |
+          body=$(mktemp)
+          {
+            echo '## Coverage'
+            echo
+            echo '<details><summary>Frontend</summary>'
+            echo
+            echo '```'
+            cat reports/frontend-coverage/coverage.txt
+            echo '```'
+            echo
+            echo '</details>'
+            echo
+            echo '<details><summary>Rust</summary>'
+            echo
+            echo '```'
+            cat reports/rust-coverage/coverage.txt
+            echo '```'
+            echo
+            echo '</details>'
+            echo
+            echo "Line-by-line reports: [frontend]($FRONTEND) · [Rust]($RUST). Both are"
+            echo 'directories, so GitHub hands them over as a zip — open `index.html`'
+            echo 'from it.'
+          } > "$body"
+          gh pr comment "$PR" --body-file "$body" --edit-last --create-if-none
+
+  # The keychain is the one thing only macOS compiles, and the app ships
+  # nowhere else, so this builds what Linux cannot rather than running a suite
+  # that has nothing platform-specific left to say.
+  macos:
     runs-on: macos-26
     defaults:
       run:
@@ -49,8 +197,4 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: cargo fmt --check
-
       - run: cargo clippy --all-targets -- -D warnings
-
-      - run: cargo test

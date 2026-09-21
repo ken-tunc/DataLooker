@@ -9,6 +9,18 @@ export default defineConfig({
     // `.claude/worktrees/` holds checkouts of other branches; their tests are
     // not this one's to run.
     exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    coverage: {
+      // Every source file, not only the ones a test happened to import: a file
+      // nothing covers is the point of measuring.
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/bindings/**", "src/main.tsx", "src/**/*.test.*"],
+      // The same table twice: on the terminal, and in a file for CI to put in
+      // the run's summary.
+      reporter: ["text", ["text", { file: "coverage.txt", maxCols: 160 }], "lcov"],
+      // A file that is fully covered still belongs in the table: leaving it
+      // out makes a reader wonder whether it was measured at all.
+      skipFull: false,
+    },
   },
   // Strips the in-source tests from production bundles.
   define: {

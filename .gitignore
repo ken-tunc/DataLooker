@@ -7,6 +7,9 @@ dist
 src-tauri/target
 src-tauri/gen/schemas
 
+# Coverage reports
+coverage
+
 # Agent skills: pinned by skills-lock.json, installed by the skills CLI
 .agents
 .claude/skills

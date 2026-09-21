@@ -275,7 +275,6 @@ async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
     );
     assert_eq!(schema.tables[0].kind, TableKind::View);
 
-    // A schema nothing has been created in yet is still a schema.
     let empty = tree
         .schemas
         .iter()
@@ -361,7 +360,6 @@ async fn a_preview_reads_one_page_of_a_table_in_order() {
             .collect::<Vec<_>>(),
         [json!(1), json!(2), json!(3), json!(4)]
     );
-    // A page with more behind it reports itself as truncated.
     assert!(first.result.truncated);
 
     let second = page(
