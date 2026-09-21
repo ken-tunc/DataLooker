@@ -2,13 +2,41 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import { playwright } from "vite-plus/test/browser-playwright";
 
 export default defineConfig({
   test: {
-    includeSource: ["src/**/*.ts"],
     // `.claude/worktrees/` holds checkouts of other branches; their tests are
     // not this one's to run.
     exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          includeSource: ["src/**/*.ts"],
+          exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/*.browser.test.tsx"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "browser",
+          include: ["src/**/*.browser.test.tsx"],
+          setupFiles: ["src/test/setup.ts"],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            // The window `tauri.conf.json` opens. The default viewport is a
+            // phone's, which is not a shape this app is ever asked to be:
+            // the grid's virtualized rows and the sidebar beside them both
+            // depend on how much room there is.
+            instances: [{ browser: "chromium", viewport: { width: 1280, height: 800 } }],
+          },
+        },
+      },
+    ],
     coverage: {
       // Every source file, not only the ones a test happened to import: a file
       // nothing covers is the point of measuring.

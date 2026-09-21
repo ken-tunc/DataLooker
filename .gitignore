@@ -10,6 +10,10 @@ src-tauri/gen/schemas
 # Coverage reports
 coverage
 
+# What a failing browser test leaves behind to look at
+__screenshots__
+.vitest-attachments
+
 # Agent skills: pinned by skills-lock.json, installed by the skills CLI
 .agents
 .claude/skills

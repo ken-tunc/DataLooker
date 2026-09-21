@@ -9,6 +9,13 @@ describe("toIpcError", () => {
     expect(error.message).toBe("message must not be empty");
   });
 
+  it.each(["Validation", "NotFound", "Database", "Secret", "Conflict"] as const)(
+    "wraps a %s, which the frontend branches on",
+    (kind) => {
+      expect(toIpcError({ kind, message: "gone" })).toBeInstanceOf(IpcError);
+    },
+  );
+
   it("passes an Error through untouched", () => {
     const original = new Error("boom");
     expect(toIpcError(original)).toBe(original);

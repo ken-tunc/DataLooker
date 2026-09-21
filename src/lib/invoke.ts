@@ -12,26 +12,27 @@ export class IpcError extends Error {
   }
 }
 
-const ERROR_KINDS: ReadonlySet<string> = new Set<AppError["kind"]>([
-  "Validation",
-  "NotFound",
-  "Database",
-  "Secret",
-  "Cancelled",
-  "Timeout",
-]);
-
-/** Variants the Rust enum carries no payload for, so they arrive as `kind` alone. */
-const KINDS_WITHOUT_MESSAGE: ReadonlySet<string> = new Set<AppError["kind"]>([
-  "Cancelled",
-  "Timeout",
-]);
+/**
+ * Every kind, and whether the Rust variant carries a message — the ones that
+ * do not arrive as `kind` alone. A `Record` of the whole union rather than a
+ * list, so that a variant added to `AppError` fails the type check here
+ * instead of quietly falling through as an error nothing can branch on.
+ */
+const CARRIES_MESSAGE: Record<AppError["kind"], boolean> = {
+  Validation: true,
+  NotFound: true,
+  Database: true,
+  Secret: true,
+  Conflict: true,
+  Cancelled: false,
+  Timeout: false,
+};
 
 function asAppError(value: unknown): AppError | null {
   if (typeof value !== "object" || value === null) return null;
   const { kind, message } = value as Record<string, unknown>;
-  if (typeof kind !== "string" || !ERROR_KINDS.has(kind)) return null;
-  if (KINDS_WITHOUT_MESSAGE.has(kind)) return { kind } as AppError;
+  if (typeof kind !== "string" || !Object.hasOwn(CARRIES_MESSAGE, kind)) return null;
+  if (!CARRIES_MESSAGE[kind as AppError["kind"]]) return { kind } as AppError;
   if (typeof message !== "string") return null;
   return { kind, message } as AppError;
 }
