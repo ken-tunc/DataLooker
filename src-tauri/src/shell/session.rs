@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
@@ -15,6 +16,10 @@ use crate::error::AppError;
 /// its last few lines; one that works can talk for days, and none of it is
 /// worth holding on to.
 const KEPT_LINES: usize = 50;
+
+/// How long to keep reading a command's output after the command itself has
+/// ended.
+const LAST_WORDS: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -109,7 +114,10 @@ impl ShellRun {
 
         tokio::spawn(async move {
             let (code, stopped) = tokio::select! {
-                status = child.wait() => (status.ok().and_then(|status| status.code()), false),
+                // Both can be ready at once: the app on its way out kills the
+                // group and lets go of the run in the same breath. Asked in
+                // order, what ended the command is what the ending says.
+                biased;
                 // Letting go of the run counts as stopping it: the registry
                 // holds the only other handle, and it lets go of a run when
                 // the reader stops it or when the app is closing.
@@ -118,6 +126,7 @@ impl ShellRun {
                     let _ = child.wait().await;
                     (None, true)
                 }
+                status = child.wait() => (status.ok().and_then(|status| status.code()), false),
             };
             // The leader is reaped on both paths, and a group with no members
             // left is a number the system may hand to someone else. A command
@@ -125,9 +134,23 @@ impl ShellRun {
             // `ssh -f` goes to the background on purpose.
             group.disarm();
 
+            // A pipe reaches its end when the last writer lets go of it, and
+            // a command that backgrounds something — `ssh -f`, a trailing `&` —
+            // leaves that descendant holding the pipes it inherited. Waiting
+            // for the end would be waiting for the descendant, which is what
+            // the command went to the trouble of outliving, so what has been
+            // read by the deadline is what the ending carries.
             let (stdout, stderr) = drains;
-            let _ = stdout.await;
-            let _ = stderr.await;
+            let give_up = (stdout.abort_handle(), stderr.abort_handle());
+            let flushed = tokio::time::timeout(LAST_WORDS, async {
+                let _ = stdout.await;
+                let _ = stderr.await;
+            })
+            .await;
+            if flushed.is_err() {
+                give_up.0.abort();
+                give_up.1.abort();
+            }
 
             // Out of the registry before the word goes out, so that whoever
             // hears it and asks what is running gets the answer that matches.
@@ -292,6 +315,17 @@ mod tests {
         assert_eq!(exit.code, None);
         // Saying so again is not an error, and there is nothing left to say it to.
         session.stop();
+    }
+
+    #[tokio::test]
+    async fn a_command_that_leaves_something_behind_still_ends() {
+        // The shell exits without waiting, and what it backgrounded holds the
+        // pipes it inherited for as long as it lives.
+        let (exit, _, registry) = run("sleep 5 & echo up").await;
+
+        assert_eq!(exit.code, Some(0));
+        assert_eq!(exit.output, "up");
+        assert!(registry.running().is_empty());
     }
 
     #[tokio::test]

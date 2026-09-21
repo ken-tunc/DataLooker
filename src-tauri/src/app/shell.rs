@@ -28,6 +28,11 @@ impl App {
         // is dropped, and the child with it.
         if self.shells.insert(Arc::clone(&run)) {
             run.watch(Arc::clone(&self.shells), self.exits.clone());
+        } else {
+            // Nothing will watch this one, and letting go of it reaps the
+            // shell alone — whatever it forked in the moment it was alive
+            // would be left with no one to stop it.
+            run.kill_group();
         }
         Ok(())
     }
