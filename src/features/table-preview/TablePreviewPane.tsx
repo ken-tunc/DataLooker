@@ -32,7 +32,8 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   // The page on screen may be the previous one, still there while the next
   // arrives. An edit belongs to a row of the page it was typed into, so it
   // needs that page's versions, not the next page's.
-  const editingPage = editable && page?.versions.length === page?.result.rows.length;
+  const editingPage =
+    editable && page !== undefined && page.versions.length === page.result.rows.length;
   const pending = editCount(edits);
 
   function keyOfRow(row: number): Record<string, string | null> | null {
