@@ -100,17 +100,26 @@ fn named_token(message: &str) -> Option<&str> {
 /// Where that token sits. The name is matched against whole tokens rather than
 /// searched for in the text, so that a word inside a string literal or a longer
 /// identifier is not mistaken for it.
+///
+/// A name the statement uses more than once is not placed at all. The message
+/// says which word the parser choked on, not which of them, and the first is
+/// not reliably the one: `GROUP BY a HAVING BY` fails at the second `BY`.
+/// Marking the whole statement says less than the truth rather than something
+/// other than it.
 fn token_named(
     sql: &str,
     tokens: &[ScanToken],
     (start, end): (usize, usize),
     name: &str,
 ) -> Option<(usize, usize)> {
-    tokens
+    let mut matches = tokens
         .iter()
         .map(|token| (token.start as usize, token.end as usize))
         .filter(|(from, to)| *from >= start && *to <= end)
-        .find(|(from, to)| sql.get(*from..*to).is_some_and(|text| text == name))
+        .filter(|(from, to)| sql.get(*from..*to).is_some_and(|text| text == name));
+
+    let only = matches.next()?;
+    matches.next().is_none().then_some(only)
 }
 
 fn whole_text(sql: &str, message: &str) -> SyntaxError {
@@ -214,6 +223,16 @@ mod tests {
 
         assert_eq!((error.start_line, error.start_column), (1, 1));
         assert_eq!(error.end_column, 6);
+    }
+
+    #[test]
+    fn a_word_the_statement_uses_twice_is_not_guessed_at() {
+        // The parser names `FROM`, and the first one in the text is the one
+        // that parsed perfectly well.
+        let error = only("SELECT a FROM t WHERE a = 1 AND FROM b");
+
+        assert_eq!(error.message, "syntax error at or near \"FROM\"");
+        assert_eq!((error.start_column, error.end_column), (1, 39));
     }
 
     #[test]

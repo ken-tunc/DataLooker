@@ -128,8 +128,10 @@ gets them. The text is scanned into tokens once, split into statements at the se
 and each statement parsed on its own, so one mistake does not silence the statements after
 it. The parser reports only a message — the crate drops the cursor position libpg_query
 returns — so the mark is placed on the token the message quotes, matched against the
-scanner's tokens rather than searched for in the text, and falls back to the whole
-statement. An error at end of input is dropped: that is what every statement looks like
+scanner's tokens rather than searched for in the text, and only when the statement uses
+that word once — `WHERE a = 1 AND FROM b` names `FROM`, and the first one in the text is
+the one that parsed. Otherwise the whole statement is marked, which says less than the
+truth rather than something other than it. An error at end of input is dropped: that is what every statement looks like
 while it is still being typed.
 
 ## Vim keybindings

@@ -44,13 +44,16 @@ describe("SqlEditor", () => {
   });
 
   it("says nothing rather than something wrong when the check itself fails", async () => {
-    const { markers } = await editor({
+    const { ipc, markers } = await editor({
       check_syntax: () => {
         throw { kind: "Database", message: "the parser is on fire" };
       },
     });
 
-    await vi.waitFor(() => expect(markers()).toEqual([]), { timeout: 3000 });
+    // Markers are empty before the check runs at all, so the rejection has to
+    // have happened for this to say anything.
+    await vi.waitFor(() => expect(ipc.sent("check_syntax")).toBeDefined(), { timeout: 3000 });
+    expect(markers()).toEqual([]);
   });
 });
 
