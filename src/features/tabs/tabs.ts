@@ -1,7 +1,13 @@
 import type { Sort } from "../../bindings/Sort";
 
 /** What a table tab keeps besides its identity: how it is being read. */
-export type TableView = { filter: string; sort: Sort | null; page: number };
+export type TableView = {
+  filter: string;
+  sort: Sort | null;
+  page: number;
+  /** Its rows, or what it is made of. */
+  shows: "rows" | "structure";
+};
 
 export type Tab =
   | { kind: "sql"; id: string; title: string; sql: string }
@@ -57,6 +63,7 @@ export function openTableTab(
     filter: "",
     sort: null,
     page: 0,
+    shows: "rows",
   });
 }
 
@@ -94,14 +101,24 @@ export function setSql(state: TabsState, id: string, sql: string): TabsState {
   };
 }
 
-/** A filter or a sort starts the table again from its first page. */
 export function setTableView(state: TabsState, id: string, view: Partial<TableView>): TabsState {
   return {
     ...state,
     tabs: state.tabs.map((tab) =>
-      tab.id === id && tab.kind === "table" ? { ...tab, ...view, page: view.page ?? 0 } : tab,
+      tab.id === id && tab.kind === "table" ? { ...tab, ...view, page: nextPage(tab, view) } : tab,
     ),
   };
+}
+
+/**
+ * A filter or a sort makes a different set of rows, so the table starts again
+ * from its first page. Reading what the table is made of and coming back does
+ * not: the rows are the ones that were there.
+ */
+function nextPage(tab: TableView, view: Partial<TableView>): number {
+  if (view.page !== undefined) return view.page;
+  const rows = view.filter !== undefined || view.sort !== undefined;
+  return rows ? 0 : tab.page;
 }
 
 if (import.meta.vitest) {
@@ -142,6 +159,7 @@ if (import.meta.vitest) {
         filter: "",
         sort: null,
         page: 0,
+        shows: "rows",
       });
     });
 
@@ -167,6 +185,12 @@ if (import.meta.vitest) {
       const paged = setTableView(table(), "t1", { page: 3 });
       const filtered = setTableView(paged, "t1", { filter: "id > 10" });
       expect(filtered.tabs[0]).toMatchObject({ filter: "id > 10", page: 0 });
+    });
+
+    it("stays on its page while the structure is read", () => {
+      const paged = setTableView(table(), "t1", { page: 3 });
+      const structure = setTableView(paged, "t1", { shows: "structure" });
+      expect(structure.tabs[0]).toMatchObject({ shows: "structure", page: 3 });
     });
 
     it("keeps the page the caller asked for", () => {

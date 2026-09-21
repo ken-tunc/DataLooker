@@ -129,6 +129,20 @@ our rendering of a value, and catches any concurrent change to the row. One save
 transaction: a row that matches nothing refuses the lot. A relation with no primary key
 cannot name a row, so it is read-only.
 
+## A table's structure
+
+PostgreSQL has no `SHOW CREATE TABLE`. What it does offer is `pg_get_*def` for the pieces
+that are objects of their own — an index, a trigger, a constraint, a view's body — so
+`drivers/postgres/ddl.rs` rebuilds the `CREATE` statement around them out of
+`pg_attribute`. An index that backs a constraint is left out of the index list, since the
+statement already names it as that constraint, and a trigger PostgreSQL marks internal is
+left out too, because a foreign key wrote it rather than a reader. A foreign table's
+server and its options are not rebuilt.
+
+It shows inside the table's own tab rather than in a tab of its own: a tab is the table,
+and its rows and its structure are two ways of looking at it. Switching between them
+leaves a pending edit pending and the reader on the page they were on.
+
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries

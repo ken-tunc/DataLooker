@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { TableEdits } from "../../bindings/TableEdits";
 import { renderApp, stubIpc } from "../../test/harness";
@@ -14,6 +14,7 @@ const tab: TableTab = {
   filter: "",
   sort: null,
   page: 0,
+  shows: "rows",
 };
 
 const shape = {
@@ -38,15 +39,31 @@ const page = {
   versions: ["900", "901"],
 };
 
-async function preview(replies: Partial<Parameters<typeof stubIpc>[0]> = {}) {
+const definition = {
+  definition: 'CREATE TABLE "shop"."people" (\n    "id" bigint NOT NULL\n);',
+  indexes: [
+    {
+      name: "people_by_name",
+      definition: "CREATE INDEX people_by_name ON shop.people USING btree (name)",
+    },
+  ],
+  triggers: [],
+};
+
+async function preview(
+  replies: Partial<Parameters<typeof stubIpc>[0]> = {},
+  shows: TableTab["shows"] = "rows",
+) {
   const ipc = stubIpc({
     table_shape: shape,
     preview_table: page,
     commit_table_edits: 1,
+    table_definition: definition,
     ...replies,
   });
+  const onView = vi.fn();
   const screen = await renderApp(
-    <TablePreviewPane connectionId="c1" tab={tab} hidden={false} onView={() => {}} />,
+    <TablePreviewPane connectionId="c1" tab={{ ...tab, shows }} hidden={false} onView={onView} />,
   );
 
   /** A cell is opened for editing by double-clicking it, as in the app. */
@@ -59,7 +76,7 @@ async function preview(replies: Partial<Parameters<typeof stubIpc>[0]> = {}) {
 
   const saved = () => (ipc.sent("commit_table_edits")?.edits as TableEdits | undefined) ?? null;
 
-  return { ipc, screen, type, saved };
+  return { ipc, screen, type, saved, onView };
 }
 
 describe("TablePreviewPane", () => {
@@ -154,5 +171,49 @@ describe("TablePreviewPane", () => {
       .element(screen.getByText("Read-only: this relation has no primary key."))
       .toBeVisible();
     await expect.element(screen.getByRole("button", { name: "New row" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TablePreviewPane showing the structure", () => {
+  it("asks for the structure when the switch is used", async () => {
+    const { screen, onView } = await preview();
+
+    await screen.getByRole("tab", { name: "Structure" }).click();
+
+    expect(onView).toHaveBeenCalledWith({ shows: "structure" });
+  });
+
+  it("shows the statement that would make the table again", async () => {
+    const { ipc, screen } = await preview({}, "structure");
+
+    await expect.element(screen.getByText(/CREATE TABLE "shop"\."people"/)).toBeVisible();
+    await expect.element(screen.getByText(/CREATE INDEX people_by_name/)).toBeVisible();
+    await expect.element(screen.getByText("No trigger.")).toBeVisible();
+    expect(ipc.sent("table_definition")).toEqual({
+      connectionId: "c1",
+      schema: "shop",
+      table: "people",
+    });
+  });
+
+  it("leaves the filter and the row buttons behind with the rows", async () => {
+    const { screen } = await preview({}, "structure");
+
+    await expect.element(screen.getByText(/CREATE TABLE/)).toBeVisible();
+    expect(screen.getByPlaceholder("WHERE …").elements()).toEqual([]);
+    expect(screen.getByRole("button", { name: "New row" }).elements()).toEqual([]);
+  });
+
+  it("shows what reading the structure complained about", async () => {
+    const { screen } = await preview(
+      {
+        table_definition: () => {
+          throw { kind: "NotFound", message: "shop.people" };
+        },
+      },
+      "structure",
+    );
+
+    await expect.element(screen.getByRole("alert")).toBeVisible();
   });
 });

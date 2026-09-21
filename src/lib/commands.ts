@@ -5,6 +5,7 @@ import type { TableEdits } from "../bindings/TableEdits";
 import type { TablePage } from "../bindings/TablePage";
 import type { TableShape } from "../bindings/TableShape";
 import type { SchemaTree } from "../bindings/SchemaTree";
+import type { TableDefinition } from "../bindings/TableDefinition";
 import type { SyntaxError } from "../bindings/SyntaxError";
 import type { HistoryEntry } from "../bindings/HistoryEntry";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
@@ -56,6 +57,15 @@ export function queryHistory(connectionId: string): Promise<HistoryEntry[]> {
 
 export function schemaTree(connectionId: string): Promise<SchemaTree> {
   return invoke<SchemaTree>("schema_tree", { connectionId });
+}
+
+/** The `CREATE` statement PostgreSQL's catalogs describe, and what stands beside it. */
+export function tableDefinition(
+  connectionId: string,
+  schema: string,
+  table: string,
+): Promise<TableDefinition> {
+  return invoke<TableDefinition>("table_definition", { connectionId, schema, table });
 }
 
 export function previewTable(request: PreviewRequest): Promise<TablePage> {

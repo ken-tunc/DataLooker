@@ -18,6 +18,7 @@ import {
   withoutNewRow,
 } from "./edits";
 import { type TableTab, useCommitEdits, useTablePreview, useTableShape } from "./hooks";
+import { TableStructure } from "./TableStructure";
 
 /** The row "Remove row" acts on: a draft by its id, a stored row by its key. */
 type DeleteTarget =
@@ -169,6 +170,9 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   }
 
   const rows = page?.result.rows.length ?? 0;
+  // The rows keep their state while the structure is read: a pending edit is
+  // still pending, and the page is still the page the reader was on.
+  const structure = tab.shows === "structure";
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col gap-2 p-3 ${hidden ? "hidden" : ""}`}>
@@ -176,19 +180,39 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         <span className="font-medium">
           {tab.schema}.{tab.table}
         </span>
-        <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
-          <input
-            className="input input-sm grow font-mono"
-            placeholder="WHERE …"
-            spellCheck={false}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <button type="submit" className="btn btn-sm">
-            Filter
-          </button>
-        </form>
-        {editingPage && (
+
+        <div role="tablist" className="tabs tabs-box tabs-xs">
+          {(["rows", "structure"] as const).map((shows) => (
+            <button
+              key={shows}
+              type="button"
+              role="tab"
+              aria-selected={tab.shows === shows}
+              className={`tab ${tab.shows === shows ? "tab-active" : ""}`}
+              onClick={() => onView({ shows })}
+            >
+              {shows === "rows" ? "Rows" : "Structure"}
+            </button>
+          ))}
+        </div>
+
+        {structure && <span className="grow" />}
+
+        {!structure && (
+          <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
+            <input
+              className="input input-sm grow font-mono"
+              placeholder="WHERE …"
+              spellCheck={false}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button type="submit" className="btn btn-sm">
+              Filter
+            </button>
+          </form>
+        )}
+        {!structure && editingPage && (
           <>
             <button
               type="button"
@@ -208,7 +232,9 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             </button>
           </>
         )}
-        {preview.isFetching && <span className="loading loading-spinner loading-xs" />}
+        {!structure && preview.isFetching && (
+          <span className="loading loading-spinner loading-xs" />
+        )}
       </div>
 
       {pending > 0 && (
@@ -258,53 +284,62 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </div>
       )}
 
-      {preview.isError && (
+      {!structure && preview.isError && (
         <div role="alert" className="alert alert-error">
           <span className="font-mono text-sm">{describeError(preview.error)}</span>
         </div>
       )}
 
-      <div className="min-h-0 flex-1">
-        {shown && columns.length > 0 ? (
-          <ResultGrid
-            result={shown}
-            sort={tab.sort}
-            onSortColumn={sortBy}
-            onSelectRow={(row) => setTarget(targetAt(row))}
-            editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
-          />
-        ) : (
-          <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
-            {preview.isPending ? "Reading the table…" : "No rows match."}
+      {structure ? (
+        <div className="min-h-0 flex-1">
+          <TableStructure connectionId={connectionId} schema={tab.schema} table={tab.table} />
+        </div>
+      ) : (
+        <>
+          <div className="min-h-0 flex-1">
+            {shown && columns.length > 0 ? (
+              <ResultGrid
+                result={shown}
+                sort={tab.sort}
+                onSortColumn={sortBy}
+                onSelectRow={(row) => setTarget(targetAt(row))}
+                editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
+              />
+            ) : (
+              <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
+                {preview.isPending ? "Reading the table…" : "No rows match."}
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="text-base-content/60 flex items-center gap-3 text-sm">
-        <button
-          type="button"
-          className="btn btn-xs"
-          disabled={tab.page === 0 || preview.isFetching}
-          onClick={() => onView({ page: tab.page - 1 })}
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          className="btn btn-xs"
-          // `truncated` means the page after this one has something in it.
-          disabled={!page?.result.truncated || preview.isFetching}
-          onClick={() => onView({ page: tab.page + 1 })}
-        >
-          Next
-        </button>
-        <span>
-          {rows === 0 ? "No rows" : `${rows} ${rows === 1 ? "row" : "rows"}`} on page {tab.page + 1}
-        </span>
-        {page && <span>{page.result.elapsed_ms} ms</span>}
-        <span className="grow" />
-        <span>{editingHint(editingPage, shape.isError)}</span>
-      </div>
+          <div className="text-base-content/60 flex items-center gap-3 text-sm">
+            <button
+              type="button"
+              className="btn btn-xs"
+              disabled={tab.page === 0 || preview.isFetching}
+              onClick={() => onView({ page: tab.page - 1 })}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="btn btn-xs"
+              // `truncated` means the page after this one has something in it.
+              disabled={!page?.result.truncated || preview.isFetching}
+              onClick={() => onView({ page: tab.page + 1 })}
+            >
+              Next
+            </button>
+            <span>
+              {rows === 0 ? "No rows" : `${rows} ${rows === 1 ? "row" : "rows"}`} on page{" "}
+              {tab.page + 1}
+            </span>
+            {page && <span>{page.result.elapsed_ms} ms</span>}
+            <span className="grow" />
+            <span>{editingHint(editingPage, shape.isError)}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
