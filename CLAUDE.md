@@ -143,6 +143,16 @@ the one that parsed. Otherwise the whole statement is marked, which says less th
 truth rather than something other than it. An error at end of input is dropped: that is what every statement looks like
 while it is still being typed.
 
+## Query history
+
+Every run is logged to meta.db, whatever became of it: a statement that failed or was
+cancelled is the one a reader most wants back. Nothing in the log is collapsed, because it
+is the record of what was run against a database and when — the palette behind ⌘Y is what
+collapses it, offering the newest run of each distinct statement and opening it in a tab of
+its own. Only the newest runs of a connection are kept, so a long-lived `meta.db` stays
+bounded. A log that cannot be written never fails the query it describes: the rows are
+already in hand, and there is nothing the reader could do about it.
+
 ## Vim keybindings
 
 A toggle under the editor turns them on, and `features/sql-editor/vim.ts` holds the answer
@@ -187,6 +197,9 @@ Monaco in the page rather than two.
   that starts a word, and that lands in the table's own name rather than its schema's —
   where a library tuned for typos in prose scores by edit distance. Doing it in
   `features/table-search/search.ts` also hands the palette the positions it marks up.
+- ⌘O and ⌘Y are the same component (`components/Palette.tsx`). A palette is the modal
+  list, the query field and the keys that walk it; what fills it and what an option looks
+  like belong to whoever opens it.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.

@@ -2,6 +2,7 @@ use tauri::State;
 
 use crate::app::syntax::SyntaxError;
 use crate::app::App;
+use crate::db::history::HistoryEntry;
 use crate::drivers::QueryResult;
 use crate::error::AppError;
 
@@ -31,4 +32,12 @@ pub async fn cancel_query(query_id: String, app: State<'_, App>) -> Result<(), A
 #[tauri::command]
 pub async fn check_syntax(sql: String, app: State<'_, App>) -> Result<Vec<SyntaxError>, AppError> {
     Ok(app.check_syntax(&sql))
+}
+
+#[tauri::command]
+pub async fn query_history(
+    connection_id: String,
+    app: State<'_, App>,
+) -> Result<Vec<HistoryEntry>, AppError> {
+    app.query_history(&connection_id).await
 }

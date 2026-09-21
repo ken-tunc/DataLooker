@@ -8,8 +8,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > tree shows what a database holds, a table is found by name from anywhere with ⌘O, and it
 > opens in a tab of its own where its rows can be filtered and sorted — and edited, when the
 > table has a primary key to name a row by. The editor marks what PostgreSQL would refuse to
-> parse, without asking a server, and has vim keybindings behind a toggle. BigQuery follows
-> PostgreSQL.
+> parse, without asking a server, and has vim keybindings behind a toggle. Every statement
+> that runs is logged, and ⌘Y reopens one. BigQuery follows PostgreSQL.
 
 ## Prerequisites
 
@@ -40,6 +40,7 @@ A native window titled "DataLooker" opens.
 | Keys              | What it does                         |
 | ----------------- | ------------------------------------ |
 | ⌘O                | Find a table by name and open it     |
+| ⌘Y                | Reopen a query that was run before   |
 | ⌃N, ⌃P            | Next / previous match in the palette |
 | ⌘T                | New SQL tab                          |
 | ⌃Tab, ⌃⇧Tab       | Next / previous tab                  |

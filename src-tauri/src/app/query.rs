@@ -31,10 +31,13 @@ impl App {
             registry: &self.queries,
             query_id,
         };
-        self.session(connection_id)
-            .await?
-            .execute(sql, ROW_LIMIT, &cancel)
-            .await
+        let session = self.session(connection_id).await?;
+
+        let started = Instant::now();
+        let result = session.execute(sql, ROW_LIMIT, &cancel).await;
+        self.record_run(connection_id, sql, started.elapsed(), &result)
+            .await;
+        result
     }
 
     pub fn cancel_query(&self, query_id: &str) {

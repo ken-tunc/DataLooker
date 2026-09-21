@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { ConnectionSidebar } from "../connections/ConnectionSidebar";
+import { QueryHistoryPalette } from "../query-history/QueryHistoryPalette";
 import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
 import { TableSearchPalette } from "../table-search/TableSearchPalette";
 import { useTabs } from "../tabs/useTabs";
+
+/** Which palette is in front, if any. Only one can be: each is modal. */
+type Palette = "tables" | "history" | null;
 
 /**
  * Holds what the sidebar and the workspace both need — which connection is in
@@ -11,7 +15,7 @@ import { useTabs } from "../tabs/useTabs";
  */
 export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [palette, setPalette] = useState<Palette>(null);
   const tabs = useTabs();
 
   function select(id: string) {
@@ -22,9 +26,9 @@ export function AppShell() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!selectedId) return;
-      // The palette is modal on screen, so the shortcuts behind it stay quiet
+      // A palette is modal on screen, so the shortcuts behind it stay quiet
       // until it closes — a tab opened under it would go unnoticed.
-      if (searching) return;
+      if (palette) return;
       // Opening a tab is what gets a connection out of having none, so it comes
       // before the shortcuts that need one.
       if (event.key === "t" && event.metaKey) {
@@ -34,7 +38,12 @@ export function AppShell() {
       }
       if (event.key === "o" && event.metaKey) {
         event.preventDefault();
-        setSearching(true);
+        setPalette("tables");
+        return;
+      }
+      if (event.key === "y" && event.metaKey) {
+        event.preventDefault();
+        setPalette("history");
         return;
       }
       if (event.key === "Tab" && event.ctrlKey) {
@@ -44,7 +53,7 @@ export function AppShell() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [searching, selectedId, tabs]);
+  }, [palette, selectedId, tabs]);
 
   return (
     <div className="flex h-full">
@@ -65,11 +74,19 @@ export function AppShell() {
         />
       )}
 
-      {selectedId && searching && (
+      {selectedId && palette === "tables" && (
         <TableSearchPalette
           connectionId={selectedId}
           onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
-          onClose={() => setSearching(false)}
+          onClose={() => setPalette(null)}
+        />
+      )}
+
+      {selectedId && palette === "history" && (
+        <QueryHistoryPalette
+          connectionId={selectedId}
+          onOpenQuery={(sql) => tabs.open(selectedId, sql)}
+          onClose={() => setPalette(null)}
         />
       )}
 
