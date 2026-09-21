@@ -20,7 +20,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   const primaryKey = shape.data?.primary_key ?? [];
   const editable = primaryKey.length > 0;
 
-  const preview = useTablePreview(connectionId, tab, editable);
+  const preview = useTablePreview(connectionId, tab, editable, !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>({});
   // The filter applies when it is submitted, not as it is typed: half a
@@ -29,6 +29,10 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
 
   const page = preview.data;
   const columns = page?.result.columns ?? [];
+  // The page on screen may be the previous one, still there while the next
+  // arrives. An edit belongs to a row of the page it was typed into, so it
+  // needs that page's versions, not the next page's.
+  const editingPage = editable && page?.versions.length === page?.result.rows.length;
   const pending = editCount(edits);
 
   function keyOfRow(row: number): Record<string, string | null> | null {
@@ -156,7 +160,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             result={page.result}
             sort={tab.sort}
             onSortColumn={sortBy}
-            editing={editable ? { pendingValue, onEdit: edit } : undefined}
+            editing={editingPage ? { pendingValue, onEdit: edit } : undefined}
           />
         ) : (
           <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">

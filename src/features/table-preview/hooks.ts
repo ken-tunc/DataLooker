@@ -17,8 +17,19 @@ export function useTableShape(connectionId: string, schema: string, table: strin
   });
 }
 
-export function useTablePreview(connectionId: string, tab: TableTab, editable: boolean) {
+/**
+ * `ready` waits for the shape, which decides whether the page is read with row
+ * versions. Reading it before then would read the page twice: once without
+ * versions and again once the shape arrived.
+ */
+export function useTablePreview(
+  connectionId: string,
+  tab: TableTab,
+  editable: boolean,
+  ready: boolean,
+) {
   return useQuery({
+    enabled: ready,
     queryKey: previewKeys.page(
       connectionId,
       tab.schema,
