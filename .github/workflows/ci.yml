@@ -18,6 +18,8 @@ env:
 jobs:
   frontend:
     runs-on: ubuntu-24.04
+    outputs:
+      report: ${{ steps.report.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -34,9 +36,7 @@ jobs:
 
       - run: vp test --run --coverage
 
-      # The report lives on the run's own page: nothing leaves GitHub, and no
-      # account has to be connected to read it.
-      - name: Report coverage
+      - name: Summarize coverage
         run: |
           {
             echo '## Frontend coverage'
@@ -46,6 +46,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7.0.1
+        id: report
         with:
           name: frontend-coverage
           path: coverage/
@@ -59,6 +60,8 @@ jobs:
     defaults:
       run:
         working-directory: src-tauri
+    outputs:
+      report: ${{ steps.report.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -94,20 +97,73 @@ jobs:
       # Runs the tests instrumented; the report comes from the same run.
       - run: cargo llvm-cov --no-report
 
-      - name: Report coverage
+      - name: Summarize coverage
         run: |
-          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --html --output-dir coverage
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --summary-only > coverage/coverage.txt
           {
             echo '## Rust coverage'
             echo '```'
-            cargo llvm-cov report --summary-only
+            cat coverage/coverage.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7.0.1
+        id: report
         with:
           name: rust-coverage
-          path: src-tauri/lcov.info
+          path: src-tauri/coverage/
+
+  # The tables are on each run's summary page either way; this puts them where
+  # the review happens, as one comment that later runs rewrite rather than a
+  # new one per push.
+  coverage:
+    needs: [frontend, rust]
+    # A pull request from a fork carries a read-only token, and a comment it
+    # cannot post would only be a red mark on someone else's contribution.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: "*-coverage"
+          path: reports
+
+      - name: Comment on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          FRONTEND: ${{ needs.frontend.outputs.report }}
+          RUST: ${{ needs.rust.outputs.report }}
+        run: |
+          body=$(mktemp)
+          {
+            echo '## Coverage'
+            echo
+            echo '<details><summary>Frontend</summary>'
+            echo
+            echo '```'
+            cat reports/frontend-coverage/coverage.txt
+            echo '```'
+            echo
+            echo '</details>'
+            echo
+            echo '<details><summary>Rust</summary>'
+            echo
+            echo '```'
+            cat reports/rust-coverage/coverage.txt
+            echo '```'
+            echo
+            echo '</details>'
+            echo
+            echo "Line-by-line reports: [frontend]($FRONTEND) · [Rust]($RUST). Both are"
+            echo 'directories, so GitHub hands them over as a zip — open `index.html`'
+            echo 'from it.'
+          } > "$body"
+          gh pr comment "$PR" --body-file "$body" --edit-last --create-if-none
 
   # The keychain is the one thing only macOS compiles, and the app ships
   # nowhere else, so this builds what Linux cannot rather than running a suite
