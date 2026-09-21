@@ -160,3 +160,46 @@ describe("a connection's command", () => {
     expect(screen.getByTestId("toast").elements()).toEqual([]);
   });
 });
+
+describe("a connection of another kind", () => {
+  it("asks for what BigQuery needs, and sends that", async () => {
+    const { ipc, screen } = await sidebar({ list_connections: [], save_connection: "id-9" });
+
+    await screen.getByRole("button", { name: "New" }).click();
+    await screen.getByLabelText("Driver").selectOptions("BigQuery");
+
+    // The fields of the driver that was not picked are not on screen at all.
+    expect(screen.getByLabelText("Host").elements()).toEqual([]);
+    await screen.getByLabelText("Label").fill("Warehouse");
+    await screen.getByLabelText("Project").fill("looking");
+    await screen.getByLabelText("Location").fill("asia-northeast1");
+    await screen.getByLabelText("Service account key").fill('{"type":"service_account"}');
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    await expect
+      .poll(() => ipc.sent("save_connection"))
+      .toEqual({
+        input: {
+          id: null,
+          label: "Warehouse",
+          config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
+          secret: '{"type":"service_account"}',
+          command: null,
+        },
+      });
+  });
+
+  it("says which project a BigQuery connection reads", async () => {
+    const { screen } = await sidebar({
+      list_connections: [
+        {
+          ...local,
+          label: "Warehouse",
+          config: { kind: "bigquery", project_id: "looking", location: "EU" },
+        },
+      ],
+    });
+
+    await expect.element(screen.getByText("looking · EU")).toBeVisible();
+  });
+});

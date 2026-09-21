@@ -25,6 +25,7 @@ const CARRIES_MESSAGE: Record<AppError["kind"], boolean> = {
   Secret: true,
   Conflict: true,
   Shell: true,
+  Unsupported: true,
   Cancelled: false,
   Timeout: false,
 };

@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
+import { DRIVER_LABELS, type DriverKind } from "./driver";
 import {
   EMPTY_FORM,
   type ConnectionFormValues,
@@ -9,6 +10,7 @@ import {
   type FormMode,
   formValuesFrom,
   parseConnectionForm,
+  SECRET_LABELS,
 } from "./form";
 import { useSaveConnection } from "./hooks";
 
@@ -40,13 +42,13 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
     dialog.current?.showModal();
   }, []);
 
-  function update(field: keyof ConnectionFormValues, value: string) {
+  function update<F extends keyof ConnectionFormValues>(field: F, value: ConnectionFormValues[F]) {
     setValues((current) => ({ ...current, [field]: value }));
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const parsed = parseConnectionForm(values, mode, source?.id ?? null);
+    const parsed = parseConnectionForm(values, mode, source);
     if (!parsed.ok) {
       setErrors(parsed.errors);
       return;
@@ -88,61 +90,122 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
               />
             </Field>
 
-            <div className="flex gap-3">
-              <div className="grow">
-                <Field id={`${fieldId}-host`} label="Host" error={errors.host}>
-                  <input
-                    id={`${fieldId}-host`}
-                    className={inputClass(errors.host)}
-                    value={values.host}
-                    onChange={(event) => update("host", event.target.value)}
-                  />
-                </Field>
-              </div>
-              <div className="w-28">
-                <Field id={`${fieldId}-port`} label="Port" error={errors.port}>
-                  <input
-                    id={`${fieldId}-port`}
-                    className={inputClass(errors.port)}
-                    inputMode="numeric"
-                    value={values.port}
-                    onChange={(event) => update("port", event.target.value)}
-                  />
-                </Field>
-              </div>
-            </div>
-
-            <Field id={`${fieldId}-database`} label="Database" error={errors.database}>
-              <input
-                id={`${fieldId}-database`}
-                className={inputClass(errors.database)}
-                value={values.database}
-                onChange={(event) => update("database", event.target.value)}
-              />
+            <Field id={`${fieldId}-kind`} label="Driver">
+              <select
+                id={`${fieldId}-kind`}
+                className="select w-full"
+                value={values.kind}
+                onChange={(event) => update("kind", event.target.value as DriverKind)}
+              >
+                {Object.entries(DRIVER_LABELS).map(([kind, label]) => (
+                  <option key={kind} value={kind}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </Field>
 
-            <Field id={`${fieldId}-username`} label="Username" error={errors.username}>
-              <input
-                id={`${fieldId}-username`}
-                className={inputClass(errors.username)}
-                value={values.username}
-                onChange={(event) => update("username", event.target.value)}
-              />
-            </Field>
+            {values.kind === "postgres" ? (
+              <>
+                <div className="flex gap-3">
+                  <div className="grow">
+                    <Field id={`${fieldId}-host`} label="Host" error={errors.host}>
+                      <input
+                        id={`${fieldId}-host`}
+                        className={inputClass(errors.host)}
+                        value={values.host}
+                        onChange={(event) => update("host", event.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="w-28">
+                    <Field id={`${fieldId}-port`} label="Port" error={errors.port}>
+                      <input
+                        id={`${fieldId}-port`}
+                        className={inputClass(errors.port)}
+                        inputMode="numeric"
+                        value={values.port}
+                        onChange={(event) => update("port", event.target.value)}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <Field id={`${fieldId}-database`} label="Database" error={errors.database}>
+                  <input
+                    id={`${fieldId}-database`}
+                    className={inputClass(errors.database)}
+                    value={values.database}
+                    onChange={(event) => update("database", event.target.value)}
+                  />
+                </Field>
+
+                <Field id={`${fieldId}-username`} label="Username" error={errors.username}>
+                  <input
+                    id={`${fieldId}-username`}
+                    className={inputClass(errors.username)}
+                    value={values.username}
+                    onChange={(event) => update("username", event.target.value)}
+                  />
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field id={`${fieldId}-project`} label="Project" error={errors.project}>
+                  <input
+                    id={`${fieldId}-project`}
+                    className={inputClass(errors.project)}
+                    value={values.project}
+                    onChange={(event) => update("project", event.target.value)}
+                  />
+                </Field>
+
+                <Field
+                  id={`${fieldId}-location`}
+                  label="Location"
+                  error={errors.location}
+                  hint="Where the jobs run and where the catalog is read: US, EU, asia-northeast1."
+                >
+                  <input
+                    id={`${fieldId}-location`}
+                    className={inputClass(errors.location)}
+                    value={values.location}
+                    onChange={(event) => update("location", event.target.value)}
+                  />
+                </Field>
+              </>
+            )}
 
             <Field
-              id={`${fieldId}-password`}
-              label="Password"
-              error={errors.password}
-              hint={mode === "edit" ? "Leave blank to keep the stored password." : undefined}
+              id={`${fieldId}-secret`}
+              label={SECRET_LABELS[values.kind]}
+              error={errors.secret}
+              // What is stored belongs to the driver it was stored for, so
+              // changing the driver asks for the new one's secret.
+              hint={
+                mode === "edit" && values.kind === source?.config.kind
+                  ? `Leave blank to keep the stored ${SECRET_LABELS[values.kind].toLowerCase()}.`
+                  : undefined
+              }
             >
-              <input
-                id={`${fieldId}-password`}
-                className={inputClass(errors.password)}
-                type="password"
-                value={values.password}
-                onChange={(event) => update("password", event.target.value)}
-              />
+              {values.kind === "postgres" ? (
+                <input
+                  id={`${fieldId}-secret`}
+                  className={inputClass(errors.secret)}
+                  type="password"
+                  value={values.secret}
+                  onChange={(event) => update("secret", event.target.value)}
+                />
+              ) : (
+                <textarea
+                  id={`${fieldId}-secret`}
+                  className={`${errors.secret ? "textarea textarea-error" : "textarea"} h-28 w-full font-mono text-xs`}
+                  spellCheck={false}
+                  placeholder="The service account key, as the JSON file holds it"
+                  value={values.secret}
+                  onChange={(event) => update("secret", event.target.value)}
+                />
+              )}
             </Field>
 
             <Field

@@ -93,6 +93,23 @@ SQLite transaction, so a keychain failure rolls the row back; a commit that then
 still leaves the password changed, which is the floor with two stores that cannot commit
 together, and nothing tries to compensate for it.
 
+## Drivers
+
+`drivers/` is what talks to a database the reader connects to, one module per driver, and
+`Session` is the enum a connection opens. PostgreSQL is whole; BigQuery so far reaches a
+project and answers whether it can be. What it cannot do yet, and what it will not do,
+both come back as `AppError::Unsupported` with a sentence saying which.
+
+A BigQuery connection is a project and a location — where its jobs run and where the
+catalog describing it lives — and its secret is the service account key, which is where
+the account it reads as is named. The client asks for a read-only scope: nothing here
+writes to BigQuery, and a token that cannot write is one that cannot be made to. There is
+no session to hold open, since every statement is a job of its own, so what a session
+keeps is the authenticated client — building one is an exchange with Google.
+
+A BigQuery table is read-only for a further reason: a row is written here by naming it,
+and a key to name one by is what BigQuery has no notion of.
+
 ## Querying
 
 A connection holds one PostgreSQL session (`drivers::session::SessionRegistry`), reused across
@@ -100,6 +117,10 @@ queries so `BEGIN`, `SET` and temporary tables survive the statement that create
 Queries on one connection therefore run one at a time. A cancelled query leaves the wire
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
+
+`tests/bigquery.rs` reaches a real BigQuery project, and skips unless
+`DATALOOKER_TEST_BQ_KEY` and `DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery
+to stand up in a container. Only their absence is a skip.
 
 `src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
 --wait`) and each test skips itself when nothing is listening on that port. A server that
@@ -235,9 +256,11 @@ Monaco in the page rather than two.
   swallows HTML5 drag and drop inside the webview.
 - A connection's driver-specific settings are stored as JSON in one `config` column, so
   adding a driver needs no migration.
-- There is no driver trait. One implementation cannot show which operations a second
-  driver would share, so `DriverConfig` is matched where a driver is opened and the
-  abstraction waits for BigQuery.
+- A second driver arrived as an enum rather than a trait. `drivers::session::Session` has
+  an arm per driver and a method per operation, so the set of drivers is the closed one
+  this app ships: the compiler says when a driver was left out of an operation, and what a
+  driver cannot do is an arm that says so rather than a method returning an error nobody
+  wrote down. A trait would also have had to be `async_trait` to be object-safe.
 - A result cell crosses IPC as JSON, typed `unknown` in TypeScript. Integers outside
   JavaScript's safe range and `NUMERIC` become strings, because a JSON number would reach
   the frontend rounded.

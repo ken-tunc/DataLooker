@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false }
+gcp-bigquery-client = { version = "0.28", default-features = false, features = ["rust-tls"] }
 keyring-core = "1.0.0"
 pg_query = "6.2.0"
 serde = { version = "1", features = ["derive"] }
@@ -39,6 +40,9 @@ tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "ti
 tokio-util = "0.7"
 ts-rs = "12"
 uuid = { version = "1.26.1", features = ["v4"] }
+# Reads the service account key BigQuery is reached with. The BigQuery client
+# takes the parsed key rather than the file, so this is named here too.
+yup-oauth2 = { version = "12", default-features = false, features = ["service-account", "ring"] }
 
 [profile.release]
 panic = "abort"

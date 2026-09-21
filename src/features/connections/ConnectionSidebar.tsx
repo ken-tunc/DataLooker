@@ -3,6 +3,7 @@ import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
 import { CommandButton } from "../connection-command/CommandButton";
+import { describeConnection } from "./driver";
 import { useCommandExits } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
@@ -93,7 +94,7 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
                 >
                   <span className="w-full truncate">{connection.label}</span>
                   <span className="w-full truncate text-xs opacity-60">
-                    {connection.config.host}:{connection.config.port}/{connection.config.database}
+                    {describeConnection(connection.config)}
                   </span>
                 </button>
                 {test.isPending && test.variables === connection.id && (

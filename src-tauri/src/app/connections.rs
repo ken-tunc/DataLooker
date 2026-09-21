@@ -114,23 +114,35 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
         }
         _ => {}
     }
-    let DriverConfig::Postgres {
-        host,
-        port,
-        database,
-        username,
-    } = &input.config;
-    for (field, value) in [
-        ("host", host),
-        ("database", database),
-        ("username", username),
-    ] {
+    match &input.config {
+        DriverConfig::Postgres {
+            host,
+            port,
+            database,
+            username,
+        } => {
+            filled([
+                ("host", host),
+                ("database", database),
+                ("username", username),
+            ])?;
+            if *port == 0 {
+                return Err(AppError::Validation("port is required".into()));
+            }
+        }
+        DriverConfig::BigQuery {
+            project_id,
+            location,
+        } => filled([("project", project_id), ("location", location)])?,
+    }
+    Ok(())
+}
+
+fn filled<'a>(fields: impl IntoIterator<Item = (&'a str, &'a String)>) -> Result<(), AppError> {
+    for (field, value) in fields {
         if value.trim().is_empty() {
             return Err(AppError::Validation(format!("{field} is required")));
         }
-    }
-    if *port == 0 {
-        return Err(AppError::Validation("port is required".into()));
     }
     Ok(())
 }
@@ -191,6 +203,38 @@ mod tests {
             config: postgres_config(),
             secret: secret.map(str::to_string),
             command: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bigquery_connection_needs_a_project_and_a_place_to_read_it() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let warehouse = |project: &str, location: &str| SaveConnectionInput {
+            config: DriverConfig::BigQuery {
+                project_id: project.into(),
+                location: location.into(),
+            },
+            ..input(None, "Warehouse", Some(r#"{"type":"service_account"}"#))
+        };
+
+        let id = save(warehouse("looking", "US"), &pool, &secrets)
+            .await
+            .unwrap();
+        let stored = connection::find_by_id(&pool, &id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.config,
+            DriverConfig::BigQuery {
+                project_id: "looking".into(),
+                location: "US".into()
+            }
+        );
+
+        for bad in [warehouse(" ", "US"), warehouse("looking", "")] {
+            assert!(matches!(
+                save(bad, &pool, &secrets).await.unwrap_err(),
+                AppError::Validation(_)
+            ));
         }
     }
 

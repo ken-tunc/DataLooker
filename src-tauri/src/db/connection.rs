@@ -14,6 +14,15 @@ pub enum DriverConfig {
         database: String,
         username: String,
     },
+    /// The secret of a BigQuery connection is the service account key, which
+    /// is where the account it reads as is named — so nothing about who is
+    /// reading appears here.
+    BigQuery {
+        project_id: String,
+        /// Where the jobs run, and where the catalog that describes the
+        /// project lives: `US`, `EU`, `asia-northeast1`.
+        location: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

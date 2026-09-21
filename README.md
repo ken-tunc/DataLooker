@@ -12,8 +12,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > parse, without asking a server, and has vim keybindings behind a toggle. Every statement
 > that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
 > what it names. A connection can carry a shell command — a port
-> forward, an SSH tunnel — started and stopped from its row in the list. BigQuery follows
-> PostgreSQL.
+> forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
+> connection can be made and tested; the rest of that driver follows.
 
 ## Prerequisites
 
@@ -93,6 +93,15 @@ The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each on
 itself when nothing is listening on its port, so `cargo test` still passes without Docker.
 `--wait` holds until the server is healthy, so the tests do not skip a container that is
 still starting.
+
+`tests/bigquery.rs` needs a real project, which it skips unless one is named:
+
+```sh
+cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test --test bigquery
+```
+
+`DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key
+that is named has to work: only its absence is a skip.
 
 ## Scripts
 

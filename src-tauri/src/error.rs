@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("Shell error: {0}")]
     Shell(String),
 
+    #[error("{0}")]
+    Unsupported(String),
+
     #[error("Cancelled")]
     Cancelled,
 

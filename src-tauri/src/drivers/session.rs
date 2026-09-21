@@ -3,10 +3,118 @@ use std::sync::{Arc, Mutex};
 
 use sqlx::SqlitePool;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::db::connection::{self, DriverConfig};
+use crate::drivers::bigquery::BigQuerySession;
 use crate::drivers::postgres::PostgresSession;
+use crate::drivers::{
+    Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TableDefinition, TablePage,
+    TableShape,
+};
 use crate::error::AppError;
 use crate::secrets::SecretStore;
+
+/// Whichever database a connection reaches. An enum rather than a trait: the
+/// drivers are the ones this app ships, so the set is closed, the compiler can
+/// say when one of them was left out of an operation, and what a driver cannot
+/// do is an arm that says so rather than a method returning an error nobody
+/// wrote down.
+// A session is made once per open connection and held behind an `Arc`, so the
+// bigger variant costs nothing that was not already being allocated. `expect`
+// rather than `allow`: if the two ever come to the same size, this says so.
+#[expect(clippy::large_enum_variant)]
+pub enum Session {
+    Postgres(PostgresSession),
+    BigQuery(BigQuerySession),
+}
+
+/// What BigQuery will answer once that part is built. The connection can be
+/// made and tested today.
+fn not_yet(what: &str) -> AppError {
+    AppError::Unsupported(format!("BigQuery cannot {what} yet."))
+}
+
+/// What BigQuery will not answer. A row is written here by naming it, and a
+/// key to name one by is what BigQuery has no notion of.
+fn read_only(what: &str) -> AppError {
+    AppError::Unsupported(format!("A BigQuery table cannot {what}."))
+}
+
+impl Session {
+    pub async fn test(&self) -> Result<(), AppError> {
+        match self {
+            Session::Postgres(session) => session.test().await,
+            Session::BigQuery(session) => session.test().await,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        sql: &str,
+        row_limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        match self {
+            Session::Postgres(session) => session.execute(sql, row_limit, cancel).await,
+            Session::BigQuery(_) => Err(not_yet("run a statement")),
+        }
+    }
+
+    pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
+        match self {
+            Session::Postgres(session) => session.schema_tree().await,
+            Session::BigQuery(_) => Err(not_yet("say what a project holds")),
+        }
+    }
+
+    pub async fn definition(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Option<TableDefinition>, AppError> {
+        match self {
+            Session::Postgres(session) => session.definition(schema, table).await,
+            Session::BigQuery(_) => Err(not_yet("say how a table was made")),
+        }
+    }
+
+    pub async fn preview(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<TablePage, AppError> {
+        match self {
+            Session::Postgres(session) => session.preview(request, cancel).await,
+            Session::BigQuery(_) => Err(not_yet("show a table's rows")),
+        }
+    }
+
+    pub async fn shape(&self, schema: &str, table: &str) -> Result<TableShape, AppError> {
+        match self {
+            Session::Postgres(session) => session.shape(schema, table).await,
+            Session::BigQuery(_) => Err(read_only("be edited")),
+        }
+    }
+
+    pub async fn apply_edits(
+        &self,
+        schema: &str,
+        table: &str,
+        inserts: &[RowInsert],
+        updates: &[RowUpdate],
+        deletes: &[RowDelete],
+    ) -> Result<u32, AppError> {
+        match self {
+            Session::Postgres(session) => {
+                session
+                    .apply_edits(schema, table, inserts, updates, deletes)
+                    .await
+            }
+            Session::BigQuery(_) => Err(read_only("be edited")),
+        }
+    }
+}
 
 /// The open session per stored connection. Opening one reads the keychain, so
 /// keeping them here also keeps the password prompt off the query path.
@@ -15,7 +123,7 @@ pub struct SessionRegistry(Mutex<Registry>);
 
 #[derive(Default)]
 struct Registry {
-    open: HashMap<String, Arc<PostgresSession>>,
+    open: HashMap<String, Arc<Session>>,
     /// How often each connection has been closed. Opening a session reads the
     /// stored record outside the lock, so this is what tells the reader that a
     /// `close` overtook it and the credentials it read are already stale.
@@ -28,7 +136,7 @@ impl SessionRegistry {
         id: &str,
         pool: &SqlitePool,
         secrets: &dyn SecretStore,
-    ) -> Result<Arc<PostgresSession>, AppError> {
+    ) -> Result<Arc<Session>, AppError> {
         loop {
             let closes = {
                 let registry = self.0.lock().unwrap();
@@ -59,22 +167,31 @@ impl SessionRegistry {
         id: &str,
         pool: &SqlitePool,
         secrets: &dyn SecretStore,
-    ) -> Result<PostgresSession, AppError> {
+    ) -> Result<Session, AppError> {
         let record = connection::find_by_id(pool, id)
             .await?
             .ok_or_else(|| AppError::NotFound(id.to_string()))?;
         let secret = secrets
             .get(id)?
             .ok_or_else(|| AppError::Secret(format!("no password stored for {id}")))?;
-        let DriverConfig::Postgres {
-            host,
-            port,
-            database,
-            username,
-        } = record.config;
-        Ok(PostgresSession::new(
-            &host, port, &database, &username, &secret,
-        ))
+        match record.config {
+            DriverConfig::Postgres {
+                host,
+                port,
+                database,
+                username,
+            } => Ok(Session::Postgres(PostgresSession::new(
+                &host, port, &database, &username, &secret,
+            ))),
+            DriverConfig::BigQuery {
+                project_id,
+                location,
+            } => Ok(Session::BigQuery(BigQuerySession::new(
+                &project_id,
+                &location,
+                &secret,
+            )?)),
+        }
     }
 
     /// Drop the session so the next query opens a new one. Editing or deleting
