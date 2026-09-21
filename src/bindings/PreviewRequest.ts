@@ -5,7 +5,12 @@ export type PreviewRequest = { connection_id: string, schema: string, table: str
 /**
  * A WHERE expression the reader wrote, or empty for none.
  */
-filter: string, sort: Sort | null, page: number, 
+filter: string, sort: Sort | null, 
+/**
+ * Read each row's version too, which a caller asks for when it means to
+ * offer editing.
+ */
+versioned: boolean, page: number, 
 /**
  * Registers the preview where a running query would be, so `cancel_query`
  * stops either of them.

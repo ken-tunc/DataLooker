@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("Keychain error: {0}")]
     Secret(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Cancelled")]
     Cancelled,
 

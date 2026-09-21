@@ -12,14 +12,22 @@ type Cell = { row: number; column: number };
 /** Widths the reader dragged, and the columns they were dragged for. */
 type Dragged = { columns: string; widths: Record<number, number> };
 
+/** What a grid needs to let a cell be written as well as read. */
+export type GridEditing = {
+  /** The text the reader has typed into a cell but not saved, if any. */
+  pendingValue: (row: number, column: string) => string | null | undefined;
+  onEdit: (row: number, column: string, value: string | null) => void;
+};
+
 type Props = {
   result: QueryResult;
   /** Set together: a grid whose columns sort says so in its headers. */
   sort?: Sort | null;
   onSortColumn?: (column: string) => void;
+  editing?: GridEditing;
 };
 
-export function ResultGrid({ result, sort, onSortColumn }: Props) {
+export function ResultGrid({ result, sort, onSortColumn, editing }: Props) {
   // A ref would still be empty when the rows below measure it, because React
   // attaches a parent's ref after its children have already run their effects.
   // Holding the element in state renders them again with it in hand.
@@ -134,12 +142,79 @@ export function ResultGrid({ result, sort, onSortColumn }: Props) {
 
         <Rows
           rows={result.rows}
+          columns={result.columns}
           widths={widths}
           scroller={scroller}
           selected={selected}
           onSelect={setSelected}
+          editing={editing}
         />
       </div>
+    </div>
+  );
+}
+
+function GridCell({
+  value,
+  width,
+  selected,
+  changed,
+  onSelect,
+  onEdit,
+}: {
+  value: unknown;
+  width: number | undefined;
+  selected: boolean;
+  changed: boolean;
+  onSelect: () => void;
+  onEdit?: (value: string | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = formatCell(value);
+
+  if (draft !== null && onEdit) {
+    return (
+      <input
+        // eslint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        className="input input-xs shrink-0 rounded-none font-mono"
+        style={{ width }}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            onEdit(draft);
+            setDraft(null);
+          }
+          if (event.key === "Escape") setDraft(null);
+          // A cell has to be able to hold nothing as well as an empty string.
+          if (event.key === "Backspace" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            onEdit(null);
+            setDraft(null);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      role="gridcell"
+      aria-selected={selected}
+      onClick={onSelect}
+      onDoubleClick={() => onEdit && setDraft(value === null ? "" : text)}
+      className={[
+        "shrink-0 truncate px-3 py-1",
+        selected ? "bg-primary/20 ring-primary ring-1" : "",
+        changed ? "bg-warning/20" : "",
+        value === null ? "text-base-content/40 italic" : "",
+      ].join(" ")}
+      style={{ width }}
+      title={text}
+    >
+      {text}
     </div>
   );
 }
@@ -180,16 +255,20 @@ function HeaderLabel({
  */
 function Rows({
   rows,
+  columns,
   widths,
   scroller,
   selected,
   onSelect,
+  editing,
 }: {
   rows: QueryResult["rows"];
+  columns: QueryResult["columns"];
   widths: number[];
   scroller: HTMLDivElement | null;
   selected: Cell | null;
   onSelect: (cell: Cell) => void;
+  editing?: GridEditing;
 }) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
@@ -221,23 +300,20 @@ function Rows({
             style={{ height: item.size, transform: `translateY(${item.start}px)` }}
           >
             {row.map((cell, column) => {
+              const name = columns[column]?.name ?? "";
+              const pending = editing?.pendingValue(item.index, name);
+              const value = pending === undefined ? cell : pending;
               const isSelected = selected?.row === item.index && selected.column === column;
               return (
-                <div
+                <GridCell
                   key={column}
-                  role="gridcell"
-                  aria-selected={isSelected}
-                  onClick={() => onSelect({ row: item.index, column })}
-                  className={[
-                    "shrink-0 truncate px-3 py-1",
-                    isSelected ? "bg-primary/20 ring-primary ring-1" : "",
-                    cell === null ? "text-base-content/40 italic" : "",
-                  ].join(" ")}
-                  style={{ width: widths[column] }}
-                  title={formatCell(cell)}
-                >
-                  {formatCell(cell)}
-                </div>
+                  value={value}
+                  width={widths[column]}
+                  selected={isSelected}
+                  changed={pending !== undefined}
+                  onSelect={() => onSelect({ row: item.index, column })}
+                  onEdit={editing ? (next) => editing.onEdit(item.index, name, next) : undefined}
+                />
               );
             })}
           </div>

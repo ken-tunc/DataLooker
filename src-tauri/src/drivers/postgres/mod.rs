@@ -1,3 +1,4 @@
+mod edit;
 mod preview;
 mod query;
 mod schema;
@@ -10,7 +11,9 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::drivers::{Preview, QueryResult, SchemaTree};
+use crate::drivers::{
+    DriverError, Preview, QueryResult, RowUpdate, SchemaTree, TablePage, TableShape,
+};
 use crate::error::AppError;
 
 /// Bounds opening a connection, and the whole of `test`: a server that accepts
@@ -63,7 +66,7 @@ impl PostgresSession {
     ) -> Result<QueryResult, AppError> {
         let started = Instant::now();
         self.with_connection(cancel, async |conn| {
-            query::execute(conn, sql, row_limit, started).await
+            Ok(query::execute(conn, sql, row_limit, started).await?)
         })
         .await
     }
@@ -72,16 +75,41 @@ impl PostgresSession {
         &self,
         request: &Preview<'_>,
         cancel: &CancellationToken,
-    ) -> Result<QueryResult, AppError> {
-        self.with_connection(cancel, async |conn| preview::preview(conn, request).await)
-            .await
+    ) -> Result<TablePage, AppError> {
+        self.with_connection(cancel, async |conn| {
+            Ok(preview::preview(conn, request).await?)
+        })
+        .await
+    }
+
+    pub async fn shape(&self, schema: &str, table: &str) -> Result<TableShape, AppError> {
+        self.with_connection(&CancellationToken::new(), async |conn| {
+            Ok(edit::shape(conn, schema, table).await?)
+        })
+        .await
+    }
+
+    /// Applies every update in one transaction and resolves to how many rows
+    /// it changed — which is how the caller learns that one of them matched
+    /// nothing because the row had moved on.
+    pub async fn update_rows(
+        &self,
+        schema: &str,
+        table: &str,
+        updates: &[RowUpdate],
+    ) -> Result<u32, AppError> {
+        self.with_connection(&CancellationToken::new(), async |conn| {
+            let shape = edit::shape(conn, schema, table).await?;
+            edit::update_rows(conn, &shape, schema, table, updates).await
+        })
+        .await
     }
 
     /// The tree shares the session, so it waits behind a query already running
     /// on it — and sees the schemas that query's transaction has created.
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
-            schema::tree(conn).await
+            Ok(schema::tree(conn).await?)
         })
         .await
     }
@@ -91,7 +119,7 @@ impl PostgresSession {
     async fn with_connection<T>(
         &self,
         cancel: &CancellationToken,
-        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, sqlx::Error>,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
         let mut held = tokio::select! {
             biased;
@@ -121,9 +149,13 @@ impl PostgresSession {
                 Ok(value)
             }
             // An open transaction is now aborted, which the user has to see,
-            // so an error the server reported keeps the session.
+            // so an error the server reported keeps the session — as does a
+            // refusal, which never reached the wire.
             Some(Err(e)) => {
-                if matches!(e, sqlx::Error::Database(_)) {
+                if matches!(
+                    e,
+                    DriverError::Sql(sqlx::Error::Database(_)) | DriverError::Refused(_)
+                ) {
                     *held = Some(conn);
                 }
                 Err(e.into())
@@ -137,4 +169,10 @@ async fn connect(options: &PgConnectOptions) -> Result<PgConnection, AppError> {
         .await
         .map_err(|_| AppError::Timeout)?
         .map_err(AppError::from)
+}
+
+/// A double quote inside an identifier is written twice, which is how a name
+/// like `weird"name` stays one identifier instead of ending the quoting.
+fn quote(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
 }
