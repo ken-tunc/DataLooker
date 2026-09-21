@@ -47,8 +47,10 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
     });
   }
 
+  // Wide enough for a label beside the buttons the row carries: a name
+  // truncated to make room for them says less than the room is worth.
   return (
-    <aside className="border-base-300 bg-base-200 flex w-64 shrink-0 flex-col border-r">
+    <aside className="border-base-300 bg-base-200 flex w-72 shrink-0 flex-col border-r">
       <header className="flex items-center justify-between p-3">
         <h1 className="font-semibold">Connections</h1>
         <button
