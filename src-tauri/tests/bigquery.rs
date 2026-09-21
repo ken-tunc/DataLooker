@@ -47,7 +47,10 @@ async fn a_project_nobody_has_is_not_reached() {
     // Google reports rather than one the key does.
     let elsewhere = BigQuerySession::new("datalooker-no-such-project", "US", &key).unwrap();
 
-    let err = elsewhere.test().await.expect_err("a project that is not there");
+    let err = elsewhere
+        .test()
+        .await
+        .expect_err("a project that is not there");
 
     assert!(matches!(err, AppError::Database(_)), "got {err}");
 }
