@@ -135,6 +135,10 @@ pub struct TablePage {
 pub enum DriverError {
     Sql(sqlx::Error),
     Refused(String),
+    /// The connection cannot be reasoned about any more, whatever the server
+    /// said last — a transaction that would not end, say. What is left open on
+    /// it is not something the next caller should inherit.
+    Broken(String),
 }
 
 impl From<sqlx::Error> for DriverError {
@@ -148,6 +152,7 @@ impl From<DriverError> for AppError {
         match e {
             DriverError::Sql(e) => e.into(),
             DriverError::Refused(message) => AppError::Conflict(message),
+            DriverError::Broken(message) => AppError::Database(message),
         }
     }
 }

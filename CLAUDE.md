@@ -362,9 +362,27 @@ axum — hyper is already in the tree and axum is not. One request, one answer:
 nothing here streams, and a session to resume would be a session to keep. The
 token and the path are checked before the service sees a request at all.
 
-Only reading, so far: which connections there are and what they hold. Running a
-statement is the next question, and it is a question about what an agent may
-do rather than about what it can reach.
+An agent may read and nothing else, and what holds it to that is the database
+rather than anything here reading the statement. Its PostgreSQL statement runs
+in a transaction that began read-only, which covers a function called from a
+`SELECT` as well as the `SELECT` itself — and which the statement cannot undo,
+where opening the session read-only only set a default that
+`SET default_transaction_read_only = off` would turn off. Two commands in one
+string are refused by PostgreSQL itself, since every statement here is
+prepared. BigQuery has no session
+to open that way, and its dialect is not one this app has a parser for, so a
+statement is dry-run first — a plan and nothing else — and BigQuery's own
+answer to what it is decides whether it runs.
+
+The agent's session is its own. A `BEGIN` or a temporary table of the reader's
+is not the agent's to see, nor the other way about. Its rows are capped lower
+than the window's, since a reader scrolls what they asked for and an agent
+reads it all; its statements have a deadline the window's do not, because
+nobody is watching this one and nothing will cancel it. The session goes with
+that deadline: what the statement left on the wire is still there.
+
+Every run is logged where the reader's own runs are, with who ran it, and the
+⌘Y palette marks the ones that were not theirs.
 
 ## Vim keybindings
 

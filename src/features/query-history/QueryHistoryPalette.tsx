@@ -43,6 +43,11 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
       {(entry) => (
         <>
           <span className="truncate font-mono">{oneLine(entry.sql)}</span>
+          {/* Whose run this was, said only where it was not the reader's: the
+              log is mostly theirs, and a mark on every line marks nothing. */}
+          {entry.source === "agent" && (
+            <span className="badge badge-ghost badge-xs shrink-0">agent</span>
+          )}
           <span className="grow" />
           <span className="shrink-0 text-xs">
             {entry.error ? (

@@ -290,3 +290,47 @@ async fn a_project_says_which_datasets_hold_which_tables() {
 
     dataset.drop_it().await;
 }
+
+#[tokio::test]
+async fn says_what_a_statement_would_do_without_doing_it() {
+    let Some(session) = session_or_skip() else {
+        return;
+    };
+    // A dry run resolves the tables a statement names, so it needs ones that
+    // are there — and it still writes nothing to them.
+    let dataset = Dataset::make(session_or_skip().expect("a project"), "dryrun").await;
+    dataset
+        .run(&format!("CREATE TABLE {}.rows (id INT64)", dataset.name))
+        .await;
+
+    let cancel = CancellationToken::new();
+    let table = format!("{}.rows", dataset.name);
+    let kind = async |sql: String| {
+        session
+            .statement_kind(&sql, &cancel)
+            .await
+            .expect("BigQuery planned the statement")
+    };
+
+    // Asked of BigQuery rather than worked out here: this is its dialect and
+    // its parser, and a dry run is a plan and nothing else.
+    assert_eq!(kind(format!("SELECT * FROM {table}")).await, "SELECT");
+    assert_eq!(
+        kind(format!("INSERT INTO {table} (id) VALUES (1)")).await,
+        "INSERT"
+    );
+    assert_eq!(kind(format!("DROP TABLE {table}")).await, "DROP_TABLE");
+
+    // Planned three times, and still empty.
+    let rows = session
+        .execute(
+            &format!("SELECT COUNT(*) AS n FROM {table}"),
+            ROW_LIMIT,
+            &cancel,
+        )
+        .await
+        .expect("a table that is still there");
+    assert_eq!(rows.rows[0][0], json!(0));
+
+    dataset.drop_it().await;
+}

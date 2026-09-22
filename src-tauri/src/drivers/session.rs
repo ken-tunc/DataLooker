@@ -61,6 +61,31 @@ impl Session {
         }
     }
 
+    /// Run a statement for a caller that may only read, and refuse it
+    /// otherwise. What refuses is the database in both cases: PostgreSQL runs
+    /// it in a read-only transaction, and BigQuery — which has no such thing
+    /// and a dialect this app cannot parse — is asked what the statement is
+    /// before it is run.
+    pub async fn execute_reading(
+        &self,
+        sql: &str,
+        row_limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        match self {
+            Session::Postgres(session) => session.execute_reading(sql, row_limit, cancel).await,
+            Session::BigQuery(session) => {
+                let kind = session.statement_kind(sql, cancel).await?;
+                if kind != "SELECT" {
+                    return Err(AppError::Unsupported(format!(
+                        "An agent may only read here, and BigQuery calls this a {kind} statement."
+                    )));
+                }
+                session.execute(sql, row_limit, cancel).await
+            }
+        }
+    }
+
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         match self {
             Session::Postgres(session) => session.schema_tree().await,
@@ -123,14 +148,24 @@ impl Session {
     }
 }
 
-/// The open session per stored connection. Opening one reads the keychain, so
-/// keeping them here also keeps the password prompt off the query path.
+/// Who a session belongs to. A reader and an agent do not share one: a `BEGIN`
+/// or a `SET` of the agent's would otherwise be waiting in the reader's next
+/// statement, and the agent's is opened to read and nothing else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Whose {
+    Reader,
+    Agent,
+}
+
+/// The open session per stored connection and caller. Opening one reads the
+/// keychain, so keeping them here also keeps the password prompt off the query
+/// path.
 #[derive(Default)]
 pub struct SessionRegistry(Mutex<Registry>);
 
 #[derive(Default)]
 struct Registry {
-    open: HashMap<String, Arc<Session>>,
+    open: HashMap<(String, Whose), Arc<Session>>,
     /// How often each connection has been closed. Opening a session reads the
     /// stored record outside the lock, so this is what tells the reader that a
     /// `close` overtook it and the credentials it read are already stale.
@@ -141,19 +176,20 @@ impl SessionRegistry {
     pub async fn get(
         &self,
         id: &str,
+        whose: Whose,
         pool: &SqlitePool,
         secrets: &dyn SecretStore,
     ) -> Result<Arc<Session>, AppError> {
         loop {
             let closes = {
                 let registry = self.0.lock().unwrap();
-                if let Some(session) = registry.open.get(id) {
+                if let Some(session) = registry.open.get(&(id.to_string(), whose)) {
                     return Ok(session.clone());
                 }
                 registry.closes(id)
             };
 
-            let session = Arc::new(self.open(id, pool, secrets).await?);
+            let session = Arc::new(self.open(id, whose, pool, secrets).await?);
 
             let mut registry = self.0.lock().unwrap();
             if registry.closes(id) != closes {
@@ -163,7 +199,7 @@ impl SessionRegistry {
             // everyone gets.
             return Ok(registry
                 .open
-                .entry(id.to_string())
+                .entry((id.to_string(), whose))
                 .or_insert(session)
                 .clone());
         }
@@ -172,6 +208,7 @@ impl SessionRegistry {
     async fn open(
         &self,
         id: &str,
+        whose: Whose,
         pool: &SqlitePool,
         secrets: &dyn SecretStore,
     ) -> Result<Session, AppError> {
@@ -187,9 +224,17 @@ impl SessionRegistry {
                 port,
                 database,
                 username,
-            } => Ok(Session::Postgres(PostgresSession::new(
-                &host, port, &database, &username, &secret,
-            ))),
+            } => {
+                let session = PostgresSession::new(&host, port, &database, &username, &secret);
+                // The server is what holds an agent to reading, rather than
+                // anything here reading the statement: a function called from
+                // a `SELECT` can write, and PostgreSQL knows that and we do
+                // not.
+                Ok(Session::Postgres(match whose {
+                    Whose::Reader => session,
+                    Whose::Agent => session.reading_only(),
+                }))
+            }
             DriverConfig::BigQuery {
                 project_id,
                 location,
@@ -203,15 +248,28 @@ impl SessionRegistry {
 
     /// Drop the session so the next query opens a new one. Editing or deleting
     /// a connection leaves the session pointing at credentials that are gone.
+    /// Drop one caller's session, leaving the other's alone. A query that was
+    /// given up on leaves its connection mid-answer, and the next one through
+    /// it would read what the last one did not.
+    pub fn drop_one(&self, id: &str, whose: Whose) {
+        self.0.lock().unwrap().open.remove(&(id.to_string(), whose));
+    }
+
+    /// Drop every session of this connection, whoever they belong to.
     pub fn close(&self, id: &str) {
         let mut registry = self.0.lock().unwrap();
-        registry.open.remove(id);
+        registry.open.retain(|(open, _), _| open != id);
         *registry.closes.entry(id.to_string()).or_default() += 1;
     }
 
     #[cfg(test)]
     pub fn is_open(&self, id: &str) -> bool {
-        self.0.lock().unwrap().open.contains_key(id)
+        self.0
+            .lock()
+            .unwrap()
+            .open
+            .keys()
+            .any(|(open, _)| open == id)
     }
 }
 
@@ -254,12 +312,21 @@ mod tests {
         secrets.set("id-1", "hunter2").unwrap();
         let registry = SessionRegistry::default();
 
-        let first = registry.get("id-1", &pool, &secrets).await.unwrap();
-        let second = registry.get("id-1", &pool, &secrets).await.unwrap();
+        let first = registry
+            .get("id-1", Whose::Reader, &pool, &secrets)
+            .await
+            .unwrap();
+        let second = registry
+            .get("id-1", Whose::Reader, &pool, &secrets)
+            .await
+            .unwrap();
         assert!(Arc::ptr_eq(&first, &second));
 
         registry.close("id-1");
-        let reopened = registry.get("id-1", &pool, &secrets).await.unwrap();
+        let reopened = registry
+            .get("id-1", Whose::Reader, &pool, &secrets)
+            .await
+            .unwrap();
         assert!(!Arc::ptr_eq(&first, &reopened));
     }
 
@@ -272,7 +339,10 @@ mod tests {
             .unwrap();
         secrets.set("id-1", "hunter2").unwrap();
         let registry = SessionRegistry::default();
-        registry.get("id-1", &pool, &secrets).await.unwrap();
+        registry
+            .get("id-1", Whose::Reader, &pool, &secrets)
+            .await
+            .unwrap();
 
         registry.close("id-1");
 
@@ -287,7 +357,7 @@ mod tests {
         let secrets = InMemorySecretStore::default();
         let registry = SessionRegistry::default();
 
-        let Err(err) = registry.get("ghost", &pool, &secrets).await else {
+        let Err(err) = registry.get("ghost", Whose::Reader, &pool, &secrets).await else {
             panic!("an unknown connection has no session to open");
         };
 
@@ -303,7 +373,7 @@ mod tests {
             .unwrap();
         let registry = SessionRegistry::default();
 
-        let Err(err) = registry.get("id-1", &pool, &secrets).await else {
+        let Err(err) = registry.get("id-1", Whose::Reader, &pool, &secrets).await else {
             panic!("a connection without a password has no session to open");
         };
 

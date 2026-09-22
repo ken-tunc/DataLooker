@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::app::App;
-use crate::db::history::{self, HistoryEntry, QueryRun, KEEP};
+use crate::db::history::{self, HistoryEntry, QueryRun, Source, KEEP};
 use crate::drivers::QueryResult;
 use crate::error::AppError;
 
@@ -23,6 +23,7 @@ impl App {
         sql: &str,
         elapsed: Duration,
         result: &Result<QueryResult, AppError>,
+        source: Source,
     ) {
         let run = QueryRun {
             connection_id,
@@ -33,6 +34,7 @@ impl App {
                 .ok()
                 .map(|result| u32::try_from(result.rows.len()).unwrap_or(u32::MAX)),
             error: result.as_ref().err().map(ToString::to_string),
+            source,
         };
         let _ = history::record(&self.pool, &run).await;
     }
@@ -75,6 +77,7 @@ mod tests {
             "SELECT 1",
             Duration::from_millis(7),
             &Err(AppError::Cancelled),
+            Source::Reader,
         )
         .await;
 
@@ -94,6 +97,7 @@ mod tests {
             "SELECT 1",
             Duration::ZERO,
             &Err(AppError::Cancelled),
+            Source::Reader,
         )
         .await;
 

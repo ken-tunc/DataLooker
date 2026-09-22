@@ -46,6 +46,19 @@ impl PostgresSession {
         }
     }
 
+    /// The same session, opened so that the server refuses to write through
+    /// it. It is told at connection time rather than asked per statement,
+    /// because a statement that only reads can still call a function that
+    /// writes — and PostgreSQL knows which those are.
+    pub fn reading_only(self) -> Self {
+        Self {
+            options: self
+                .options
+                .options([("default_transaction_read_only", "on")]),
+            ..self
+        }
+    }
+
     /// Reach the server with these credentials on a connection of its own, so
     /// that a session already open cannot make an unreachable server look fine.
     pub async fn test(&self) -> Result<(), AppError> {
@@ -70,6 +83,38 @@ impl PostgresSession {
         let started = Instant::now();
         self.with_connection(cancel, async |conn| {
             Ok(query::execute(conn, sql, row_limit, started).await?)
+        })
+        .await
+    }
+
+    /// Run a statement for a caller that may only read. The read-only
+    /// transaction is what holds them to it: opening the session that way
+    /// only sets a default, and a default is something a statement can turn
+    /// off — `SET default_transaction_read_only = off` is not a write, and
+    /// neither is `SELECT set_config(...)`. A transaction that has begun
+    /// read-only cannot be made anything else, and the server is what says
+    /// so, down to a function called from a `SELECT`.
+    pub async fn execute_reading(
+        &self,
+        sql: &str,
+        row_limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        let started = Instant::now();
+        self.with_connection(cancel, async |conn| {
+            conn.execute("BEGIN READ ONLY").await?;
+            let result = query::execute(conn, sql, row_limit, started).await;
+            // Nothing was written and nothing is kept: the transaction is
+            // here to refuse, not to hold anything together. A transaction
+            // that will not end leaves a connection nobody can say anything
+            // about, so that connection goes rather than being handed on.
+            match (result, conn.execute("ROLLBACK").await) {
+                (result, Ok(_)) => Ok(result?),
+                (result, Err(ending)) => Err(DriverError::Broken(match result {
+                    Ok(_) => format!("the read-only transaction would not end: {ending}"),
+                    Err(e) => format!("{e}, and the transaction would not end: {ending}"),
+                })),
+            }
         })
         .await
     }
