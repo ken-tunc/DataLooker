@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -10,18 +12,18 @@ pub const EXIT_EVENT: &str = "shell:exit";
 #[tauri::command]
 pub async fn run_connection_command(
     connection_id: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
     app.run_command(&connection_id).await
 }
 
 #[tauri::command]
-pub fn stop_connection_command(connection_id: String, app: State<'_, App>) {
+pub fn stop_connection_command(connection_id: String, app: State<'_, Arc<App>>) {
     app.stop_command(&connection_id);
 }
 
 #[tauri::command]
-pub fn running_connection_commands(app: State<'_, App>) -> Vec<String> {
+pub fn running_connection_commands(app: State<'_, Arc<App>>) -> Vec<String> {
     app.running_commands()
 }
 

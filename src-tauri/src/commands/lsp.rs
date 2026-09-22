@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
@@ -15,7 +17,7 @@ pub const EXIT_EVENT: &str = "lsp:exit";
 #[tauri::command]
 pub async fn start_language_server(
     connection_id: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<Value, AppError> {
     app.start_language_server(&connection_id).await
 }
@@ -24,7 +26,7 @@ pub async fn start_language_server(
 pub fn send_to_language_server(
     connection_id: String,
     message: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
     app.send_to_language_server(&connection_id, message)
 }
@@ -32,7 +34,7 @@ pub fn send_to_language_server(
 #[tauri::command]
 pub async fn language_server_state(
     connection_id: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<LanguageServerState, AppError> {
     app.language_server_state(&connection_id).await
 }
@@ -40,13 +42,13 @@ pub async fn language_server_state(
 #[tauri::command]
 pub async fn install_language_server(
     connection_id: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
     app.install_language_server(&connection_id).await
 }
 
 #[tauri::command]
-pub fn stop_language_server(connection_id: String, app: State<'_, App>) {
+pub fn stop_language_server(connection_id: String, app: State<'_, Arc<App>>) {
     app.stop_language_server(&connection_id);
 }
 
@@ -69,7 +71,7 @@ pub fn forward_notices(handle: AppHandle, app: &App) {
                 // nothing here can produce. Every server is stopped, which
                 // reaches the window as each one ending — the state a client
                 // recovers from by starting again.
-                Err(RecvError::Lagged(_)) => handle.state::<App>().stop_all_language_servers(),
+                Err(RecvError::Lagged(_)) => handle.state::<Arc<App>>().stop_all_language_servers(),
                 Err(RecvError::Closed) => break,
             }
         }
