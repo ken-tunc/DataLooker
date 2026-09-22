@@ -224,34 +224,6 @@ row-limited, because every row of it is wanted — that is `query::collect`, bes
 `execute` a reader's own statement goes through. A name the reader typed is sent as a
 query parameter rather than written into the statement.
 
-## Completing a statement
-
-A connection can have a language server behind it — `sqls` for PostgreSQL —
-which reads the database it is pointed at and says what could follow what the
-reader typed. `lsp/` is the pipe: it starts one server per connection, frames
-the JSON-RPC going each way and carries it, and reads none of it. What a
-message means belongs with the editor that asked, so the client lives in the
-window.
-
-The one message composed here is `initialize`, because it is the one that
-carries the connection's password: the server is told about the database
-through its `initializationOptions` rather than through a config file, since
-sqls will read a file and a file with a password in it outlives the process
-that wrote it. It is asked under a string id, which is not the number space
-the window's own requests use. The window is handed what the server said it
-can do, and speaks for itself from there.
-
-Where the server is, is asked of the reader's login shell — a window opened
-from Finder inherits none of the places one is installed, the same reason a
-connection's command is run through one. `DATALOOKER_SQLS_BIN` names one
-directly, which is also how a test hands over something that is not a language
-server at all.
-
-A server is stopped rather than asked to shut down: it holds nothing that
-outlives it, so the protocol's parting words would buy a wait. Editing or
-deleting a connection stops it too, since it was handed those credentials when
-it started.
-
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries

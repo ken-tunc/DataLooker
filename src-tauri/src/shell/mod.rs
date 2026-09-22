@@ -7,7 +7,7 @@ mod session;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub use session::{shell_for, ShellExit, ShellRun};
+pub use session::{ShellExit, ShellRun};
 
 /// What is running, by connection. One connection runs one command, so the
 /// connection's id is the whole of the key.
