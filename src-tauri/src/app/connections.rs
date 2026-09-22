@@ -20,6 +20,10 @@ impl App {
         // either way. A new connection has no session: nothing knew its id yet.
         if let Some(id) = saved.as_ref().ok().or(edited.as_ref()) {
             self.sessions.close(id);
+            // The language server was handed the connection when it started,
+            // so it is reading the database the reader has just changed their
+            // mind about. It is started again when it is next asked for.
+            self.stop_language_server(id);
         }
         saved
     }
@@ -27,6 +31,7 @@ impl App {
     pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
         let deleted = delete(id, &self.pool, self.secrets.as_ref()).await;
         self.sessions.close(id);
+        self.stop_language_server(id);
         // Nothing would be left to stop the command with: the row the run
         // button lives on is going. A save leaves it running on purpose —
         // renaming a connection is no reason to drop the reader's tunnel.

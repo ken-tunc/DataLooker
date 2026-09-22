@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod edit;
+pub mod lsp;
 pub mod preview;
 pub mod query;
 pub mod schema;
