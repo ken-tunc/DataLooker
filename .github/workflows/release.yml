@@ -146,6 +146,10 @@ jobs:
 
   publish:
     needs: build
+    # Only ever for `main`. A push cannot be anything else, but a dispatch can
+    # name any branch or tag, and that build is not what this repository
+    # releases — it still builds, which is a way to ask whether a branch does.
+    if: github.ref == 'refs/heads/main'
     # Nothing is built here, so the cheapest runner will do.
     runs-on: ubuntu-24.04
     # The tag, the Releases and their assets.
