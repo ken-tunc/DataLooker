@@ -1,0 +1,195 @@
+name: Release
+
+# There is always a build of `main` to download, and bumping the version is
+# what publishes one.
+#
+# Every push to `main` builds the app. What becomes of that build is decided by
+# whether the `v<version>` tag for `package.json`'s version already exists:
+#
+# - It does, so this version has been released: the build replaces the single
+#   rolling draft, "DataLooker (unreleased)". The tag name `unreleased` is a
+#   placeholder a draft never turns into a real tag.
+# - It does not, so the push bumped the version (or an earlier publish did not
+#   finish): the build is published as `v<version>` — a real Release, notes
+#   written from the pull requests since the last one — and the rolling draft
+#   goes, having been published. Cutting a release is bumping `version` in
+#   package.json and merging it.
+#
+# The tag rather than the Release is what says a version has been released,
+# because the tag is made at the moment of publishing: a draft left behind by a
+# publish that died halfway does not then hide the version from the next push.
+# And since the bump is itself a push that builds, what is published always
+# carries the version it is published under — `tauri.conf.json` reads that from
+# package.json.
+#
+# What is built is the `.app` for Apple silicon, signed by a certificate the
+# workflow makes for that build alone. `scripts/make-signing-identity.sh` says
+# what that buys and what it does not.
+
+on:
+  push:
+    branches: [main]
+    # A documentation merge changes nothing that is shipped, and a build of
+    # this size is worth skipping. A version bump touches package.json, so a
+    # release can never be filtered out here.
+    paths-ignore:
+      - "**.md"
+  # Run it again by hand, which reads the version and the tags afresh.
+  workflow_dispatch: {}
+
+# Making a tag, a Release and its asset is writing to the repository.
+permissions:
+  contents: write
+
+# Queued rather than cancelled: a bump that is midway through publishing must
+# not be killed by the merge behind it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # An Apple silicon runner, whose host target is the bundle to ship.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # Decided before anything is built, so that the rest of the run knows
+      # what it is for. `git ls-remote --exit-code` answers 2 for a ref that is
+      # not there; anything else is a failure to reach the remote rather than
+      # an answer about the tag.
+      - name: Say whether this build is a release
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [[ -z "$version" || "$version" == "undefined" ]]; then
+            echo "package.json has no version to build (read '$version')" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "v$version is released already — refreshing the unreleased draft."
+            mode=draft
+          else
+            rc=$?
+            if [[ "$rc" -ne 2 ]]; then
+              echo "git ls-remote failed (exit $rc)" >&2
+              exit "$rc"
+            fi
+            echo "There is no v$version tag — publishing it."
+            mode=release
+          fi
+          {
+            echo "VERSION=$version"
+            echo "MODE=$mode"
+          } >> "$GITHUB_ENV"
+
+      # setup-vp installs Vite+, the pinned Node.js and the package manager,
+      # and caches the dependency store.
+      - uses: voidzero-dev/setup-vp@v1.21.0
+        with:
+          cache: true
+
+      - run: vp install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+          # Its own cache: this is the release profile, which shares nothing
+          # with what the tests are built with.
+          shared-key: release
+
+      # Writes the identity's name into the environment for the build below.
+      # The keychain is the runner's own and goes with it.
+      - name: Make the signing identity
+        env:
+          KEYCHAIN: ${{ runner.temp }}/datalooker-signing.keychain-db
+        run: ./scripts/make-signing-identity.sh
+
+      # The bundler signs with the identity the step above named. APPLE_* is
+      # deliberately not set beyond that: the bundler tries to import a
+      # certificate whenever APPLE_CERTIFICATE exists at all, and an empty one
+      # fails the build.
+      - name: Build the app
+        run: vp run tauri build
+
+      - name: Package the bundle
+        run: tar -czf DataLooker.app.tar.gz -C src-tauri/target/release/bundle/macos DataLooker.app
+
+      # A draft for this version means an earlier publish died between creating
+      # the Release and taking the draft flag off; it is dropped rather than
+      # left for `create` to stack a second one beside. The Release is made as
+      # a draft and then published, so that it is never seen without the app,
+      # and publishing is also when GitHub makes the tag — at this commit.
+      - name: Publish the release
+        if: env.MODE == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.draft and .tag_name == ("v" + env.VERSION)) | .id' |
+            while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            done
+
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "DataLooker v$VERSION" \
+            --generate-notes \
+            --draft \
+            DataLooker.app.tar.gz
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      # Between the two, which is where both modes want it: what a published
+      # version leaves behind, and what a new draft would otherwise be created
+      # beside. A *published* `unreleased` Release means somebody pressed
+      # "Publish release" on the draft, which also makes a real `unreleased`
+      # tag — both are swept, or every refresh after it fails. A 404 from the
+      # tag is the ordinary answer.
+      - name: Drop the unreleased draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.tag_name == "unreleased") | .id' |
+            while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            done
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/unreleased" > /dev/null 2>&1 || true
+
+      # Dropped and made again rather than edited, so that the assets of the
+      # build before cannot pile up beside this one's. A create that fails
+      # after the delete leaves no draft, and the next merge writes one.
+      # The notes are anchored at the newest published release by name, since
+      # `unreleased` is not a version GitHub can order against anything, and a
+      # failure to write them costs the header rather than the build.
+      - name: Refresh the unreleased draft
+        if: env.MODE == 'draft'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prev="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2> /dev/null || true)"
+          {
+            echo "> A build of \`main\` at ${GITHUB_SHA} ($(date -u +%Y-%m-%dT%H:%MZ))."
+            echo "> Bump \`version\` in package.json to publish what is in it."
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="unreleased" \
+              -f target_commitish="$GITHUB_SHA" \
+              ${prev:+-f previous_tag_name="$prev"} \
+              --jq .body || echo "_The notes for this build could not be written._"
+          } > release-notes.md
+
+          gh release create unreleased \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --draft \
+            --title "DataLooker (unreleased)" \
+            --notes-file release-notes.md \
+            DataLooker.app.tar.gz

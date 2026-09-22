@@ -143,6 +143,27 @@ where the data lives — so they share `meta.db`, the connections in it and the 
 servers under `servers/`. A migration applied by one is applied for the other, which is
 worth remembering when running a branch that does not have it.
 
+## Releases
+
+Every merge to `main` builds the app and leaves it on a draft Release called **DataLooker
+(unreleased)**, so there is always a download of what `main` currently is. Publishing one
+is bumping `version` in `package.json` and merging that: the build for it goes out as
+`v<version>` — tag made, notes written from the pull requests since the release before —
+and the draft is swept. Nothing is tagged or published by hand;
+`.github/workflows/release.yml` says how it decides which of the two it is doing.
+
+**Installing a build.** Download `DataLooker.app.tar.gz`, unpack it, move `DataLooker.app`
+to `/Applications`, then **right-click it → Open** and confirm. The build is signed but by
+nobody Apple knows, so Gatekeeper asks once; without the signature it would refuse the app
+as damaged instead. (If macOS offers only "Move to Trash", open **System Settings →
+Privacy & Security** and press **Open Anyway**.)
+
+The certificate is made by the workflow for that one build and goes with the runner, so
+each release is signed by a different one and macOS asks again after an update — it has no
+way to know the new build is the same app. Keeping one certificate in the repository's
+secrets and signing every release with it is what would end that, and it is worth doing
+when the asking becomes a nuisance.
+
 ## Scripts
 
 | Command                                                      | What it does                                                |
