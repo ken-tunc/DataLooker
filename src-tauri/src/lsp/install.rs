@@ -14,6 +14,7 @@ use tokio::process::Command;
 
 use super::server::Server;
 use crate::error::AppError;
+use crate::shell::GroupKill;
 
 /// The version this app was written against. Not "whatever is newest": a
 /// server that changed under a reader is a change nothing here wrote down.
@@ -39,24 +40,38 @@ pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
         .await
         .map_err(|_| AppError::NotFound("Go, which is what builds a language server".into()))?;
 
-    let built = tokio::time::timeout(
-        BUILD,
-        Command::new(&go)
-            // The deadline below drops this future, and dropping it is all
-            // that would happen: a build left running would still be writing
-            // into the directory a moment after the reader was told it failed.
-            .kill_on_drop(true)
-            .arg("install")
-            .arg(server.module())
-            // Where `go install` puts what it built, which is the whole of why
-            // this lands somewhere DataLooker can find it again.
-            .env("GOBIN", into)
-            .stdin(Stdio::null())
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Timeout)?
-    .map_err(|e| AppError::Shell(format!("{}: {e}", go.display())))?;
+    let mut building = Command::new(&go);
+    building
+        .arg("install")
+        .arg(server.module())
+        // Where `go install` puts what it built, which is the whole of why
+        // this lands somewhere DataLooker can find it again.
+        .env("GOBIN", into)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    // A build is `go` and the compiler and the linker it runs, so it leads a
+    // group of its own — the same reason a connection's command does. Killing
+    // `go` alone would leave the build going a moment after the reader was
+    // told it had not finished.
+    #[cfg(unix)]
+    building.process_group(0);
+
+    let child = building
+        .spawn()
+        .map_err(|e| AppError::Shell(format!("{}: {e}", go.display())))?;
+    let group = GroupKill(child.id().map(|pid| pid as i32));
+
+    let built = tokio::select! {
+        finished = child.wait_with_output() => {
+            finished.map_err(|e| AppError::Shell(format!("{}: {e}", go.display())))?
+        }
+        () = tokio::time::sleep(BUILD) => {
+            group.now();
+            return Err(AppError::Timeout);
+        }
+    };
 
     if !built.status.success() {
         return Err(AppError::Shell(format!(
