@@ -18,6 +18,10 @@ impl App {
             return Ok(running.capabilities.clone());
         }
 
+        // Read before the starting begins: saving or deleting the connection
+        // while a server is on its way up leaves that server holding
+        // credentials the reader has replaced.
+        let stops = self.servers.stops(connection_id);
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
@@ -30,14 +34,21 @@ impl App {
 
         let session = LspSession::start(connection_id, &binary, options).await?;
         // Into the registry before it is read from, so that the reader taking
-        // it out again at the end cannot happen first. Losing the race means
-        // this server is stopped: the one that won is the connection's.
-        if self.servers.insert(Arc::clone(&session)) {
+        // it out again at the end cannot happen first.
+        let Some(running) = self.servers.insert(Arc::clone(&session), stops) else {
+            session.stop();
+            return Err(AppError::Conflict(format!(
+                "{connection_id} changed while its language server was starting"
+            )));
+        };
+        if Arc::ptr_eq(&running, &session) {
             session.listen(Arc::clone(&self.servers), self.notices.clone());
         } else {
+            // Another start got there first, and one server is what the
+            // connection has. This one is stopped rather than left unheard.
             session.stop();
         }
-        Ok(session.capabilities.clone())
+        Ok(running.capabilities.clone())
     }
 
     /// Hand a message to the connection's server. A connection with no server

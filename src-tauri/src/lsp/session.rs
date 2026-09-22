@@ -68,7 +68,7 @@ pub struct LspSession {
     /// is already running.
     pub capabilities: Value,
     outbound: mpsc::Sender<String>,
-    child: Mutex<Child>,
+    child: Mutex<Option<Child>>,
     /// Taken by `listen`, which is what the session is for. Held here so that
     /// the registry can have the session before anything is read from it.
     reading: Mutex<Option<BufReader<ChildStdout>>>,
@@ -118,7 +118,7 @@ impl LspSession {
             id: uuid::Uuid::new_v4().to_string(),
             capabilities,
             outbound,
-            child: Mutex::new(child),
+            child: Mutex::new(Some(child)),
             reading: Mutex::new(Some(reading)),
         }))
     }
@@ -144,8 +144,11 @@ impl LspSession {
             }
             // Out of the registry before the word goes out, so that whoever
             // hears it and starts a server gets a new one rather than this.
-            registry.remove_session(&connection_id, &id);
-            let _ = notices.send(LspNotice::Ended(LspExit { connection_id }));
+            // A server that was already replaced says nothing: the ending is
+            // about the connection, and the connection has a server.
+            if registry.remove_session(&connection_id, &id) {
+                let _ = notices.send(LspNotice::Ended(LspExit { connection_id }));
+            }
         });
     }
 
@@ -161,7 +164,21 @@ impl LspSession {
     /// transaction of the reader's, nothing written down — so the protocol's
     /// parting words would buy a wait and nothing else.
     pub fn stop(&self) {
-        let _ = self.child.lock().unwrap().start_kill();
+        if let Some(child) = self.child.lock().unwrap().as_mut() {
+            let _ = child.start_kill();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_registry_test(connection_id: &str) -> Arc<Self> {
+        Arc::new(Self {
+            connection_id: connection_id.to_string(),
+            id: uuid::Uuid::new_v4().to_string(),
+            capabilities: Value::Null,
+            outbound: mpsc::channel(1).0,
+            child: Mutex::new(None),
+            reading: Mutex::new(None),
+        })
     }
 }
 

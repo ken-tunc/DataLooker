@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::App;
@@ -50,9 +50,10 @@ pub fn forward_notices(handle: AppHandle, app: &App) {
                 }
                 // A window that fell this far behind has missed an answer it
                 // is still waiting for, and a request with no reply is one
-                // nothing here can produce. The client is told the server is
-                // gone, which is the state it can recover from.
-                Err(RecvError::Lagged(_)) => break,
+                // nothing here can produce. Every server is stopped, which
+                // reaches the window as each one ending — the state a client
+                // recovers from by starting again.
+                Err(RecvError::Lagged(_)) => handle.state::<App>().stop_all_language_servers(),
                 Err(RecvError::Closed) => break,
             }
         }

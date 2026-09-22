@@ -14,47 +14,159 @@ pub use session::{LspExit, LspMessage, LspNotice, LspSession};
 /// Which connection has a server running. One connection is one server: it is
 /// started for a database, and a second one would read the same schema twice.
 #[derive(Default)]
-pub struct LspRegistry {
-    running: Mutex<HashMap<String, Arc<LspSession>>>,
+pub struct LspRegistry(Mutex<Registry>);
+
+#[derive(Default)]
+struct Registry {
+    running: HashMap<String, Arc<LspSession>>,
+    /// How often each connection's server has been stopped. Starting one reads
+    /// the connection and talks to the server outside the lock, and this is
+    /// what says a stop overtook it: what it was told is already stale.
+    stops: HashMap<String, u64>,
 }
 
 impl LspRegistry {
     pub fn get(&self, connection_id: &str) -> Option<Arc<LspSession>> {
-        self.running.lock().unwrap().get(connection_id).cloned()
+        self.0.lock().unwrap().running.get(connection_id).cloned()
     }
 
-    /// Take the session in, unless the connection already has one. `false`
-    /// means another call got there first, and the caller should stop what it
-    /// started rather than leave it running unheard.
-    pub fn insert(&self, session: Arc<LspSession>) -> bool {
-        let mut running = self.running.lock().unwrap();
-        if running.contains_key(&session.connection_id) {
-            return false;
+    /// How often this connection's server has been stopped, which the caller
+    /// reads before starting one and hands back to `insert`.
+    pub fn stops(&self, connection_id: &str) -> u64 {
+        self.0.lock().unwrap().stops(connection_id)
+    }
+
+    /// Take the session in, and answer with the server the connection has —
+    /// which is this one, unless another start got there first. `None` is a
+    /// connection that was saved or deleted while this server was starting:
+    /// what it was told about the database is no longer true, so it is not
+    /// the connection's server and never was.
+    pub fn insert(&self, session: Arc<LspSession>, stops: u64) -> Option<Arc<LspSession>> {
+        let mut registry = self.0.lock().unwrap();
+        if registry.stops(&session.connection_id) != stops {
+            return None;
         }
-        running.insert(session.connection_id.clone(), session);
-        true
+        Some(
+            registry
+                .running
+                .entry(session.connection_id.clone())
+                .or_insert(session)
+                .clone(),
+        )
     }
 
+    /// Take the connection's server out. Stopping it is the caller's to do.
     pub fn remove(&self, connection_id: &str) -> Option<Arc<LspSession>> {
-        self.running.lock().unwrap().remove(connection_id)
+        let mut registry = self.0.lock().unwrap();
+        *registry.stops.entry(connection_id.to_string()).or_default() += 1;
+        registry.running.remove(connection_id)
     }
 
-    /// Take a session out only if it is still the one registered. A server
-    /// that died after being replaced must not evict its replacement.
-    pub fn remove_session(&self, connection_id: &str, id: &str) -> Option<Arc<LspSession>> {
-        let mut running = self.running.lock().unwrap();
-        match running.get(connection_id) {
-            Some(session) if session.id == id => running.remove(connection_id),
-            _ => None,
+    /// Take a session out at the end of its life, and say whether the
+    /// connection is left without a server. A server that died after being
+    /// replaced must neither evict its replacement nor be announced as its
+    /// ending.
+    pub fn remove_session(&self, connection_id: &str, id: &str) -> bool {
+        let mut registry = self.0.lock().unwrap();
+        match registry.running.get(connection_id) {
+            Some(session) if session.id == id => {
+                registry.running.remove(connection_id);
+                true
+            }
+            Some(_) => false,
+            None => true,
         }
     }
 
     pub fn take_all(&self) -> Vec<Arc<LspSession>> {
-        self.running
-            .lock()
-            .unwrap()
-            .drain()
-            .map(|(_, session)| session)
-            .collect()
+        let mut registry = self.0.lock().unwrap();
+        let taken: Vec<_> = registry.running.drain().map(|(_, s)| s).collect();
+        for session in &taken {
+            *registry
+                .stops
+                .entry(session.connection_id.clone())
+                .or_default() += 1;
+        }
+        taken
+    }
+}
+
+impl Registry {
+    fn stops(&self, connection_id: &str) -> u64 {
+        self.stops.get(connection_id).copied().unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_server_to_a_connection() {
+        let registry = LspRegistry::default();
+        let first = LspSession::for_registry_test("c1");
+        let stops = registry.stops("c1");
+
+        assert!(registry
+            .insert(Arc::clone(&first), stops)
+            .is_some_and(|running| Arc::ptr_eq(&running, &first)));
+        // A second start answers with the server the connection already has.
+        let second = LspSession::for_registry_test("c1");
+        assert!(registry
+            .insert(second, stops)
+            .is_some_and(|running| Arc::ptr_eq(&running, &first)));
+    }
+
+    #[test]
+    fn a_server_that_was_stopped_while_starting_is_not_taken_in() {
+        let registry = LspRegistry::default();
+        let stops = registry.stops("c1");
+        // What a save or a delete does: the server is stopped, and what it was
+        // told about the connection stops being true.
+        registry.remove("c1");
+
+        assert!(registry
+            .insert(LspSession::for_registry_test("c1"), stops)
+            .is_none());
+        assert!(registry.get("c1").is_none());
+    }
+
+    #[test]
+    fn a_server_that_was_replaced_neither_evicts_nor_speaks_for_its_replacement() {
+        let registry = LspRegistry::default();
+        let first = LspSession::for_registry_test("c1");
+        registry.insert(Arc::clone(&first), registry.stops("c1"));
+        registry.remove("c1");
+        let second = LspSession::for_registry_test("c1");
+        registry.insert(Arc::clone(&second), registry.stops("c1"));
+
+        assert!(!registry.remove_session("c1", &first.id));
+        assert!(registry.get("c1").is_some());
+        assert!(registry.remove_session("c1", &second.id));
+    }
+
+    #[test]
+    fn a_connection_whose_server_was_taken_out_is_left_without_one() {
+        let registry = LspRegistry::default();
+        let session = LspSession::for_registry_test("c1");
+        registry.insert(Arc::clone(&session), registry.stops("c1"));
+        registry.remove("c1");
+
+        // The reader stopped it, and the ending is still theirs to hear.
+        assert!(registry.remove_session("c1", &session.id));
+    }
+
+    #[test]
+    fn taking_them_all_leaves_none_and_refuses_what_was_starting() {
+        let registry = LspRegistry::default();
+        let stops = registry.stops("c1");
+        registry.insert(LspSession::for_registry_test("c1"), stops);
+        registry.insert(LspSession::for_registry_test("c2"), registry.stops("c2"));
+
+        assert_eq!(registry.take_all().len(), 2);
+        assert!(registry.get("c1").is_none());
+        assert!(registry
+            .insert(LspSession::for_registry_test("c1"), stops)
+            .is_none());
     }
 }
