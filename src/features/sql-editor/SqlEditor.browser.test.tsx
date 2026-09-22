@@ -180,13 +180,18 @@ async function typing(text: string) {
   await userEvent.keyboard(text);
 }
 
-describe("SqlEditor completion", () => {
-  it("offers what the connection's language server suggests", async () => {
-    let ipc: Ipc | undefined;
-    const sent: string[] = [];
-    // Standing in for the server: whatever the editor asks about a position,
-    // the answer comes back the way the backend announces one.
-    const answering = (args: Record<string, unknown>) => {
+/**
+ * A language server, as far as the window can tell one from the outside: it
+ * takes messages, and it answers a question about a position the way the
+ * backend announces an answer.
+ */
+function server() {
+  let ipc: Ipc | undefined;
+  const sent: string[] = [];
+  const replies = {
+    check_syntax: [],
+    start_language_server: {},
+    send_to_language_server: (args: Record<string, unknown>) => {
       const asked = JSON.parse(args.message as string) as { id?: number; method: string };
       sent.push(asked.method);
       if (asked.method === "textDocument/completion") {
@@ -200,17 +205,16 @@ describe("SqlEditor completion", () => {
         });
       }
       return null;
-    };
+    },
+  };
+  return { replies, sent, listenWith: (made: Ipc) => (ipc = made) };
+}
 
-    const made = await editor(
-      {
-        check_syntax: [],
-        start_language_server: {},
-        send_to_language_server: answering,
-      },
-      "SELECT * FROM",
-    );
-    ipc = made.ipc;
+describe("SqlEditor completion", () => {
+  it("offers what the connection's language server suggests", async () => {
+    const { replies, sent, listenWith } = server();
+    const made = await editor(replies, "SELECT * FROM");
+    listenWith(made.ipc);
 
     await typing(" ord");
 
@@ -245,5 +249,38 @@ describe("SqlEditor completion", () => {
       expect(ipc.calls.filter((call) => call.command === "start_language_server")).toHaveLength(1),
     );
     expect(ipc.calls.map((call) => call.command)).not.toContain("send_to_language_server");
+  });
+  it("starts no server for a tab nothing is asked about", async () => {
+    const { replies } = server();
+    const { ipc } = await editor(replies, "SELECT 1");
+
+    // Opening a tab is not asking for completion, and starting a server reads
+    // the whole schema of the reader's database.
+    await vi.waitFor(() => expect(ipc.calls.map((call) => call.command)).toContain("check_syntax"));
+    expect(ipc.calls.map((call) => call.command)).not.toContain("start_language_server");
+  });
+
+  it("tells the next server about the document when one has ended", async () => {
+    const { replies, sent, listenWith } = server();
+    const made = await editor(replies, "SELECT * FROM");
+    listenWith(made.ipc);
+    await typing(" ord");
+    await expect.element(page.getByRole("option")).toBeVisible();
+
+    // The server dies, and the editor goes on being an editor.
+    made.ipc.emit("lsp:exit", { connection_id: made.connectionId });
+    sent.length = 0;
+    // Away with the list that is up: typing on inside a word it is already
+    // showing filters that list rather than asking again.
+    await userEvent.keyboard("{Escape}");
+    await typing("e");
+
+    // A new server knows nothing about the document, so it is told again
+    // before it is asked anything.
+    await vi.waitFor(() => expect(sent).toContain("textDocument/completion"));
+    expect(sent[0]).toBe("textDocument/didOpen");
+    expect(made.ipc.calls.filter((call) => call.command === "start_language_server")).toHaveLength(
+      2,
+    );
   });
 });

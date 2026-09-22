@@ -253,12 +253,19 @@ deleting a connection stops it too, since it was handed those credentials when
 it started.
 
 In the window, `lib/lsp/client.ts` is the client: one per connection, made when
-something first asks, and it starts the server on the first message rather than
-when it is made — a machine with no server installed is asked once and then
-left alone, because there is no completion then and asking again on every
-keystroke would only be slower about it. Messages go out one at a time: each is
-its own call, and two in flight could reach the server in either order, which
-for a document means a change arriving before the open that made it.
+something first asks and kept for as long as the window. It holds every
+document of that connection as it now stands, and **a server is started by the
+first completion asked for** — not by a tab opening, since sqls reads the whole
+schema on its way up and a reader who asks nothing of it never needed that
+read. A start that fails is not tried again: there is no completion then, and
+asking per keystroke would only be slower about it.
+
+Because the client outlives any one server, a server that dies is replaced
+under the editors holding it: the documents stay, marked as no longer known,
+and the next server is told about them before it is asked anything. Messages go
+out one at a time — each is its own call, and two in flight could reach the
+server in either order, which for a document means a change arriving before the
+open that made it.
 
 Every SQL tab is a document, named `file:///datalooker/<connection>/<tab>.sql`
 (`features/sql-editor/documents.ts`). Monaco holds completion providers by
