@@ -256,9 +256,9 @@ a reader is when they notice that nothing is being suggested.
 
 Where the server is, is asked of the reader's login shell — a window opened
 from Finder inherits none of the places one is installed, the same reason a
-connection's command is run through one. `DATALOOKER_SQLS_BIN` names one
-directly, which is also how a test hands over something that is not a language
-server at all. A server the reader installed themselves comes before the one
+connection's command is run through one. `DATALOOKER_SQLS_BIN` and
+`DATALOOKER_BQLS_BIN` name one directly, which is also how a test hands over
+something that is not a language server at all. A server the reader installed themselves comes before the one
 DataLooker built, which is the fallback for a machine that had none — and a
 name the reader set that leads nowhere is theirs to put right rather than
 something a build would fix, so it is said rather than offered around.
