@@ -234,10 +234,10 @@ where
 /// Kills the process group the child leads, on demand or when dropped while
 /// still armed. The child was spawned with a group of its own, so its pid is
 /// the group's id and every process the command started is in it.
-struct GroupKill(Option<i32>);
+pub struct GroupKill(pub Option<i32>);
 
 impl GroupKill {
-    fn now(&self) {
+    pub fn now(&self) {
         #[cfg(unix)]
         if let Some(pgid) = self.0 {
             // Gone already is the ordinary case, not a failure.
@@ -248,7 +248,7 @@ impl GroupKill {
         }
     }
 
-    fn disarm(&mut self) {
+    pub fn disarm(&mut self) {
         self.0 = None;
     }
 }

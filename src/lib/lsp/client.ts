@@ -18,6 +18,8 @@ export type CompletionItem = {
 export type Position = { line: number; character: number };
 
 export type LanguageClient = {
+  /** Ask for a server again, where the one attempt to start one failed. */
+  startAgain: () => void;
   /** A document's text as it now stands, whether or not it is new. */
   wrote: (uri: string, text: string) => void;
   closed: (uri: string) => void;
@@ -206,6 +208,8 @@ function create(connectionId: string): LanguageClient {
   }
 
   const client: LanguageClient = {
+    startAgain: ended,
+
     wrote(uri, text) {
       const known = documents.get(uri);
       documents.set(uri, {
@@ -279,6 +283,16 @@ function create(connectionId: string): LanguageClient {
   };
 
   return client;
+}
+
+/**
+ * Say that a server has been installed for a connection whose one attempt to
+ * start one failed. Nothing else would: a client asks once, so that a machine
+ * with no server is not asked again on every keystroke, and what changes that
+ * is a server appearing.
+ */
+export function startServerAgain(connectionId: string) {
+  clients.get(connectionId)?.startAgain();
 }
 
 /**

@@ -326,4 +326,47 @@ describe("SqlEditor completion", () => {
     await vi.waitFor(() => expect(sent).toContain("textDocument/didOpen"));
     expect(sent).not.toContain("textDocument/didChange");
   });
+  it("completes once a server has been built for a connection that had none", async () => {
+    let installed = false;
+    let ipc: Ipc | undefined;
+    const replies = {
+      check_syntax: [],
+      language_server_state: () => ({ kind: installed ? "ready" : "missing" }),
+      install_language_server: () => {
+        installed = true;
+        return null;
+      },
+      start_language_server: () => {
+        if (!installed) throw { kind: "NotFound", message: "sqls is not installed" };
+        return {};
+      },
+      send_to_language_server: (args: Record<string, unknown>) => {
+        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+        if (asked.method === "textDocument/completion") {
+          ipc?.emit("lsp:message", {
+            connection_id: args.connectionId as string,
+            payload: JSON.stringify({
+              jsonrpc: "2.0",
+              id: asked.id,
+              result: { items: [{ label: "orders", kind: 7, detail: "table" }] },
+            }),
+          });
+        }
+        return null;
+      },
+    };
+
+    const made = await editor(replies, "SELECT * FROM");
+    ipc = made.ipc;
+    await typing(" ord");
+    expect(page.getByRole("option").elements()).toEqual([]);
+
+    await made.screen.getByText("Install sqls for completion").click();
+
+    // The client asked for a server once and was told there was none; the
+    // install is what makes it ask again.
+    await userEvent.keyboard("{Escape}");
+    await typing("e");
+    await expect.element(page.getByRole("option")).toBeVisible();
+  });
 });

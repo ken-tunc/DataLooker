@@ -2,6 +2,7 @@ import { initVimMode } from "monaco-vim";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
+import { InstallServer } from "../language-server/InstallServer";
 import { languageClientFor } from "../../lib/lsp/client";
 import { registerCompletion } from "./completion";
 import { documentUri } from "./documents";
@@ -162,6 +163,7 @@ export default function SqlEditor({
         <span className="text-base-content/70 grow truncate font-mono">
           <span ref={status} />
         </span>
+        <InstallServer connectionId={connectionId} />
         <label className="flex cursor-pointer items-center gap-1">
           <input
             type="checkbox"

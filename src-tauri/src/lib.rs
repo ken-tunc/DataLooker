@@ -19,7 +19,11 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;
             let service = app.config().identifier.clone();
-            let state = App::new(pool, Box::new(KeyringStore::new(service)?));
+            let state = App::new(
+                pool,
+                app_data_dir.clone(),
+                Box::new(KeyringStore::new(service)?),
+            );
             commands::shell::forward_exits(app.handle().clone(), &state);
             commands::lsp::forward_notices(app.handle().clone(), &state);
             app.manage(state);
@@ -46,7 +50,9 @@ pub fn run() {
             commands::shell::running_connection_commands,
             commands::lsp::start_language_server,
             commands::lsp::send_to_language_server,
-            commands::lsp::stop_language_server
+            commands::lsp::stop_language_server,
+            commands::lsp::language_server_state,
+            commands::lsp::install_language_server
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

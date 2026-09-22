@@ -9,6 +9,7 @@ import type { SchemaTree } from "../bindings/SchemaTree";
 import type { TableDefinition } from "../bindings/TableDefinition";
 import type { SyntaxError } from "../bindings/SyntaxError";
 import type { HistoryEntry } from "../bindings/HistoryEntry";
+import type { LanguageServerState } from "../bindings/LanguageServerState";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
 import { invoke } from "./invoke";
 
@@ -103,6 +104,16 @@ export function startLanguageServer(connectionId: string): Promise<unknown> {
 /** One JSON-RPC message, as the text the server is handed. */
 export function sendToLanguageServer(connectionId: string, message: string): Promise<void> {
   return invoke<void>("send_to_language_server", { connectionId, message });
+}
+
+/** Whether this connection can be completed against, or could be. */
+export function languageServerState(connectionId: string): Promise<LanguageServerState> {
+  return invoke<LanguageServerState>("language_server_state", { connectionId });
+}
+
+/** Build the server this connection would be completed against. */
+export function installLanguageServer(connectionId: string): Promise<void> {
+  return invoke<void>("install_language_server", { connectionId });
 }
 
 export function stopLanguageServer(connectionId: string): Promise<void> {

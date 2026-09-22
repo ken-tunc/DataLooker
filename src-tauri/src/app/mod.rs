@@ -8,6 +8,7 @@ mod schema;
 pub mod shell;
 pub mod syntax;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
@@ -35,6 +36,9 @@ const NOTICES_HELD: usize = 256;
 /// One file per feature: the methods live beside the rules they apply.
 pub struct App {
     pool: SqlitePool,
+    /// Where the app keeps what is its own rather than the reader's — meta.db
+    /// is here too, and so is any language server DataLooker built.
+    data_dir: PathBuf,
     secrets: Box<dyn SecretStore>,
     sessions: SessionRegistry,
     queries: QueryRegistry,
@@ -49,9 +53,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(pool: SqlitePool, secrets: Box<dyn SecretStore>) -> Self {
+    pub fn new(pool: SqlitePool, data_dir: PathBuf, secrets: Box<dyn SecretStore>) -> Self {
         Self {
             pool,
+            data_dir,
             secrets,
             sessions: SessionRegistry::default(),
             queries: QueryRegistry::default(),
@@ -78,6 +83,7 @@ pub mod tests {
     pub async fn app() -> App {
         App::new(
             open_in_memory().await.unwrap(),
+            std::env::temp_dir().join("datalooker-test"),
             Box::new(InMemorySecretStore::default()),
         )
     }

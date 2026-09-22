@@ -1,6 +1,6 @@
 //! Which language server answers for a connection, and where it is.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::{json, Value};
@@ -48,6 +48,15 @@ pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Va
 }
 
 impl Server {
+    /// Which server a connection needs, or none where no server speaks to its
+    /// database.
+    pub fn of(config: &DriverConfig) -> Option<Self> {
+        match config {
+            DriverConfig::Postgres { .. } => Some(Server::Sqls),
+            DriverConfig::BigQuery { .. } => None,
+        }
+    }
+
     pub fn binary(self) -> &'static str {
         match self {
             Server::Sqls => "sqls",
@@ -63,16 +72,17 @@ impl Server {
     }
 }
 
-/// The binary to run, asked of the reader's own login shell rather than of the
-/// `PATH` this process inherited: a window opened from Finder has none of the
-/// places a language server is installed, which is the same reason a
-/// connection's command is run through a login shell.
-pub async fn find(server: Server) -> Result<PathBuf, AppError> {
+/// The binary to run: the one a reader named, then the one they installed
+/// themselves, then the one DataLooker built for them. Theirs comes first
+/// because it is theirs — `ours` is what a machine with none falls back to.
+pub async fn find(server: Server, ours: &Path) -> Result<PathBuf, AppError> {
     let name = server.binary();
     if let Some(named) = std::env::var_os(server.named_by()) {
         let path = PathBuf::from(named);
         if !path.is_file() {
-            return Err(AppError::NotFound(format!(
+            // Not `NotFound`: nothing is missing that could be installed, and
+            // what is wrong is what the reader set.
+            return Err(AppError::Validation(format!(
                 "{} names {}, where there is no file",
                 server.named_by(),
                 path.display()
@@ -81,6 +91,24 @@ pub async fn find(server: Server) -> Result<PathBuf, AppError> {
         return Ok(path);
     }
 
+    if let Ok(found) = command(name).await {
+        return Ok(found);
+    }
+
+    let built = ours.join(name);
+    if built.is_file() {
+        return Ok(built);
+    }
+    Err(AppError::NotFound(format!(
+        "{name} is not installed, so there is nothing to complete with"
+    )))
+}
+
+/// Where a command is, asked of the reader's own login shell rather than of
+/// the `PATH` this process inherited: a window opened from Finder has none of
+/// the places a language server or a toolchain is installed, which is the same
+/// reason a connection's command is run through a login shell.
+pub async fn command(name: &str) -> Result<PathBuf, AppError> {
     let (shell, login) = crate::shell::shell_for(std::env::var("SHELL").ok());
     let mut asking = Command::new(&shell);
     if login {
@@ -102,9 +130,7 @@ pub async fn find(server: Server) -> Result<PathBuf, AppError> {
         .to_string();
     let path = PathBuf::from(&found);
     if found.is_empty() || !path.is_file() {
-        return Err(AppError::NotFound(format!(
-            "{name} is not installed, so there is nothing to complete with"
-        )));
+        return Err(AppError::NotFound(format!("{name} is not installed")));
     }
     Ok(path)
 }

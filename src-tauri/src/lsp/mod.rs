@@ -3,13 +3,35 @@
 //! past, because what a message means belongs with the editor that asked.
 
 mod framing;
+pub mod install;
 pub mod server;
 mod session;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use serde::Serialize;
+use ts_rs::TS;
+
 pub use session::{LspExit, LspMessage, LspNotice, LspSession};
+
+/// Whether a connection can be completed against, as far as the window needs
+/// to know: one it could be, once there is a server to do it with, is the one
+/// worth offering to build.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum LanguageServerState {
+    /// There is a server to talk to.
+    Ready,
+    /// This driver has one, and it is not installed.
+    Missing,
+    /// No server here speaks to this driver's database.
+    Unsupported,
+    /// The reader named a server themselves and it is not there. Building one
+    /// would change nothing: the name they set is what is read first.
+    Named { message: String },
+}
 
 /// Which connection has a server running. One connection is one server: it is
 /// started for a database, and a second one would read the same schema twice.
