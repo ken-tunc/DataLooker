@@ -87,6 +87,31 @@ impl PostgresSession {
         .await
     }
 
+    /// Run a statement for a caller that may only read. The read-only
+    /// transaction is what holds them to it: opening the session that way
+    /// only sets a default, and a default is something a statement can turn
+    /// off — `SET default_transaction_read_only = off` is not a write, and
+    /// neither is `SELECT set_config(...)`. A transaction that has begun
+    /// read-only cannot be made anything else, and the server is what says
+    /// so, down to a function called from a `SELECT`.
+    pub async fn execute_reading(
+        &self,
+        sql: &str,
+        row_limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<QueryResult, AppError> {
+        let started = Instant::now();
+        self.with_connection(cancel, async |conn| {
+            conn.execute("BEGIN READ ONLY").await?;
+            let result = query::execute(conn, sql, row_limit, started).await;
+            // Nothing was written and nothing is kept: the transaction is
+            // here to refuse, not to hold anything together.
+            let _ = conn.execute("ROLLBACK").await;
+            Ok(result?)
+        })
+        .await
+    }
+
     pub async fn preview(
         &self,
         request: &Preview<'_>,

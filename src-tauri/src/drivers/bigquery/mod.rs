@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use gcp_bigquery_client::model::job::Job;
 use gcp_bigquery_client::model::job_configuration::JobConfiguration;
 use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
+use gcp_bigquery_client::model::job_reference::JobReference;
 use gcp_bigquery_client::model::query_request::QueryRequest;
 use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
@@ -78,18 +79,26 @@ impl BigQuerySession {
             () = cancel.cancelled() => return Err(AppError::Cancelled),
         };
 
-        let mut asking = Job::default();
-        let mut configuration = JobConfiguration {
-            dry_run: Some(true),
-            ..JobConfiguration::default()
+        let asking = Job {
+            // Planned where it would run. A job with no location is planned
+            // in the default one, whose catalog is not the one this
+            // connection reads — the tables it names would not be there.
+            job_reference: Some(JobReference {
+                job_id: None,
+                location: Some(self.location.clone()),
+                project_id: Some(self.project_id.clone()),
+            }),
+            configuration: Some(JobConfiguration {
+                dry_run: Some(true),
+                query: Some(JobConfigurationQuery {
+                    query: sql.to_string(),
+                    use_legacy_sql: Some(false),
+                    ..JobConfigurationQuery::default()
+                }),
+                ..JobConfiguration::default()
+            }),
+            ..Job::default()
         };
-        let mut query = JobConfigurationQuery {
-            query: sql.to_string(),
-            ..JobConfigurationQuery::default()
-        };
-        query.use_legacy_sql = Some(false);
-        configuration.query = Some(query);
-        asking.configuration = Some(configuration);
 
         let planned = tokio::select! {
             planned = client.job().insert(&self.project_id, asking) => planned,

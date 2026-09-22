@@ -33,10 +33,7 @@ impl App {
         let started = Instant::now();
 
         let result = tokio::select! {
-            result = async {
-                session.only_reading(sql, &cancel).await?;
-                session.execute(sql, ROWS, &cancel).await
-            } => result,
+            result = session.execute_reading(sql, ROWS, &cancel) => result,
             () = tokio::time::sleep(WAIT) => {
                 // The statement is given up on rather than stopped: what it
                 // left on the wire is why the session goes with it.
@@ -134,6 +131,56 @@ mod tests {
         assert!(
             complaint.contains("read-only"),
             "{complaint} does not say why"
+        );
+    }
+
+    #[tokio::test]
+    async fn cannot_turn_the_reading_off_and_then_write() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+
+        // Not a write, and PostgreSQL lets anyone set it: what it sets is the
+        // default for transactions to come, and every statement here begins
+        // its own read-only transaction.
+        let _ = app
+            .run_agent_query(
+                &id,
+                "SELECT set_config('default_transaction_read_only', 'off', false)",
+            )
+            .await;
+        let _ = app
+            .run_agent_query(&id, "SET default_transaction_read_only = off")
+            .await;
+
+        let written = app
+            .run_agent_query(&id, "CREATE TABLE agent_turned_it_off (id integer)")
+            .await
+            .expect_err("a statement that writes");
+        assert!(
+            written.to_string().contains("read-only"),
+            "{written} does not say why"
+        );
+    }
+
+    #[tokio::test]
+    async fn takes_one_statement_at_a_time() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+
+        // Two commands in one string would be two chances to leave the
+        // transaction that is holding this to reading. PostgreSQL refuses
+        // them where a statement is prepared, which is how every statement
+        // gets here.
+        let both = app
+            .run_agent_query(&id, "SELECT 1; CREATE TABLE agent_snuck_in (id integer)")
+            .await
+            .expect_err("two statements in one");
+
+        assert!(
+            both.to_string().contains("multiple commands"),
+            "{both} is not the refusal expected"
         );
     }
 

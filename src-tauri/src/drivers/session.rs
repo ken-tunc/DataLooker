@@ -61,26 +61,27 @@ impl Session {
         }
     }
 
-    /// Refuse a statement that would do anything but read, for a caller that
-    /// may only read.
-    pub async fn only_reading(
+    /// Run a statement for a caller that may only read, and refuse it
+    /// otherwise. What refuses is the database in both cases: PostgreSQL runs
+    /// it in a read-only transaction, and BigQuery — which has no such thing
+    /// and a dialect this app cannot parse — is asked what the statement is
+    /// before it is run.
+    pub async fn execute_reading(
         &self,
         sql: &str,
+        row_limit: usize,
         cancel: &CancellationToken,
-    ) -> Result<(), AppError> {
+    ) -> Result<QueryResult, AppError> {
         match self {
-            // Nothing to check: a session opened for an agent is one the
-            // server itself will not write through, and it sees what a
-            // statement calls as well as what it says.
-            Session::Postgres(_) => Ok(()),
+            Session::Postgres(session) => session.execute_reading(sql, row_limit, cancel).await,
             Session::BigQuery(session) => {
                 let kind = session.statement_kind(sql, cancel).await?;
-                if kind == "SELECT" {
-                    return Ok(());
+                if kind != "SELECT" {
+                    return Err(AppError::Unsupported(format!(
+                        "An agent may only read here, and BigQuery calls this a {kind} statement."
+                    )));
                 }
-                Err(AppError::Unsupported(format!(
-                    "An agent may only read here, and BigQuery calls this a {kind} statement."
-                )))
+                session.execute(sql, row_limit, cancel).await
             }
         }
     }

@@ -363,9 +363,13 @@ nothing here streams, and a session to resume would be a session to keep. The
 token and the path are checked before the service sees a request at all.
 
 An agent may read and nothing else, and what holds it to that is the database
-rather than anything here reading the statement. Its PostgreSQL session is
-opened so that the server refuses to write through it, which covers a function
-called from a `SELECT` as well as the `SELECT` itself. BigQuery has no session
+rather than anything here reading the statement. Its PostgreSQL statement runs
+in a transaction that began read-only, which covers a function called from a
+`SELECT` as well as the `SELECT` itself — and which the statement cannot undo,
+where opening the session read-only only set a default that
+`SET default_transaction_read_only = off` would turn off. Two commands in one
+string are refused by PostgreSQL itself, since every statement here is
+prepared. BigQuery has no session
 to open that way, and its dialect is not one this app has a parser for, so a
 statement is dry-run first — a plan and nothing else — and BigQuery's own
 answer to what it is decides whether it runs.
