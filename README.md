@@ -113,6 +113,36 @@ cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PR
 `DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key
 that is named has to work: only its absence is a skip.
 
+## Building the app
+
+```sh
+./scripts/make-signing-identity.sh
+APPLE_SIGNING_IDENTITY="DataLooker Self-Signed" vp run tauri build
+```
+
+The bundle lands at `src-tauri/target/release/bundle/macos/DataLooker.app`, and it is yours
+to run rather than anyone else's to install: the certificate is self-signed, so Gatekeeper
+on another Mac will refuse a copy that was downloaded there.
+
+The signature is not about that, though. macOS keys what an app is allowed to reach — the
+keychain items holding your passwords, the folders it has been let into — to the app's
+signature, and the one the linker leaves behind is a hash of the binary, which every build
+changes:
+
+```
+designated => cdhash H"4571b98e…"                                        # unsigned
+designated => identifier "org.kentunc.datalooker" and certificate leaf = H"323b037b…"
+```
+
+The second one is the same after the next build, so a permission you grant once stays
+granted. `make-signing-identity.sh` makes that certificate if the keychain has none, and
+the key stays on the machine that made it.
+
+The built app and `vp run tauri dev` are the same app to macOS — the identifier decides
+where the data lives — so they share `meta.db`, the connections in it and the language
+servers under `servers/`. A migration applied by one is applied for the other, which is
+worth remembering when running a branch that does not have it.
+
 ## Scripts
 
 | Command                                                      | What it does                                                |
@@ -120,7 +150,8 @@ that is named has to work: only its absence is a skip.
 | `vp run tauri dev`                                           | Tauri shell with the Vite dev server (the main dev command) |
 | `vp dev`                                                     | Vite dev server only, no Tauri shell                        |
 | `vp build`                                                   | Type-check and build the frontend bundle                    |
-| `vp run tauri build`                                         | Build a distributable `.app`                                |
+| `vp run tauri build`                                         | Build the `.app` (see above; sign it by naming an identity) |
+| `./scripts/make-signing-identity.sh`                         | Make the self-signed certificate builds are signed with     |
 | `vp check`                                                   | Format, lint and type check (`--fix` applies fixes)         |
 | `vp test --run`                                              | Frontend tests                                              |
 | `vp test --run --coverage`                                   | Frontend tests with a coverage report                       |
