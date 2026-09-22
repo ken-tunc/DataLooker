@@ -226,15 +226,24 @@ query parameter rather than written into the statement.
 
 ## Completing a statement
 
-A connection can have a language server behind it — `sqls` for PostgreSQL —
-which reads the database it is pointed at and says what could follow what the
-reader typed. `lsp/` is the pipe: it starts one server per connection, frames
+A connection can have a language server behind it — `sqls` for PostgreSQL,
+`bqls` for BigQuery — which reads the database it is pointed at and says what
+could follow what the reader typed. `lsp/` is the pipe: it starts one server per connection, frames
 the JSON-RPC going each way and carries it, and reads none of it. What a
 message means belongs with the editor that asked, so the client lives in the
 window.
 
+BigQuery is the exception to all of that. bqls takes credentials from the
+environment and nowhere else, so the connection's service account key is never
+handed to it: it is told the project and the location, and it completes as
+whoever the reader is to Google — their own `gcloud` credentials. That means
+completion can see a different project than the one queries run against, or
+nothing at all where the reader has never logged in, and it is the price of
+not writing a service account key to a file that outlives the process which
+wrote it.
+
 The one message composed here is `initialize`, because it is the one that
-carries the connection's password: the server is told about the database
+carries a PostgreSQL connection's password: the server is told about the database
 through its `initializationOptions` rather than through a config file, since
 sqls will read a file and a file with a password in it outlives the process
 that wrote it. It is asked under a string id, which is not the number space
@@ -247,9 +256,9 @@ a reader is when they notice that nothing is being suggested.
 
 Where the server is, is asked of the reader's login shell — a window opened
 from Finder inherits none of the places one is installed, the same reason a
-connection's command is run through one. `DATALOOKER_SQLS_BIN` names one
-directly, which is also how a test hands over something that is not a language
-server at all. A server the reader installed themselves comes before the one
+connection's command is run through one. `DATALOOKER_SQLS_BIN` and
+`DATALOOKER_BQLS_BIN` name one directly, which is also how a test hands over
+something that is not a language server at all. A server the reader installed themselves comes before the one
 DataLooker built, which is the fallback for a machine that had none — and a
 name the reader set that leads nowhere is theirs to put right rather than
 something a build would fix, so it is said rather than offered around.

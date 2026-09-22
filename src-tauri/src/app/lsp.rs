@@ -91,12 +91,12 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
-        let Some(server) = Server::of(&record.config) else {
-            return Ok(LanguageServerState::Unsupported);
-        };
+        let server = Server::of(&record.config);
         Ok(match server::find(server, &self.servers()).await {
             Ok(_) => LanguageServerState::Ready,
-            Err(AppError::NotFound(_)) => LanguageServerState::Missing,
+            Err(AppError::NotFound(_)) => LanguageServerState::Missing {
+                server: server.binary().to_string(),
+            },
             // Anything else is the reader's own setting being wrong, which
             // installing a server would not put right.
             Err(e) => LanguageServerState::Named {
@@ -111,14 +111,10 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
-        let server = Server::of(&record.config).ok_or_else(|| {
-            AppError::Unsupported("There is no language server for this driver.".to_string())
-        })?;
-
         let into = self.servers();
         std::fs::create_dir_all(&into)
             .map_err(|e| AppError::Shell(format!("{}: {e}", into.display())))?;
-        install::install(server, &into).await?;
+        install::install(Server::of(&record.config), &into).await?;
         // Whatever was running is the server that was there before this one.
         self.stop_language_server(connection_id);
         Ok(())

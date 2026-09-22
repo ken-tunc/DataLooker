@@ -331,7 +331,8 @@ describe("SqlEditor completion", () => {
     let ipc: Ipc | undefined;
     const replies = {
       check_syntax: [],
-      language_server_state: () => ({ kind: installed ? "ready" : "missing" }),
+      language_server_state: () =>
+        installed ? { kind: "ready" } : { kind: "missing", server: "sqls" },
       install_language_server: () => {
         installed = true;
         return null;
