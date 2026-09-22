@@ -1,6 +1,7 @@
 pub mod connections;
 pub mod edit;
 pub mod history;
+pub mod lsp;
 pub mod preview;
 mod query;
 mod schema;
@@ -14,6 +15,7 @@ use tokio::sync::broadcast;
 
 use crate::drivers::session::{Session, SessionRegistry};
 use crate::error::AppError;
+use crate::lsp::{LspNotice, LspRegistry};
 use crate::secrets::SecretStore;
 use crate::shell::{ShellExit, ShellRegistry};
 use query::QueryRegistry;
@@ -22,6 +24,11 @@ use query::QueryRegistry;
 /// reader runs one command at a time and hears about it at once; the room is
 /// for a listener that was busy, not for a backlog worth keeping.
 const EXITS_HELD: usize = 16;
+
+/// How far a listener may fall behind a language server. A server answers
+/// every keystroke, so this is a window that stopped listening rather than one
+/// that is busy — and a client that missed a reply is told the server ended.
+const NOTICES_HELD: usize = 256;
 
 /// What DataLooker can do, with no Tauri in sight. The window reaches it through
 /// `commands/`, and anything else that drives the app arrives here the same way.
@@ -35,6 +42,10 @@ pub struct App {
     /// when the command ends.
     shells: Arc<ShellRegistry>,
     exits: broadcast::Sender<ShellExit>,
+    /// Shared with the task reading each server, which takes its own entry out
+    /// when the server stops answering.
+    servers: Arc<LspRegistry>,
+    notices: broadcast::Sender<LspNotice>,
 }
 
 impl App {
@@ -46,6 +57,8 @@ impl App {
             queries: QueryRegistry::default(),
             shells: Arc::new(ShellRegistry::default()),
             exits: broadcast::channel(EXITS_HELD).0,
+            servers: Arc::new(LspRegistry::default()),
+            notices: broadcast::channel(NOTICES_HELD).0,
         }
     }
 
