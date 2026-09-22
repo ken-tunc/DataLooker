@@ -52,6 +52,7 @@ impl App {
         if let Some(listening) = listening {
             listening.stop().await;
         }
+        let mut opened = None;
 
         if enabled {
             if access.token.is_empty() {
@@ -61,19 +62,32 @@ impl App {
             let listening =
                 mcp::listen(Arc::clone(self), access.token.clone(), access.port).await?;
             access.port = listening.port;
-            *self.agents.lock().unwrap() = Some(listening);
+            // Held here until the door is written down as open. A save that
+            // fails would otherwise leave a server answering that nothing in
+            // the app knows about.
+            opened = Some(listening);
         }
 
         access.enabled = enabled;
-        agent::save(
+        let written = agent::save(
             &self.pool,
             Access {
                 enabled,
                 port: access.port,
             },
         )
-        .await?;
-        Ok(access)
+        .await;
+        match (written, opened) {
+            (Err(e), Some(listening)) => {
+                listening.stop().await;
+                Err(e)
+            }
+            (Err(e), None) => Err(e),
+            (Ok(()), opened) => {
+                *self.agents.lock().unwrap() = opened;
+                Ok(access)
+            }
+        }
     }
 
     /// Start answering if the reader left it that way. Called once, as the app

@@ -7,12 +7,13 @@ pub mod tools;
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::tower::{
@@ -29,6 +30,15 @@ use tools::Agent;
 /// The one path this server answers on, which is what a reader hands to an
 /// agent along with the port.
 const PATH: &str = "/mcp";
+
+/// How many agents may be talking at once. Anything on this machine can open a
+/// socket here and say nothing, and a socket that is never spoken on is one
+/// nobody is served through — so there is a number of them, and no more.
+const AT_ONCE: usize = 32;
+
+/// How long a connection may take to say what it wants. Opening one and
+/// holding it silent is the cheapest way to take the ones above.
+const A_REQUEST: Duration = Duration::from_secs(10);
 
 /// A server that is up. Dropping this does not stop it; `stop` does, and so
 /// does the app going away with the runtime it runs on.
@@ -82,8 +92,14 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
     );
 
     let serving = stop.clone();
+    let room = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
     let accepting = tokio::spawn(async move {
         loop {
+            // Room first, then a socket: a connection that is not accepted
+            // waits in the system's own queue rather than in a task of ours.
+            let Ok(taking) = Arc::clone(&room).acquire_owned().await else {
+                break;
+            };
             let accepted = tokio::select! {
                 () = serving.cancelled() => break,
                 accepted = listener.accept() => accepted,
@@ -94,7 +110,13 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
             let token = token.clone();
             let connection = serving.child_token();
             tokio::spawn(async move {
-                let http = Builder::new(TokioExecutor::new());
+                let _taking = taking;
+                let mut http = Builder::new(TokioExecutor::new());
+                // A deadline needs something to measure with, and hyper takes
+                // no clock of its own.
+                http.http1()
+                    .timer(TokioTimer::new())
+                    .header_read_timeout(A_REQUEST);
                 let served = http.serve_connection(
                     TokioIo::new(stream),
                     service_fn(move |request| {
@@ -262,6 +284,28 @@ mod tests {
 
         assert_eq!(hello["result"]["protocolVersion"], "2025-06-18");
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn lets_go_of_a_connection_that_says_nothing() {
+        let server = answering().await;
+
+        // Opened and then left silent, which is how the room above would be
+        // taken by something that never means to ask anything.
+        let mut quiet = Vec::new();
+        for _ in 0..4 {
+            quiet.push(
+                TcpStream::connect(("127.0.0.1", server.port))
+                    .await
+                    .unwrap(),
+            );
+        }
+        // The agent that does mean to ask is still answered.
+        let hello = greeted(server.port).await;
+        assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
+
+        drop(quiet);
         server.stop().await;
     }
 
