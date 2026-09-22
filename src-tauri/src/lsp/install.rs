@@ -42,6 +42,10 @@ pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
     let built = tokio::time::timeout(
         BUILD,
         Command::new(&go)
+            // The deadline below drops this future, and dropping it is all
+            // that would happen: a build left running would still be writing
+            // into the directory a moment after the reader was told it failed.
+            .kill_on_drop(true)
             .arg("install")
             .arg(server.module())
             // Where `go install` puts what it built, which is the whole of why

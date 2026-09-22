@@ -13,7 +13,12 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
   const state = useLanguageServerState(connectionId);
   const install = useInstallLanguageServer(connectionId);
 
-  if (state.data !== "missing" && !install.isPending) return null;
+  // A server the reader named themselves and is not there is theirs to put
+  // right: building one would not be used, since the name is read first.
+  if (state.data?.kind === "named") {
+    return <span className="text-warning truncate text-xs">{state.data.message}</span>;
+  }
+  if (state.data?.kind !== "missing" && !install.isPending) return null;
 
   return (
     <button

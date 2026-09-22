@@ -13,7 +13,7 @@ const offer = () => "Install sqls for completion";
 describe("InstallServer", () => {
   it("offers to build a server where the connection has none", async () => {
     const { ipc, screen } = await footer({
-      language_server_state: "missing",
+      language_server_state: { kind: "missing" },
       install_language_server: null,
     });
 
@@ -23,16 +23,16 @@ describe("InstallServer", () => {
   });
 
   it("says nothing where there is a server, or where a driver has none", async () => {
-    const { screen } = await footer({ language_server_state: "ready" });
+    const { screen } = await footer({ language_server_state: { kind: "ready" } });
     expect(screen.getByText(offer()).elements()).toEqual([]);
 
-    const unsupported = await footer({ language_server_state: "unsupported" });
+    const unsupported = await footer({ language_server_state: { kind: "unsupported" } });
     expect(unsupported.screen.getByText(offer()).elements()).toEqual([]);
   });
 
   it("says what went wrong when the build fails, and offers again", async () => {
     const { screen } = await footer({
-      language_server_state: "missing",
+      language_server_state: { kind: "missing" },
       install_language_server: () => {
         throw { kind: "NotFound", message: "Go, which is what builds a language server" };
       },
@@ -44,5 +44,17 @@ describe("InstallServer", () => {
       .element(screen.getByText("Go, which is what builds a language server"))
       .toBeVisible();
     await expect.element(screen.getByText(offer())).toBeVisible();
+  });
+  it("leaves a server the reader named themselves to them", async () => {
+    const { screen } = await footer({
+      language_server_state: {
+        kind: "named",
+        message: "DATALOOKER_SQLS_BIN names /nowhere/sqls, where there is no file",
+      },
+    });
+
+    // Building one would not be used, so what is offered is the reason.
+    await expect.element(screen.getByText("DATALOOKER_SQLS_BIN", { exact: false })).toBeVisible();
+    expect(screen.getByText(offer()).elements()).toEqual([]);
   });
 });

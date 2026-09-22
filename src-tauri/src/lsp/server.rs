@@ -80,7 +80,9 @@ pub async fn find(server: Server, ours: &Path) -> Result<PathBuf, AppError> {
     if let Some(named) = std::env::var_os(server.named_by()) {
         let path = PathBuf::from(named);
         if !path.is_file() {
-            return Err(AppError::NotFound(format!(
+            // Not `NotFound`: nothing is missing that could be installed, and
+            // what is wrong is what the reader set.
+            return Err(AppError::Validation(format!(
                 "{} names {}, where there is no file",
                 server.named_by(),
                 path.display()

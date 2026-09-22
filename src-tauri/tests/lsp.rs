@@ -236,9 +236,16 @@ async fn builds_a_server_for_a_machine_that_has_none() {
     let into = std::env::temp_dir().join(format!("datalooker-lsp-{}", Uuid::new_v4().simple()));
     std::fs::create_dir_all(&into).expect("a directory to build into");
 
-    let built = install::install(Server::Sqls, &into)
-        .await
-        .expect("a language server that builds");
+    // The build has a ceiling of its own, which is for a reader watching a
+    // spinner. This one is for a suite: a module proxy that has stopped
+    // answering should fail the test rather than hold it.
+    let built = tokio::time::timeout(
+        Duration::from_secs(300),
+        install::install(Server::Sqls, &into),
+    )
+    .await
+    .expect("a build that finishes while anyone is still waiting")
+    .expect("a language server that builds");
     assert_eq!(built, into.join("sqls"));
 
     // Built for this machine, which a release binary would not be: what sqls

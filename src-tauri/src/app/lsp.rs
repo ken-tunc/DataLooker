@@ -96,7 +96,12 @@ impl App {
         };
         Ok(match server::find(server, &self.servers()).await {
             Ok(_) => LanguageServerState::Ready,
-            Err(_) => LanguageServerState::Missing,
+            Err(AppError::NotFound(_)) => LanguageServerState::Missing,
+            // Anything else is the reader's own setting being wrong, which
+            // installing a server would not put right.
+            Err(e) => LanguageServerState::Named {
+                message: e.to_string(),
+            },
         })
     }
 
