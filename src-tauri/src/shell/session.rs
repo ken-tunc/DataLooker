@@ -207,7 +207,7 @@ impl ShellRun {
 /// is the fallback for an environment that says nothing about a shell, and it
 /// gets no `-l`: there is no profile of the reader's to read, and a POSIX
 /// shell need not accept the flag at all (dash refuses it outright).
-fn shell_for(configured: Option<String>) -> (String, bool) {
+pub fn shell_for(configured: Option<String>) -> (String, bool) {
     match configured {
         Some(shell) if !shell.trim().is_empty() => (shell, true),
         _ => ("/bin/sh".to_string(), false),
