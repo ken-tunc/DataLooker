@@ -450,8 +450,11 @@ Monaco in the page rather than two.
   different app to them and every build is asked about again. A certificate makes the
   requirement `identifier and certificate leaf`, which the next build still satisfies.
   Getting past Gatekeeper somewhere else would take a certificate Apple issued, and that is
-  a different question from this one. `minimumSystemVersion` is Tauri's own floor rather
-  than the bundler's default, which is older than anything this stack runs on.
+  a different question from this one. A release is signed by a certificate its own build
+  made, which is why macOS asks about an updated build again: no key is kept anywhere, and
+  one in the repository's secrets is what would buy that. `minimumSystemVersion` is Tauri's
+  own floor rather than the bundler's default, which is older than anything this stack runs
+  on.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.
