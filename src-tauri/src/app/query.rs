@@ -35,8 +35,14 @@ impl App {
 
         let started = Instant::now();
         let result = session.execute(sql, ROW_LIMIT, &cancel).await;
-        self.record_run(connection_id, sql, started.elapsed(), &result)
-            .await;
+        self.record_run(
+            connection_id,
+            sql,
+            started.elapsed(),
+            &result,
+            crate::db::history::Source::Reader,
+        )
+        .await;
         result
     }
 

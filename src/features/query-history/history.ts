@@ -37,6 +37,7 @@ if (import.meta.vitest) {
     duration_ms: 1,
     row_count: 1,
     error: null,
+    source: "reader",
   });
 
   describe("recentQueries", () => {

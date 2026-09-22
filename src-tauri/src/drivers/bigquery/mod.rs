@@ -4,6 +4,9 @@ mod value;
 
 use std::time::{Duration, Instant};
 
+use gcp_bigquery_client::model::job::Job;
+use gcp_bigquery_client::model::job_configuration::JobConfiguration;
+use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
 use gcp_bigquery_client::model::query_request::QueryRequest;
 use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
@@ -59,6 +62,48 @@ impl BigQuerySession {
                     .map_err(|e| AppError::Database(format!("BigQuery refused the key: {e}")))
             })
             .await
+    }
+
+    /// What BigQuery says this statement is, without running it. A dry run is
+    /// a parse and a plan and nothing else, so the answer is BigQuery's own
+    /// — which matters, because BigQuery is a dialect this app has no parser
+    /// for and there is no read-only connection to hold a caller to.
+    pub async fn statement_kind(
+        &self,
+        sql: &str,
+        cancel: &CancellationToken,
+    ) -> Result<String, AppError> {
+        let client = tokio::select! {
+            client = self.client() => client?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+
+        let mut asking = Job::default();
+        let mut configuration = JobConfiguration {
+            dry_run: Some(true),
+            ..JobConfiguration::default()
+        };
+        let mut query = JobConfigurationQuery {
+            query: sql.to_string(),
+            ..JobConfigurationQuery::default()
+        };
+        query.use_legacy_sql = Some(false);
+        configuration.query = Some(query);
+        asking.configuration = Some(configuration);
+
+        let planned = tokio::select! {
+            planned = client.job().insert(&self.project_id, asking) => planned,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+        let planned = planned.map_err(|e| AppError::Database(format!("BigQuery refused: {e}")))?;
+
+        planned
+            .statistics
+            .and_then(|statistics| statistics.query)
+            .and_then(|query| query.statement_type)
+            .ok_or_else(|| {
+                AppError::Database("BigQuery did not say what the statement is".to_string())
+            })
     }
 
     /// A statement is a job of its own, so nothing is carried over from the

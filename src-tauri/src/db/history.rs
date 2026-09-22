@@ -21,6 +21,34 @@ pub struct HistoryEntry {
     pub duration_ms: u32,
     pub row_count: Option<u32>,
     pub error: Option<String>,
+    pub source: Source,
+}
+
+/// Who ran it. A statement an agent was asked for is still a statement that
+/// ran against the reader's database, and which of them it was is what makes
+/// the log worth keeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum Source {
+    Reader,
+    Agent,
+}
+
+impl Source {
+    fn written(self) -> &'static str {
+        match self {
+            Source::Reader => "reader",
+            Source::Agent => "agent",
+        }
+    }
+
+    fn read(written: &str) -> Self {
+        match written {
+            "agent" => Source::Agent,
+            _ => Source::Reader,
+        }
+    }
 }
 
 /// What a finished run leaves behind, whatever became of it.
@@ -30,19 +58,21 @@ pub struct QueryRun<'a> {
     pub duration_ms: u32,
     pub row_count: Option<u32>,
     pub error: Option<String>,
+    pub source: Source,
 }
 
 pub async fn record(pool: &SqlitePool, run: &QueryRun<'_>) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO query_history (connection_id, sql, duration_ms, row_count, error)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO query_history (connection_id, sql, duration_ms, row_count, error, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(run.connection_id)
     .bind(run.sql)
     .bind(run.duration_ms)
     .bind(run.row_count)
     .bind(run.error.as_deref())
+    .bind(run.source.written())
     .execute(&mut *tx)
     .await?;
     prune(&mut *tx, run.connection_id, KEEP).await?;
@@ -76,7 +106,7 @@ pub async fn list(
     limit: u32,
 ) -> Result<Vec<HistoryEntry>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, sql, ran_at, duration_ms, row_count, error
+        "SELECT id, sql, ran_at, duration_ms, row_count, error, source
            FROM query_history WHERE connection_id = ?1 ORDER BY id DESC LIMIT ?2",
     )
     .bind(connection_id)
@@ -94,6 +124,7 @@ fn row_to_entry(row: &sqlx::sqlite::SqliteRow) -> Result<HistoryEntry, AppError>
         duration_ms: row.try_get("duration_ms")?,
         row_count: row.try_get("row_count")?,
         error: row.try_get("error")?,
+        source: Source::read(row.try_get::<String, _>("source")?.as_str()),
     })
 }
 
@@ -132,6 +163,7 @@ mod tests {
                 duration_ms: 3,
                 row_count: Some(1),
                 error: None,
+                source: Source::Reader,
             },
         )
         .await
@@ -167,6 +199,7 @@ mod tests {
                 duration_ms: 1,
                 row_count: None,
                 error: Some("syntax error".into()),
+                source: Source::Reader,
             },
         )
         .await

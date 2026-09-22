@@ -1,3 +1,4 @@
+pub mod agent_queries;
 pub mod agents;
 pub mod connections;
 pub mod edit;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
-use crate::drivers::session::{Session, SessionRegistry};
+use crate::drivers::session::{Session, SessionRegistry, Whose};
 use crate::error::AppError;
 use crate::lsp::{LspNotice, LspRegistry};
 use crate::mcp::Listening;
@@ -78,8 +79,12 @@ impl App {
     }
 
     async fn session(&self, id: &str) -> Result<Arc<Session>, AppError> {
+        self.session_for(id, Whose::Reader).await
+    }
+
+    async fn session_for(&self, id: &str, whose: Whose) -> Result<Arc<Session>, AppError> {
         self.sessions
-            .get(id, &self.pool, self.secrets.as_ref())
+            .get(id, whose, &self.pool, self.secrets.as_ref())
             .await
     }
 }

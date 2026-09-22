@@ -11,6 +11,7 @@ const entry = (id: number, sql: string, rest: Partial<HistoryEntry> = {}): Histo
   duration_ms: 4,
   row_count: 1,
   error: null,
+  source: "reader",
   ...rest,
 });
 
@@ -73,5 +74,13 @@ describe("QueryHistoryPalette", () => {
     });
 
     await expect.element(screen.getByText("meta.db is locked")).toBeVisible();
+  });
+  it("marks a run an agent asked for, and leaves the reader's unmarked", async () => {
+    const { screen } = await palette({
+      query_history: [entry(1, "SELECT 1"), entry(2, "SELECT 2", { source: "agent" })],
+    });
+
+    await expect.element(screen.getByText("agent")).toBeVisible();
+    expect(screen.getByText("agent").elements()).toHaveLength(1);
   });
 });

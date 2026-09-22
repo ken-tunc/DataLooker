@@ -46,6 +46,19 @@ impl PostgresSession {
         }
     }
 
+    /// The same session, opened so that the server refuses to write through
+    /// it. It is told at connection time rather than asked per statement,
+    /// because a statement that only reads can still call a function that
+    /// writes — and PostgreSQL knows which those are.
+    pub fn reading_only(self) -> Self {
+        Self {
+            options: self
+                .options
+                .options([("default_transaction_read_only", "on")]),
+            ..self
+        }
+    }
+
     /// Reach the server with these credentials on a connection of its own, so
     /// that a session already open cannot make an unreachable server look fine.
     pub async fn test(&self) -> Result<(), AppError> {

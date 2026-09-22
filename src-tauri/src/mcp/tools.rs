@@ -10,8 +10,13 @@ use rmcp::{schemars, tool, tool_handler, tool_router, ServerHandler};
 use serde::{Deserialize, Serialize};
 
 use crate::app::App;
+
 use crate::db::connection::DriverConfig;
 use crate::error::AppError;
+
+/// How much of the log an agent is given at once. It is looking for what was
+/// run lately rather than reading the whole of it.
+const RECENT: u32 = 100;
 
 /// A connection as an agent sees it: what to call it, and what it reaches.
 /// The secret is not here and never is — it is the keychain's.
@@ -31,6 +36,44 @@ pub struct Table {
     pub name: String,
     /// `table`, `view`, `materialized_view` or `foreign_table`.
     pub kind: String,
+}
+
+/// What a statement run for an agent came back with. The rows are whatever
+/// JSON the driver made of the database values, the way the window gets them.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Rows {
+    pub columns: Vec<Column>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    /// True where there were more rows than an agent is given at once.
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Column {
+    pub name: String,
+    /// The type as the database itself names it.
+    pub type_name: String,
+}
+
+/// One statement that ran, whoever ran it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Ran {
+    pub sql: String,
+    pub ran_at: String,
+    pub duration_ms: u32,
+    pub row_count: Option<u32>,
+    pub error: Option<String>,
+    /// `reader` for what the person at the window ran, `agent` for what was
+    /// run through here.
+    pub source: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct Statement {
+    /// The id of a connection, as `list_connections` gives it.
+    pub connection_id: String,
+    /// A statement that reads. Anything else is refused.
+    pub sql: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -81,6 +124,64 @@ impl Agent {
                         name: table.name,
                         kind: format!("{:?}", table.kind).to_lowercase(),
                     })
+                })
+                .collect(),
+        ))
+    }
+
+    #[tool(
+        name = "run_query",
+        description = "Run a statement that reads, and answer with its rows. Anything that would write is refused, and what comes back is capped at a thousand rows."
+    )]
+    async fn run_query(
+        &self,
+        Parameters(Statement { connection_id, sql }): Parameters<Statement>,
+    ) -> Result<Json<Rows>, ErrorData> {
+        let result = self
+            .app
+            .run_agent_query(&connection_id, &sql)
+            .await
+            .map_err(refused)?;
+        Ok(Json(Rows {
+            columns: result
+                .columns
+                .into_iter()
+                .map(|column| Column {
+                    name: column.name,
+                    type_name: column.type_name,
+                })
+                .collect(),
+            rows: result.rows,
+            truncated: result.truncated,
+        }))
+    }
+
+    #[tool(
+        name = "query_history",
+        description = "What has been run against a connection lately, by the person at the window as well as through here. Newest first."
+    )]
+    async fn query_history(
+        &self,
+        Parameters(Of { connection_id }): Parameters<Of>,
+    ) -> Result<Json<Vec<Ran>>, ErrorData> {
+        let entries = self
+            .app
+            .agent_query_history(&connection_id, RECENT)
+            .await
+            .map_err(refused)?;
+        Ok(Json(
+            entries
+                .into_iter()
+                .map(|entry| Ran {
+                    sql: entry.sql,
+                    ran_at: entry.ran_at,
+                    duration_ms: entry.duration_ms,
+                    row_count: entry.row_count,
+                    error: entry.error,
+                    source: match entry.source {
+                        crate::db::history::Source::Reader => "reader".to_string(),
+                        crate::db::history::Source::Agent => "agent".to_string(),
+                    },
                 })
                 .collect(),
         ))
