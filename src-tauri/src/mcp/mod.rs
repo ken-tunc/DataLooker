@@ -418,6 +418,7 @@ mod tests {
             .collect();
         assert!(names.contains(&"list_connections"), "{names:?}");
         assert!(names.contains(&"list_tables"), "{names:?}");
+        assert!(names.contains(&"describe_table"), "{names:?}");
         assert!(names.contains(&"run_query"), "{names:?}");
         assert!(names.contains(&"query_history"), "{names:?}");
 

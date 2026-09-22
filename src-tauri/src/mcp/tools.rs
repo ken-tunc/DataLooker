@@ -68,6 +68,24 @@ pub struct Ran {
     pub source: String,
 }
 
+/// A column of a table, as the database describes it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Held {
+    pub name: String,
+    /// The type as the database itself names it.
+    pub data_type: String,
+    pub nullable: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct Named {
+    /// The id of a connection, as `list_connections` gives it.
+    pub connection_id: String,
+    /// The schema the table is in — a dataset, on BigQuery.
+    pub schema: String,
+    pub table: String,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Statement {
     /// The id of a connection, as `list_connections` gives it.
@@ -124,6 +142,35 @@ impl Agent {
                         name: table.name,
                         kind: format!("{:?}", table.kind).to_lowercase(),
                     })
+                })
+                .collect(),
+        ))
+    }
+
+    #[tool(
+        name = "describe_table",
+        description = "What one table holds: its columns, their types and whether each may be null. Ask for this before writing a statement about a table."
+    )]
+    async fn describe_table(
+        &self,
+        Parameters(Named {
+            connection_id,
+            schema,
+            table,
+        }): Parameters<Named>,
+    ) -> Result<Json<Vec<Held>>, ErrorData> {
+        let columns = self
+            .app
+            .table_columns(&connection_id, &schema, &table)
+            .await
+            .map_err(refused)?;
+        Ok(Json(
+            columns
+                .into_iter()
+                .map(|column| Held {
+                    name: column.name,
+                    data_type: column.data_type,
+                    nullable: column.nullable,
                 })
                 .collect(),
         ))

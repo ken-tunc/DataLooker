@@ -21,7 +21,9 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > completion reads as your own `gcloud` credentials rather than as the
 > connection's service account. Your own agents can be let in over MCP, on this
 > machine and behind a token, to see which connections there are, what they
-> hold, and to run statements that read — logged beside your own, and marked.
+> hold, what a table holds, and to run statements that read — logged beside your
+> own, and marked. They never write: that is not something DataLooker does on an
+> agent's behalf.
 
 ## Prerequisites
 
