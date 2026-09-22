@@ -34,6 +34,9 @@ const ANSWER_MS = 5_000;
 /** What the protocol calls a request for a method the receiver does not have. */
 const NO_SUCH_METHOD = -32601;
 
+/** A JSON-RPC message, which is an object of whatever the method asks for. */
+type Message = Record<string, unknown>;
+
 const clients = new Map<string, LanguageClient>();
 
 /**
@@ -50,10 +53,11 @@ export function languageClientFor(connectionId: string): LanguageClient {
 }
 
 function create(connectionId: string): LanguageClient {
-  /** Every document of this connection, as it now stands, and whether the
-   * server that is up has been told about it. Kept whether or not there is a
-   * server: it is what a server is told when one starts. */
-  const documents = new Map<string, { text: string; version: number; told: boolean }>();
+  /** Every document of this connection as it now stands, with the version the
+   * server that is up has been told about — zero for one it has never heard
+   * of. Kept whether or not there is a server: it is what a server is told
+   * when one starts. */
+  const documents = new Map<string, { text: string; version: number; told: number }>();
   const waiting = new Map<number, (result: unknown) => void>();
   let nextId = 1;
   /** The one attempt to start a server, or nothing before the first ask and
@@ -66,9 +70,10 @@ function create(connectionId: string): LanguageClient {
    * document, or two changes the wrong way round. */
   let queue: Promise<unknown> = Promise.resolve();
 
-  // Listening before a server is asked for. It is a subscription this cannot
-  // await, and what makes that safe is that a language server says nothing
-  // until it is asked something.
+  /** Which server is being talked to, so that a message built for the one
+   * before it can be dropped rather than sent to its replacement. */
+  let generation = 0;
+
   // Nothing unsubscribes: a client lives as long as the window it was made in,
   // and the connection it belongs to outlives any one server.
   subscribe("lsp:message", (message) => {
@@ -88,12 +93,13 @@ function create(connectionId: string): LanguageClient {
 
     // A server asking the editor something. Nothing here answers one, and a
     // request nobody answers is a server waiting, so it is refused.
-    if (typeof message.method === "string" && message.id !== undefined) {
-      void send({
+    const { method, id } = message;
+    if (typeof method === "string" && id !== undefined) {
+      void send(() => ({
         jsonrpc: "2.0",
-        id: message.id,
-        error: { code: NO_SUCH_METHOD, message: `${message.method} is not answered here` },
-      });
+        id,
+        error: { code: NO_SUCH_METHOD, message: `${method} is not answered here` },
+      }));
       return;
     }
     if (typeof message.id !== "number") return;
@@ -111,10 +117,12 @@ function create(connectionId: string): LanguageClient {
    * asked of it starts a server and tells that one about them.
    */
   function ended() {
+    if (starting === null) return;
+    generation += 1;
+    starting = null;
     for (const answer of waiting.values()) answer(null);
     waiting.clear();
-    for (const [uri, document] of documents) documents.set(uri, { ...document, told: false });
-    starting = null;
+    for (const [uri, document] of documents) documents.set(uri, { ...document, told: 0 });
   }
 
   /** Whether there is a server, starting one if nobody has yet. */
@@ -128,43 +136,61 @@ function create(connectionId: string): LanguageClient {
     return starting;
   }
 
-  function deliver(message: unknown): Promise<boolean> {
+  function deliver(message: Message): Promise<boolean> {
     return sendToLanguageServer(connectionId, JSON.stringify(message)).then(
       () => true,
-      () => false,
+      // The server this was for is not there. Its ending may be on its way as
+      // an event or may have been missed, and either way what is true now is
+      // that the next thing asked for starts a server.
+      () => {
+        ended();
+        return false;
+      },
     );
   }
 
-  /** One message, once there is a server and once every message before it has
-   * gone. */
-  function send(message: unknown): Promise<boolean> {
-    const sent = queue.then(async () => ((await ready()) ? deliver(message) : false));
+  /**
+   * One message, once there is a server and once every message before it has
+   * gone. What to send is decided when its turn comes rather than when it is
+   * asked for: a server can end while a message is waiting, and what was true
+   * of the document then is not what the next server needs to hear. `null` is
+   * a message there is no longer anything to say.
+   */
+  function send(build: () => Message | null): Promise<boolean> {
+    const sent = queue.then(async () => {
+      if (!(await ready())) return false;
+      const message = build();
+      return message === null ? false : deliver(message);
+    });
     queue = sent;
     return sent;
   }
 
   /** Say how a document stands: that it exists, or that it has changed. */
   function tell(uri: string): Promise<boolean> {
-    const document = documents.get(uri);
-    if (!document) return Promise.resolve(false);
-    documents.set(uri, { ...document, told: true });
-    const { text, version } = document;
-    return send(
-      document.told
+    return send(() => {
+      const document = documents.get(uri);
+      // Closed while it waited, or already told to this server in the state it
+      // is in — a second message would say the same thing twice.
+      if (!document || document.told === document.version) return null;
+
+      const { text, version, told } = document;
+      documents.set(uri, { ...document, told: version });
+      return told === 0
         ? {
+            jsonrpc: "2.0",
+            method: "textDocument/didOpen",
+            params: { textDocument: { uri, languageId: "sql", version, text } },
+          }
+        : {
             jsonrpc: "2.0",
             method: "textDocument/didChange",
             // The whole text every time: what the server said it wanted is
             // full synchronization, which is also the only kind that cannot
             // drift from what the editor holds.
             params: { textDocument: { uri, version }, contentChanges: [{ text }] },
-          }
-        : {
-            jsonrpc: "2.0",
-            method: "textDocument/didOpen",
-            params: { textDocument: { uri, languageId: "sql", version, text } },
-          },
-    );
+          };
+    });
   }
 
   const client: LanguageClient = {
@@ -173,7 +199,7 @@ function create(connectionId: string): LanguageClient {
       documents.set(uri, {
         text,
         version: (known?.version ?? 0) + 1,
-        told: known?.told ?? false,
+        told: known?.told ?? 0,
       });
       // Nothing is listening yet, and opening a tab is no reason to start a
       // server: sqls reads the whole schema on its way up, and a reader who
@@ -186,20 +212,29 @@ function create(connectionId: string): LanguageClient {
       const document = documents.get(uri);
       if (!document) return;
       documents.delete(uri);
-      if (!document.told) return;
-      void send({
-        jsonrpc: "2.0",
-        method: "textDocument/didClose",
-        params: { textDocument: { uri } },
-      });
+      if (document.told === 0) return;
+      // Only the server that was told about it has anything to forget, and
+      // only while it is still the server.
+      const its = generation;
+      void send(() =>
+        its === generation
+          ? {
+              jsonrpc: "2.0",
+              method: "textDocument/didClose",
+              params: { textDocument: { uri } },
+            }
+          : null,
+      );
     },
 
     async completions(uri, at) {
       // What a server is for, and so what starts one.
       if (!(await ready())) return [];
-      // Every document it has not heard of, which after a server has ended is
-      // all of them.
-      for (const [known, document] of documents) if (!document.told) void tell(known);
+      // Every document that is not as the server last heard it, which after a
+      // server has ended is all of them.
+      for (const [known, document] of documents) {
+        if (document.told !== document.version) void tell(known);
+      }
 
       const id = nextId++;
       let answer: (result: unknown) => void = () => {};
@@ -208,12 +243,12 @@ function create(connectionId: string): LanguageClient {
         waiting.set(id, resolve);
       });
 
-      const sent = await send({
+      const sent = await send(() => ({
         jsonrpc: "2.0",
         id,
         method: "textDocument/completion",
         params: { textDocument: { uri }, position: at },
-      });
+      }));
       if (!sent) {
         waiting.delete(id);
         return [];

@@ -283,4 +283,47 @@ describe("SqlEditor completion", () => {
       2,
     );
   });
+  it("says nothing to a new server about a change meant for the one before", async () => {
+    let ipc: Ipc | undefined;
+    let holding = false;
+    const held: (() => void)[] = [];
+    const sent: string[] = [];
+    const replies = {
+      check_syntax: [],
+      start_language_server: {},
+      send_to_language_server: (args: Record<string, unknown>) => {
+        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+        sent.push(asked.method);
+        if (asked.method === "textDocument/completion") {
+          ipc?.emit("lsp:message", {
+            connection_id: args.connectionId as string,
+            payload: JSON.stringify({ jsonrpc: "2.0", id: asked.id, result: { items: [] } }),
+          });
+        }
+        // A server that has stopped reading, so that what follows waits.
+        return holding ? new Promise((resolve) => held.push(() => resolve(null))) : null;
+      },
+    };
+
+    const made = await editor(replies, "SELECT * FROM");
+    ipc = made.ipc;
+    await typing(" ord");
+    await vi.waitFor(() => expect(sent).toContain("textDocument/completion"));
+
+    holding = true;
+    await typing("e");
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    sent.length = 0;
+    // Waiting behind the one on the wire.
+    await typing("r");
+
+    made.ipc.emit("lsp:exit", { connection_id: made.connectionId });
+    holding = false;
+    for (const release of held) release();
+
+    // What was waiting was a change to a document this server has never heard
+    // of, so what it is told is that the document exists.
+    await vi.waitFor(() => expect(sent).toContain("textDocument/didOpen"));
+    expect(sent).not.toContain("textDocument/didChange");
+  });
 });
