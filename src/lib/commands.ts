@@ -92,6 +92,23 @@ export function stopConnectionCommand(connectionId: string): Promise<void> {
 }
 
 /** The connections whose command is running right now. */
+/**
+ * Start the connection's language server, answering with what it says it can
+ * do — which nothing here reads yet, beyond it having answered at all.
+ */
+export function startLanguageServer(connectionId: string): Promise<unknown> {
+  return invoke<unknown>("start_language_server", { connectionId });
+}
+
+/** One JSON-RPC message, as the text the server is handed. */
+export function sendToLanguageServer(connectionId: string, message: string): Promise<void> {
+  return invoke<void>("send_to_language_server", { connectionId, message });
+}
+
+export function stopLanguageServer(connectionId: string): Promise<void> {
+  return invoke<void>("stop_language_server", { connectionId });
+}
+
 export function runningConnectionCommands(): Promise<string[]> {
   return invoke<string[]>("running_connection_commands");
 }

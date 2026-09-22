@@ -27,6 +27,7 @@ export function Workspace({ connectionId, tabs, onFindTable }: Props) {
           <QueryTabPane
             key={tab.id}
             connectionId={connectionId}
+            tabId={tab.id}
             sql={tab.sql}
             hidden={tab.id !== state.activeId}
             onSqlChange={(sql) => tabs.writeSql(connectionId, tab.id, sql)}

@@ -16,7 +16,11 @@ import "monaco-editor/features/linesOperations/register.js";
 import "monaco-editor/features/multicursor/register.js";
 import "monaco-editor/features/smartSelect/register.js";
 import "monaco-editor/features/snippet/register.js";
-import "monaco-editor/features/suggest/register.js";
+// The suggestion widget, and the keys that walk it. The feature entry called
+// `suggest` registers the inline kind — the ghost text — and nothing else, so
+// the widget is not in the feature split at all and the contribution it lives
+// in is imported directly.
+import "monaco-editor/editor/contrib/suggest/browser/suggestController.js";
 import "monaco-editor/features/tokenization/register.js";
 import "monaco-editor/features/wordHighlighter/register.js";
 import "monaco-editor/features/wordOperations/register.js";
@@ -30,6 +34,7 @@ export {
   KeyCode,
   KeyMod,
   MarkerSeverity,
+  Uri,
   editor,
   languages,
 } from "monaco-editor/editor/editor.api.js";
