@@ -61,7 +61,13 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   }
 
   return (
-    <div ref={strip} role="tablist" className="tabs tabs-lift border-base-300 border-b pt-1 pl-1">
+    <div
+      ref={strip}
+      role="tablist"
+      // A table tab holds a strip of its own, for the two ways of reading it.
+      aria-label="Open tabs"
+      className="tabs tabs-lift border-base-300 border-b pt-1 pl-1"
+    >
       {state.tabs.map((tab) => (
         // Only the active tab is in the tab order; the arrows move between
         // them, and Delete closes the one in focus — ARIA makes whatever sits
