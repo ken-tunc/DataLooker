@@ -84,22 +84,34 @@ function create(connectionId: string): LanguageClient {
   });
 
   function received({ payload }: LspMessage) {
-    let message: Record<string, unknown>;
+    let said: unknown;
     try {
-      message = JSON.parse(payload) as Record<string, unknown>;
+      said = JSON.parse(payload);
     } catch {
       return;
     }
+    // Valid JSON that is not a message: `null` is what a server that has lost
+    // its place sends, and reading a field off it would throw where nobody is
+    // listening for one.
+    if (said === null || typeof said !== "object" || Array.isArray(said)) return;
+    const message = said as Message;
 
     // A server asking the editor something. Nothing here answers one, and a
     // request nobody answers is a server waiting, so it is refused.
     const { method, id } = message;
     if (typeof method === "string" && id !== undefined) {
-      void send(() => ({
-        jsonrpc: "2.0",
-        id,
-        error: { code: NO_SUCH_METHOD, message: `${method} is not answered here` },
-      }));
+      // Whoever asked is the only one the answer means anything to: an id is
+      // the asking server's, and the next one may be using it for its own.
+      const its = generation;
+      void send(() =>
+        its === generation
+          ? {
+              jsonrpc: "2.0",
+              id,
+              error: { code: NO_SUCH_METHOD, message: `${method} is not answered here` },
+            }
+          : null,
+      );
       return;
     }
     if (typeof message.id !== "number") return;
