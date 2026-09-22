@@ -164,9 +164,11 @@ impl LspSession {
     /// transaction of the reader's, nothing written down — so the protocol's
     /// parting words would buy a wait and nothing else.
     pub fn stop(&self) {
-        if let Some(child) = self.child.lock().unwrap().as_mut() {
-            let _ = child.start_kill();
-        }
+        // Letting go of the child is what kills it — it was spawned to be
+        // killed on drop, and reaped in the background from there. Stopping
+        // stays synchronous because the app on its way out stops every server
+        // from outside any runtime, where spawning anything would panic.
+        drop(self.child.lock().unwrap().take());
     }
 
     #[cfg(test)]

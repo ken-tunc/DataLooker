@@ -21,7 +21,7 @@ impl App {
         // Read before the starting begins: saving or deleting the connection
         // while a server is on its way up leaves that server holding
         // credentials the reader has replaced.
-        let stops = self.servers.stops(connection_id);
+        let stops = self.servers.before_starting(connection_id);
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;

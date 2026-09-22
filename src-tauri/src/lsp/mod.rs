@@ -31,9 +31,17 @@ impl LspRegistry {
     }
 
     /// How often this connection's server has been stopped, which the caller
-    /// reads before starting one and hands back to `insert`.
-    pub fn stops(&self, connection_id: &str) -> u64 {
-        self.0.lock().unwrap().stops(connection_id)
+    /// reads before starting one and hands back to `insert`. Asking makes the
+    /// connection one that stopping everything counts: a start that has not
+    /// registered yet is still a start to refuse afterwards.
+    pub fn before_starting(&self, connection_id: &str) -> u64 {
+        *self
+            .0
+            .lock()
+            .unwrap()
+            .stops
+            .entry(connection_id.to_string())
+            .or_default()
     }
 
     /// Take the session in, and answer with the server the connection has —
@@ -78,14 +86,14 @@ impl LspRegistry {
         }
     }
 
+    /// Take every server out at once, for whoever is ending all of them. Every
+    /// start counts as stopped, registered or not: one still shaking hands has
+    /// nowhere to be registered once this has been done.
     pub fn take_all(&self) -> Vec<Arc<LspSession>> {
         let mut registry = self.0.lock().unwrap();
         let taken: Vec<_> = registry.running.drain().map(|(_, s)| s).collect();
-        for session in &taken {
-            *registry
-                .stops
-                .entry(session.connection_id.clone())
-                .or_default() += 1;
+        for stops in registry.stops.values_mut() {
+            *stops += 1;
         }
         taken
     }
@@ -105,7 +113,7 @@ mod tests {
     fn one_server_to_a_connection() {
         let registry = LspRegistry::default();
         let first = LspSession::for_registry_test("c1");
-        let stops = registry.stops("c1");
+        let stops = registry.before_starting("c1");
 
         assert!(registry
             .insert(Arc::clone(&first), stops)
@@ -120,7 +128,7 @@ mod tests {
     #[test]
     fn a_server_that_was_stopped_while_starting_is_not_taken_in() {
         let registry = LspRegistry::default();
-        let stops = registry.stops("c1");
+        let stops = registry.before_starting("c1");
         // What a save or a delete does: the server is stopped, and what it was
         // told about the connection stops being true.
         registry.remove("c1");
@@ -135,10 +143,10 @@ mod tests {
     fn a_server_that_was_replaced_neither_evicts_nor_speaks_for_its_replacement() {
         let registry = LspRegistry::default();
         let first = LspSession::for_registry_test("c1");
-        registry.insert(Arc::clone(&first), registry.stops("c1"));
+        registry.insert(Arc::clone(&first), registry.before_starting("c1"));
         registry.remove("c1");
         let second = LspSession::for_registry_test("c1");
-        registry.insert(Arc::clone(&second), registry.stops("c1"));
+        registry.insert(Arc::clone(&second), registry.before_starting("c1"));
 
         assert!(!registry.remove_session("c1", &first.id));
         assert!(registry.get("c1").is_some());
@@ -149,7 +157,7 @@ mod tests {
     fn a_connection_whose_server_was_taken_out_is_left_without_one() {
         let registry = LspRegistry::default();
         let session = LspSession::for_registry_test("c1");
-        registry.insert(Arc::clone(&session), registry.stops("c1"));
+        registry.insert(Arc::clone(&session), registry.before_starting("c1"));
         registry.remove("c1");
 
         // The reader stopped it, and the ending is still theirs to hear.
@@ -159,14 +167,23 @@ mod tests {
     #[test]
     fn taking_them_all_leaves_none_and_refuses_what_was_starting() {
         let registry = LspRegistry::default();
-        let stops = registry.stops("c1");
+        let stops = registry.before_starting("c1");
         registry.insert(LspSession::for_registry_test("c1"), stops);
-        registry.insert(LspSession::for_registry_test("c2"), registry.stops("c2"));
+        registry.insert(
+            LspSession::for_registry_test("c2"),
+            registry.before_starting("c2"),
+        );
+        // Started, registered nowhere yet, and on its way to a registry that
+        // is about to be emptied.
+        let starting = registry.before_starting("c3");
 
         assert_eq!(registry.take_all().len(), 2);
         assert!(registry.get("c1").is_none());
         assert!(registry
             .insert(LspSession::for_registry_test("c1"), stops)
+            .is_none());
+        assert!(registry
+            .insert(LspSession::for_registry_test("c3"), starting)
             .is_none());
     }
 }
