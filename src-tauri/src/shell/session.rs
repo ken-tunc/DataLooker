@@ -248,7 +248,7 @@ impl GroupKill {
         }
     }
 
-    fn disarm(&mut self) {
+    pub fn disarm(&mut self) {
         self.0 = None;
     }
 }

@@ -61,7 +61,10 @@ pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
     let child = building
         .spawn()
         .map_err(|e| AppError::Shell(format!("{}: {e}", go.display())))?;
-    let group = GroupKill(child.id().map(|pid| pid as i32));
+    // Armed until the build has been reaped: a group with no members left is
+    // a number the system may hand to someone else, and this guard kills a
+    // group when it is dropped.
+    let mut group = GroupKill(child.id().map(|pid| pid as i32));
 
     let built = tokio::select! {
         finished = child.wait_with_output() => {
@@ -69,9 +72,11 @@ pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
         }
         () = tokio::time::sleep(BUILD) => {
             group.now();
+            group.disarm();
             return Err(AppError::Timeout);
         }
     };
+    group.disarm();
 
     if !built.status.success() {
         return Err(AppError::Shell(format!(
