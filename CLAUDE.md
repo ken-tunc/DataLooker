@@ -362,8 +362,10 @@ axum — hyper is already in the tree and axum is not. One request, one answer:
 nothing here streams, and a session to resume would be a session to keep. The
 token and the path are checked before the service sees a request at all.
 
-An agent may read and nothing else, and what holds it to that is the database
-rather than anything here reading the statement. Its PostgreSQL statement runs
+An agent may read and nothing else. That is a decision rather than a stage:
+writing is not something this app does on an agent's behalf, whatever the
+database would allow the account it connects as to do. What holds it to that is
+the database rather than anything here reading the statement. Its PostgreSQL statement runs
 in a transaction that began read-only, which covers a function called from a
 `SELECT` as well as the `SELECT` itself — and which the statement cannot undo,
 where opening the session read-only only set a default that
@@ -383,6 +385,10 @@ that deadline: what the statement left on the wire is still there.
 
 Every run is logged where the reader's own runs are, with who ran it, and the
 ⌘Y palette marks the ones that were not theirs.
+
+The tools are the ones an agent needs to write a statement and see what came of
+it: which connections there are, what they hold, what one table holds, running
+a statement, and the log.
 
 ## Vim keybindings
 
