@@ -441,8 +441,10 @@ Monaco in the page rather than two.
 - ⌘O and ⌘Y are the same component (`components/Palette.tsx`). A palette is the modal
   list, the query field and the keys that walk it; what fills it and what an option looks
   like belong to whoever opens it.
-- The `.app` is signed with a certificate the reader's own machine makes
-  (`scripts/make-signing-identity.sh`), and nothing trusts it. That is not what it is for:
+- A build signs the `.app` when `APPLE_SIGNING_IDENTITY` names an identity, which is how
+  the certificate `scripts/make-signing-identity.sh` makes is used — it is the machine's
+  rather than the repository's, so no configuration file names it. Nothing trusts that
+  certificate, and that is not what it is for:
   macOS keys the keychain items an app may read and the folders it may reach to the app's
   signature, and the one a linker leaves is a hash of the binary, so every build is a
   different app to them and every build is asked about again. A certificate makes the
