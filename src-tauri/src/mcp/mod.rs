@@ -36,17 +36,20 @@ const PATH: &str = "/mcp";
 /// nobody is served through — so there is a number of them, and no more.
 const AT_ONCE: usize = 32;
 
-/// How long a connection may take to say what it wants — headers and body
-/// both. Opening one and holding it silent is the cheapest way to take the
-/// ones above, and a body that arrives a byte at a time is the same thing
-/// said more slowly. What the app then takes to answer is not on this clock:
-/// reading a schema can be slow and still be work.
+/// How long either half of a request may take to arrive. Opening a connection
+/// and holding it silent is the cheapest way to take one of the places above,
+/// and a body that arrives a byte at a time is the same thing said more
+/// slowly — so the headers are on a clock and so is the body. It is half
+/// because hyper reads the one and this code reads the other, and neither can
+/// see the other's clock; a request is therefore at most twice this in the
+/// saying. The clock is on the saying alone: what the app takes to answer is
+/// not on it, since reading a schema can be slow and still be work.
 #[cfg(not(test))]
-const A_REQUEST: Duration = Duration::from_secs(10);
+const HALF_A_REQUEST: Duration = Duration::from_secs(5);
 /// Shorter where it is being watched: a test of a deadline should not spend
 /// the deadline. What is being tested is that it arrives, not how long it is.
 #[cfg(test)]
-const A_REQUEST: Duration = Duration::from_millis(300);
+const HALF_A_REQUEST: Duration = Duration::from_millis(150);
 
 /// The most an agent may say in one request. A tool call is a line of JSON.
 const MOST: usize = 1024 * 1024;
@@ -127,7 +130,7 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
                 // no clock of its own.
                 http.http1()
                     .timer(TokioTimer::new())
-                    .header_read_timeout(A_REQUEST);
+                    .header_read_timeout(HALF_A_REQUEST);
                 let served = http.serve_connection(
                     TokioIo::new(stream),
                     service_fn(move |request| {
@@ -191,7 +194,7 @@ fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
 // the half that is not taken.
 async fn said(request: Request<Incoming>) -> Result<Request<Full<Bytes>>, Box<Refusal>> {
     let (head, body) = request.into_parts();
-    match tokio::time::timeout(A_REQUEST, Limited::new(body, MOST).collect()).await {
+    match tokio::time::timeout(HALF_A_REQUEST, Limited::new(body, MOST).collect()).await {
         Ok(Ok(body)) => Ok(Request::from_parts(head, Full::new(body.to_bytes()))),
         Ok(Err(_)) => Err(Box::new(refusal(
             StatusCode::PAYLOAD_TOO_LARGE,
