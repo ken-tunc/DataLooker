@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use http::{Request, Response, StatusCode};
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
@@ -36,9 +36,15 @@ const PATH: &str = "/mcp";
 /// nobody is served through — so there is a number of them, and no more.
 const AT_ONCE: usize = 32;
 
-/// How long a connection may take to say what it wants. Opening one and
-/// holding it silent is the cheapest way to take the ones above.
+/// How long a connection may take to say what it wants — headers and body
+/// both. Opening one and holding it silent is the cheapest way to take the
+/// ones above, and a body that arrives a byte at a time is the same thing
+/// said more slowly. What the app then takes to answer is not on this clock:
+/// reading a schema can be slow and still be work.
 const A_REQUEST: Duration = Duration::from_secs(10);
+
+/// The most an agent may say in one request. A tool call is a line of JSON.
+const MOST: usize = 1024 * 1024;
 
 /// A server that is up. Dropping this does not stop it; `stop` does, and so
 /// does the app going away with the runtime it runs on.
@@ -123,9 +129,12 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
                         let mut mcp = mcp.clone();
                         let token = token.clone();
                         async move {
-                            match checked(&request, &token) {
-                                Some(refusal) => Ok::<_, Infallible>(refusal),
-                                None => mcp.call(request).await,
+                            if let Some(refusal) = checked(&request, &token) {
+                                return Ok::<_, Infallible>(refusal);
+                            }
+                            match said(request).await {
+                                Ok(request) => mcp.call(request).await,
+                                Err(refusal) => Ok(*refusal),
                             }
                         }
                     }),
@@ -168,6 +177,26 @@ fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
         ));
     }
     None
+}
+
+/// The whole of what the agent said, or what to answer instead. It is read
+/// here rather than left to the service so that the deadline covers a body
+/// that never finishes arriving.
+// The refusal is boxed because it is the larger half by far, and this is
+// the half that is not taken.
+async fn said(request: Request<Incoming>) -> Result<Request<Full<Bytes>>, Box<Refusal>> {
+    let (head, body) = request.into_parts();
+    match tokio::time::timeout(A_REQUEST, Limited::new(body, MOST).collect()).await {
+        Ok(Ok(body)) => Ok(Request::from_parts(head, Full::new(body.to_bytes()))),
+        Ok(Err(_)) => Err(Box::new(refusal(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "That is more than an agent has to say here.",
+        ))),
+        Err(_) => Err(Box::new(refusal(
+            StatusCode::REQUEST_TIMEOUT,
+            "Say what you want, or let the connection go.",
+        ))),
+    }
 }
 
 fn refusal(status: StatusCode, said: &str) -> Refusal {

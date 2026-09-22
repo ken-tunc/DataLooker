@@ -54,6 +54,10 @@ pub struct App {
     notices: broadcast::Sender<LspNotice>,
     /// The MCP server, while the reader has it open.
     agents: std::sync::Mutex<Option<Listening>>,
+    /// Held for the whole of opening or shutting the door. Two of those at
+    /// once could each stop what the other had just started, and leave a
+    /// server answering that nothing holds.
+    turning: tokio::sync::Mutex<()>,
 }
 
 impl App {
@@ -69,6 +73,7 @@ impl App {
             servers: Arc::new(LspRegistry::default()),
             notices: broadcast::channel(NOTICES_HELD).0,
             agents: std::sync::Mutex::new(None),
+            turning: tokio::sync::Mutex::new(()),
         }
     }
 

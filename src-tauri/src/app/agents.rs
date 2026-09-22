@@ -45,6 +45,7 @@ impl App {
         self: &Arc<Self>,
         enabled: bool,
     ) -> Result<AgentAccess, AppError> {
+        let _turning = self.turning.lock().await;
         let mut access = self.agent_access().await?;
         // Waited for rather than told to stop: the task holds the port until
         // it has let go, and what comes next is asking for that same port.
@@ -138,6 +139,21 @@ mod tests {
         assert_eq!(reopened.port, opened.port);
         assert_eq!(reopened.token, opened.token);
         app.stop_answering_agents();
+    }
+
+    #[tokio::test]
+    async fn opens_once_for_two_that_ask_at_the_same_time() {
+        let app = Arc::new(crate::app::tests::app().await);
+
+        let (first, second) = tokio::join!(app.set_agent_access(true), app.set_agent_access(true));
+        let (first, second) = (first.unwrap(), second.unwrap());
+
+        // One after the other rather than both at once: the second opens the
+        // port the first was on, which is only free because it waited.
+        assert_eq!(first.port, second.port);
+        assert!(app.agent_access().await.unwrap().enabled);
+
+        app.set_agent_access(false).await.unwrap();
     }
 
     #[tokio::test]
