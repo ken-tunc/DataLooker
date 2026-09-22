@@ -16,8 +16,10 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > connection can be made, tested, queried, and its datasets read like any other schema
 > tree, where a table written a day at a time is folded into one row per set of
 > days. A statement completes out of the database it will run against, through
-> a language server — `sqls` — which DataLooker will build with your Go
-> toolchain if you have none.
+> a language server — `sqls` for PostgreSQL, `bqls` for BigQuery — which
+> DataLooker will build with your Go toolchain if you have none. BigQuery
+> completion reads as your own `gcloud` credentials rather than as the
+> connection's service account.
 
 ## Prerequisites
 

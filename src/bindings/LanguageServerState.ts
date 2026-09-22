@@ -5,4 +5,4 @@
  * to know: one it could be, once there is a server to do it with, is the one
  * worth offering to build.
  */
-export type LanguageServerState = { "kind": "ready" } | { "kind": "missing" } | { "kind": "unsupported" } | { "kind": "named", message: string, };
+export type LanguageServerState = { "kind": "ready" } | { "kind": "missing", server: string, } | { "kind": "named", message: string, };

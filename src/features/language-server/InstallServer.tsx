@@ -4,9 +4,9 @@ import { useInstallLanguageServer, useLanguageServerState } from "./hooks";
 
 /**
  * Offers to build the language server a connection would be completed
- * against, and says nothing at all where there is one — or where no server
- * speaks to that database. It is in the editor's own footer because that is
- * where a reader is when they notice that nothing is being suggested.
+ * against, and says nothing at all where there is one. It is in the editor's
+ * own footer because that is where a reader is when they notice that nothing
+ * is being suggested.
  */
 export function InstallServer({ connectionId }: { connectionId: string }) {
   const { show } = useToast();
@@ -18,7 +18,7 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
   if (state.data?.kind === "named") {
     return <span className="text-warning truncate text-xs">{state.data.message}</span>;
   }
-  if (state.data?.kind !== "missing" && !install.isPending) return null;
+  if (state.data?.kind !== "missing") return null;
 
   return (
     <button
@@ -27,7 +27,7 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
       disabled={install.isPending}
       // The build is the reader's toolchain doing it, which is worth saying
       // before they wait a minute for it.
-      title="Completion needs sqls. DataLooker builds it with your Go toolchain."
+      title={`Completion needs ${state.data.server}. DataLooker builds it with your Go toolchain.`}
       onClick={() =>
         install.mutate(undefined, {
           onError: (error) => show(describeError(error), "error"),
@@ -37,10 +37,10 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
       {install.isPending ? (
         <>
           <span className="loading loading-spinner loading-xs" />
-          Building sqls…
+          Building {state.data.server}…
         </>
       ) : (
-        "Install sqls for completion"
+        `Install ${state.data.server} for completion`
       )}
     </button>
   );

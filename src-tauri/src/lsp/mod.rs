@@ -24,10 +24,9 @@ pub use session::{LspExit, LspMessage, LspNotice, LspSession};
 pub enum LanguageServerState {
     /// There is a server to talk to.
     Ready,
-    /// This driver has one, and it is not installed.
-    Missing,
-    /// No server here speaks to this driver's database.
-    Unsupported,
+    /// This connection has one, and it is not installed. Named, because it is
+    /// what the offer to build one is an offer of.
+    Missing { server: String },
     /// The reader named a server themselves and it is not there. Building one
     /// would change nothing: the name they set is what is read first.
     Named { message: String },
