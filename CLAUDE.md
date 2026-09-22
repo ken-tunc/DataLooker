@@ -441,6 +441,15 @@ Monaco in the page rather than two.
 - ⌘O and ⌘Y are the same component (`components/Palette.tsx`). A palette is the modal
   list, the query field and the keys that walk it; what fills it and what an option looks
   like belong to whoever opens it.
+- The `.app` is signed with a certificate the reader's own machine makes
+  (`scripts/make-signing-identity.sh`), and nothing trusts it. That is not what it is for:
+  macOS keys the keychain items an app may read and the folders it may reach to the app's
+  signature, and the one a linker leaves is a hash of the binary, so every build is a
+  different app to them and every build is asked about again. A certificate makes the
+  requirement `identifier and certificate leaf`, which the next build still satisfies.
+  Getting past Gatekeeper somewhere else would take a certificate Apple issued, and that is
+  a different question from this one. `minimumSystemVersion` is Tauri's own floor rather
+  than the bundler's default, which is older than anything this stack runs on.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.
