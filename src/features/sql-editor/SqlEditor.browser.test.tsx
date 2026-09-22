@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import type { SyntaxError } from "../../bindings/SyntaxError";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Ipc, renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
 import SqlEditor from "./SqlEditor";
 
@@ -15,18 +15,35 @@ const slect: SyntaxError = {
 
 async function editor(replies: Record<string, unknown>, sql = "SLECT 1") {
   const ipc = stubIpc(replies);
+  // A model is named after its connection and its tab, and a name Monaco
+  // already holds is one it refuses to make a second model for. A connection
+  // of its own also gives each test a language client of its own, since a
+  // client is made once per connection and kept.
+  const connectionId = crypto.randomUUID();
+  const tabId = crypto.randomUUID();
   const onChange = vi.fn();
   const onJump = vi.fn();
   // The editor fills what it is given, and what a test gives it is nothing
   // unless it says so: a collapsed editor draws no line to click on.
   const screen = await renderApp(
     <div className="h-72">
-      <SqlEditor value={sql} onChange={onChange} onSubmit={() => {}} onJump={onJump} />
+      <SqlEditor
+        connectionId={connectionId}
+        tabId={tabId}
+        value={sql}
+        onChange={onChange}
+        onSubmit={() => {}}
+        onJump={onJump}
+      />
     </div>,
   );
-  const markers = () => monaco.getModelMarkers({ owner: "datalooker.syntax" });
+  const markers = () =>
+    monaco.getModelMarkers({
+      owner: "datalooker.syntax",
+      resource: monaco.getEditors()[0]?.getModel()?.uri,
+    });
   const text = () => monaco.getEditors()[0]?.getValue();
-  return { ipc, screen, markers, onChange, onJump, text };
+  return { ipc, screen, markers, onChange, onJump, text, connectionId };
 }
 
 describe("SqlEditor", () => {
@@ -150,5 +167,163 @@ describe("SqlEditor in vim mode", () => {
     await vim.click();
 
     await vi.waitFor(() => expect(at()).toBe(before));
+  });
+});
+
+/** Type at the end of the statement, which is what asks for a suggestion. */
+async function typing(text: string) {
+  const instance = monaco.getEditors()[0];
+  const model = instance?.getModel();
+  if (!instance || !model) throw new Error("there is no editor to type in");
+  instance.setPosition(model.getFullModelRange().getEndPosition());
+  instance.focus();
+  await userEvent.keyboard(text);
+}
+
+/**
+ * A language server, as far as the window can tell one from the outside: it
+ * takes messages, and it answers a question about a position the way the
+ * backend announces an answer.
+ */
+function server() {
+  let ipc: Ipc | undefined;
+  const sent: string[] = [];
+  const replies = {
+    check_syntax: [],
+    start_language_server: {},
+    send_to_language_server: (args: Record<string, unknown>) => {
+      const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+      sent.push(asked.method);
+      if (asked.method === "textDocument/completion") {
+        ipc?.emit("lsp:message", {
+          connection_id: args.connectionId as string,
+          payload: JSON.stringify({
+            jsonrpc: "2.0",
+            id: asked.id,
+            result: { items: [{ label: "orders", kind: 7, detail: "table" }] },
+          }),
+        });
+      }
+      return null;
+    },
+  };
+  return { replies, sent, listenWith: (made: Ipc) => (ipc = made) };
+}
+
+describe("SqlEditor completion", () => {
+  it("offers what the connection's language server suggests", async () => {
+    const { replies, sent, listenWith } = server();
+    const made = await editor(replies, "SELECT * FROM");
+    listenWith(made.ipc);
+
+    await typing(" ord");
+
+    // The label is drawn in pieces — the part already typed is marked — so
+    // what is read here is the row rather than a run of text.
+    const offered = page.getByRole("option");
+    await expect.element(offered).toBeVisible();
+    expect(offered.element().textContent).toContain("orders");
+    expect(offered.element().textContent).toContain("table");
+
+    // The document was announced before it was asked about, and the statement
+    // went with it.
+    expect(sent[0]).toBe("textDocument/didOpen");
+    expect(made.ipc.sent("start_language_server")).toEqual({ connectionId: made.connectionId });
+  });
+
+  it("asks nobody when there is no server to ask", async () => {
+    const { ipc } = await editor(
+      {
+        check_syntax: [],
+        start_language_server: () => {
+          throw { kind: "NotFound", message: "sqls is not installed" };
+        },
+      },
+      "SELECT * FROM",
+    );
+    await typing(" ord");
+
+    // A server that is not there is asked for once and then left alone: the
+    // editor works without completion rather than trying again per keystroke.
+    await vi.waitFor(() =>
+      expect(ipc.calls.filter((call) => call.command === "start_language_server")).toHaveLength(1),
+    );
+    expect(ipc.calls.map((call) => call.command)).not.toContain("send_to_language_server");
+  });
+  it("starts no server for a tab nothing is asked about", async () => {
+    const { replies } = server();
+    const { ipc } = await editor(replies, "SELECT 1");
+
+    // Opening a tab is not asking for completion, and starting a server reads
+    // the whole schema of the reader's database.
+    await vi.waitFor(() => expect(ipc.calls.map((call) => call.command)).toContain("check_syntax"));
+    expect(ipc.calls.map((call) => call.command)).not.toContain("start_language_server");
+  });
+
+  it("tells the next server about the document when one has ended", async () => {
+    const { replies, sent, listenWith } = server();
+    const made = await editor(replies, "SELECT * FROM");
+    listenWith(made.ipc);
+    await typing(" ord");
+    await expect.element(page.getByRole("option")).toBeVisible();
+
+    // The server dies, and the editor goes on being an editor.
+    made.ipc.emit("lsp:exit", { connection_id: made.connectionId });
+    sent.length = 0;
+    // Away with the list that is up: typing on inside a word it is already
+    // showing filters that list rather than asking again.
+    await userEvent.keyboard("{Escape}");
+    await typing("e");
+
+    // A new server knows nothing about the document, so it is told again
+    // before it is asked anything.
+    await vi.waitFor(() => expect(sent).toContain("textDocument/completion"));
+    expect(sent[0]).toBe("textDocument/didOpen");
+    expect(made.ipc.calls.filter((call) => call.command === "start_language_server")).toHaveLength(
+      2,
+    );
+  });
+  it("says nothing to a new server about a change meant for the one before", async () => {
+    let ipc: Ipc | undefined;
+    let holding = false;
+    const held: (() => void)[] = [];
+    const sent: string[] = [];
+    const replies = {
+      check_syntax: [],
+      start_language_server: {},
+      send_to_language_server: (args: Record<string, unknown>) => {
+        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+        sent.push(asked.method);
+        if (asked.method === "textDocument/completion") {
+          ipc?.emit("lsp:message", {
+            connection_id: args.connectionId as string,
+            payload: JSON.stringify({ jsonrpc: "2.0", id: asked.id, result: { items: [] } }),
+          });
+        }
+        // A server that has stopped reading, so that what follows waits.
+        return holding ? new Promise((resolve) => held.push(() => resolve(null))) : null;
+      },
+    };
+
+    const made = await editor(replies, "SELECT * FROM");
+    ipc = made.ipc;
+    await typing(" ord");
+    await vi.waitFor(() => expect(sent).toContain("textDocument/completion"));
+
+    holding = true;
+    await typing("e");
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    sent.length = 0;
+    // Waiting behind the one on the wire.
+    await typing("r");
+
+    made.ipc.emit("lsp:exit", { connection_id: made.connectionId });
+    holding = false;
+    for (const release of held) release();
+
+    // What was waiting was a change to a document this server has never heard
+    // of, so what it is told is that the document exists.
+    await vi.waitFor(() => expect(sent).toContain("textDocument/didOpen"));
+    expect(sent).not.toContain("textDocument/didChange");
   });
 });

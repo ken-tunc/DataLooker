@@ -252,6 +252,34 @@ outlives it, so the protocol's parting words would buy a wait. Editing or
 deleting a connection stops it too, since it was handed those credentials when
 it started.
 
+In the window, `lib/lsp/client.ts` is the client: one per connection, made when
+something first asks and kept for as long as the window. It holds every
+document of that connection as it now stands, and **a server is started by the
+first completion asked for** — not by a tab opening, since sqls reads the whole
+schema on its way up and a reader who asks nothing of it never needed that
+read. A start that fails is not tried again: there is no completion then, and
+asking per keystroke would only be slower about it.
+
+Because the client outlives any one server, a server that dies is replaced
+under the editors holding it: the documents stay, marked as no longer known,
+and the next server is told about them before it is asked anything. Messages go
+out one at a time — each is its own call, and two in flight could reach the
+server in either order, which for a document means a change arriving before the
+open that made it.
+
+Every SQL tab is a document, named `file:///datalooker/<connection>/<tab>.sql`
+(`features/sql-editor/documents.ts`). Monaco holds completion providers by
+language rather than by editor, so one provider answers for every tab and the
+document's own name is what says whose server to ask. The whole text goes with
+every change, which is the synchronization sqls asks for and the only kind that
+cannot drift from what the editor holds.
+
+`wordBasedSuggestions` is off: what a server says is the only thing offered,
+and Monaco's own suggestions are the words already in the statement. The
+suggestion widget is imported as the contribution it lives in rather than
+through Monaco's feature split, which has an entry named `suggest` that
+registers the inline kind and not the widget.
+
 ## Syntax errors
 
 `app/syntax.rs` marks what PostgreSQL would refuse, using the parser libpg_query carries

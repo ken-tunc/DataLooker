@@ -1,4 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
+import type { LspExit } from "../bindings/LspExit";
+import type { LspMessage } from "../bindings/LspMessage";
 import type { ShellExit } from "../bindings/ShellExit";
 
 /**
@@ -9,6 +11,8 @@ import type { ShellExit } from "../bindings/ShellExit";
  */
 type Events = {
   "shell:exit": ShellExit;
+  "lsp:message": LspMessage;
+  "lsp:exit": LspExit;
 };
 
 /**

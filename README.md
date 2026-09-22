@@ -15,7 +15,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
 > connection can be made, tested, queried, and its datasets read like any other schema
 > tree, where a table written a day at a time is folded into one row per set of
-> days.
+> days. A statement completes out of the database it will run against, through
+> a language server — `sqls` — where one is installed.
 
 ## Prerequisites
 

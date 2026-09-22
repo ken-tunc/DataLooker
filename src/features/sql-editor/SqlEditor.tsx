@@ -2,8 +2,11 @@ import { initVimMode } from "monaco-vim";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
+import { languageClientFor } from "../../lib/lsp/client";
+import { registerCompletion } from "./completion";
+import { documentUri } from "./documents";
 import { identifierAt, type QualifiedName } from "./jump";
-import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE } from "./monaco";
+import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE, Uri } from "./monaco";
 import { useVimMode } from "./vim";
 
 /** Whoever owns a marker can replace it, so the name has to be ours alone. */
@@ -22,6 +25,9 @@ const toMarker = (error: SyntaxError): monaco.IMarkerData => ({
 });
 
 type Props = {
+  /** Whose language server answers for this tab, and which document it is. */
+  connectionId: string;
+  tabId: string;
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -29,7 +35,14 @@ type Props = {
   onJump: (name: QualifiedName) => void;
 };
 
-export default function SqlEditor({ value, onChange, onSubmit, onJump }: Props) {
+export default function SqlEditor({
+  connectionId,
+  tabId,
+  value,
+  onChange,
+  onSubmit,
+  onJump,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const status = useRef<HTMLSpanElement>(null);
   const [vim, setVim] = useVimMode();
@@ -44,15 +57,27 @@ export default function SqlEditor({ value, onChange, onSubmit, onJump }: Props) 
   });
 
   useEffect(() => {
+    registerCompletion();
+    const client = languageClientFor(connectionId);
+    // A model of its own, named after the connection and the tab: what a
+    // language server is told about is documents, and the name is what says
+    // whose server to ask about this one.
+    const uri = Uri.parse(documentUri(connectionId, tabId));
+    const model = monaco.getModel(uri) ?? monaco.createModel(value, SQL_LANGUAGE, uri);
+    client.wrote(uri.toString(), value);
+
     const instance = monaco.create(host.current as HTMLElement, {
-      value,
-      language: SQL_LANGUAGE,
+      model,
       automaticLayout: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       fontSize: 13,
       tabSize: 2,
       renderLineHighlight: "none",
+      // What a language server says is the only thing offered. Monaco's own
+      // suggestions are the words already in the document, which in a
+      // statement are the words the reader just typed.
+      wordBasedSuggestions: "off",
       padding: { top: 8, bottom: 8 },
       // A hover or a suggestion is drawn inside the editor by default, so the
       // one belonging to the first line is cut off by its top edge. This hands
@@ -63,6 +88,7 @@ export default function SqlEditor({ value, onChange, onSubmit, onJump }: Props) 
 
     const changed = instance.onDidChangeModelContent(() => {
       handlers.current.onChange(instance.getValue());
+      client.wrote(uri.toString(), instance.getValue());
     });
     instance.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, () => handlers.current.onSubmit());
 
@@ -87,6 +113,7 @@ export default function SqlEditor({ value, onChange, onSubmit, onJump }: Props) 
     return () => {
       changed.dispose();
       clicked.dispose();
+      client.closed(uri.toString());
       instance.getModel()?.dispose();
       instance.dispose();
       editor.current = null;

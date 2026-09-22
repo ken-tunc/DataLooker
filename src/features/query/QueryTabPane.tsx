@@ -12,6 +12,8 @@ const SqlEditor = lazy(() => import("../sql-editor/SqlEditor"));
 
 type Props = {
   connectionId: string;
+  /** Which document this tab is, where a language server can see it. */
+  tabId: string;
   sql: string;
   onSqlChange: (sql: string) => void;
   hidden: boolean;
@@ -23,6 +25,7 @@ type Props = {
 
 export function QueryTabPane({
   connectionId,
+  tabId,
   sql,
   onSqlChange,
   hidden,
@@ -97,7 +100,14 @@ export function QueryTabPane({
 
       <div className="border-base-300 h-56 shrink-0 overflow-hidden rounded-box border">
         <Suspense fallback={<div className="skeleton h-full w-full" />}>
-          <SqlEditor value={sql} onChange={onSqlChange} onSubmit={submit} onJump={jump} />
+          <SqlEditor
+            connectionId={connectionId}
+            tabId={tabId}
+            value={sql}
+            onChange={onSqlChange}
+            onSubmit={submit}
+            onJump={jump}
+          />
         </Suspense>
       </div>
 
