@@ -41,7 +41,12 @@ const AT_ONCE: usize = 32;
 /// ones above, and a body that arrives a byte at a time is the same thing
 /// said more slowly. What the app then takes to answer is not on this clock:
 /// reading a schema can be slow and still be work.
+#[cfg(not(test))]
 const A_REQUEST: Duration = Duration::from_secs(10);
+/// Shorter where it is being watched: a test of a deadline should not spend
+/// the deadline. What is being tested is that it arrives, not how long it is.
+#[cfg(test)]
+const A_REQUEST: Duration = Duration::from_millis(300);
 
 /// The most an agent may say in one request. A tool call is a line of JSON.
 const MOST: usize = 1024 * 1024;
@@ -335,6 +340,41 @@ mod tests {
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
 
         drop(quiet);
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn lets_go_of_a_request_that_stops_half_way() {
+        let server = answering().await;
+
+        // Headers that promise a body, and then a body that never comes: the
+        // slowest way to hold one of the connections there is room for.
+        let mut trailing = TcpStream::connect(("127.0.0.1", server.port))
+            .await
+            .unwrap();
+        trailing
+            .write_all(
+                format!(
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {TOKEN}\r\n\
+                     Content-Type: application/json\r\nContent-Length: 400\r\n\r\n{{\"jsonrpc\":",
+                    server.port
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+
+        let mut answered = String::new();
+        trailing.read_to_string(&mut answered).await.unwrap();
+        assert!(answered.starts_with("HTTP/1.1 408"), "{answered}");
+        // Ours rather than the server's own idea of a timeout.
+        assert!(answered.contains("Say what you want"), "{answered}");
+
+        // And the connection it was holding is there for an agent that means
+        // to ask something.
+        let hello = greeted(server.port).await;
+        assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
+
         server.stop().await;
     }
 
