@@ -105,9 +105,16 @@ impl PostgresSession {
             conn.execute("BEGIN READ ONLY").await?;
             let result = query::execute(conn, sql, row_limit, started).await;
             // Nothing was written and nothing is kept: the transaction is
-            // here to refuse, not to hold anything together.
-            let _ = conn.execute("ROLLBACK").await;
-            Ok(result?)
+            // here to refuse, not to hold anything together. A transaction
+            // that will not end leaves a connection nobody can say anything
+            // about, so that connection goes rather than being handed on.
+            match (result, conn.execute("ROLLBACK").await) {
+                (result, Ok(_)) => Ok(result?),
+                (result, Err(ending)) => Err(DriverError::Broken(match result {
+                    Ok(_) => format!("the read-only transaction would not end: {ending}"),
+                    Err(e) => format!("{e}, and the transaction would not end: {ending}"),
+                })),
+            }
         })
         .await
     }
