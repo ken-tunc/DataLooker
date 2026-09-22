@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::app::preview::PreviewRequest;
@@ -8,7 +10,7 @@ use crate::error::AppError;
 #[tauri::command]
 pub async fn preview_table(
     request: PreviewRequest,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<TablePage, AppError> {
     app.preview_table(request).await
 }

@@ -8,6 +8,7 @@ import type { Column } from "../bindings/Column";
 import type { SchemaTree } from "../bindings/SchemaTree";
 import type { TableDefinition } from "../bindings/TableDefinition";
 import type { SyntaxError } from "../bindings/SyntaxError";
+import type { AgentAccess } from "../bindings/AgentAccess";
 import type { HistoryEntry } from "../bindings/HistoryEntry";
 import type { LanguageServerState } from "../bindings/LanguageServerState";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
@@ -104,6 +105,16 @@ export function startLanguageServer(connectionId: string): Promise<unknown> {
 /** One JSON-RPC message, as the text the server is handed. */
 export function sendToLanguageServer(connectionId: string, message: string): Promise<void> {
   return invoke<void>("send_to_language_server", { connectionId, message });
+}
+
+/** Whether agents may reach this app, and what they have to present. */
+export function agentAccess(): Promise<AgentAccess> {
+  return invoke<AgentAccess>("agent_access");
+}
+
+/** Open or shut the door, answering with how it now stands. */
+export function setAgentAccess(enabled: boolean): Promise<AgentAccess> {
+  return invoke<AgentAccess>("set_agent_access", { enabled });
 }
 
 /** Whether this connection can be completed against, or could be. */

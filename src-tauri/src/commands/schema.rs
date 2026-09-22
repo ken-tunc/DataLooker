@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::app::App;
@@ -7,7 +9,7 @@ use crate::error::AppError;
 #[tauri::command]
 pub async fn schema_tree(
     connection_id: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<SchemaTree, AppError> {
     app.schema_tree(&connection_id).await
 }
@@ -17,7 +19,7 @@ pub async fn table_columns(
     connection_id: String,
     schema: String,
     table: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<Vec<Column>, AppError> {
     app.table_columns(&connection_id, &schema, &table).await
 }
@@ -27,7 +29,7 @@ pub async fn table_definition(
     connection_id: String,
     schema: String,
     table: String,
-    app: State<'_, App>,
+    app: State<'_, Arc<App>>,
 ) -> Result<TableDefinition, AppError> {
     app.table_definition(&connection_id, &schema, &table).await
 }

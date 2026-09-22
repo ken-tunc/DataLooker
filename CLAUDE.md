@@ -339,6 +339,29 @@ no way to reach one, so it publishes the ending on a broadcast channel and
 `commands/shell.rs` is what turns that into a Tauri event. `lib/events.ts` is to an event
 what `lib/commands.ts` is to a command — the only module that names one.
 
+## Answering agents
+
+The window is one caller of `app::App`; an MCP server is another. `mcp/`
+answers agents over HTTP on the loopback address, behind a token, and every
+tool it offers is a method on `App` rather than a second way of doing the same
+thing — which is what keeps what an agent can do and what a reader can do the
+same set.
+
+It is shut until the reader opens it, because an app answering on a port is an
+app anything on this machine can ask about their databases. What they open is
+kept in meta.db, the token and the port included: an agent configured once
+should not have to be told a new address after every restart, so the port the
+system gives the first time is the port asked for from then on.
+
+The transport is rmcp's streamable HTTP service, hosted on hyper rather than
+axum — hyper is already in the tree and axum is not. One request, one answer:
+nothing here streams, and a session to resume would be a session to keep. The
+token and the path are checked before the service sees a request at all.
+
+Only reading, so far: which connections there are and what they hold. Running a
+statement is the next question, and it is a question about what an agent may
+do rather than about what it can reach.
+
 ## Vim keybindings
 
 A toggle under the editor turns them on, and `features/sql-editor/vim.ts` holds the answer

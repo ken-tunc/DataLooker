@@ -19,7 +19,9 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > a language server — `sqls` for PostgreSQL, `bqls` for BigQuery — which
 > DataLooker will build with your Go toolchain if you have none. BigQuery
 > completion reads as your own `gcloud` credentials rather than as the
-> connection's service account.
+> connection's service account. Your own agents can be let in over MCP, on this
+> machine and behind a token, to see which connections there are and what they
+> hold.
 
 ## Prerequisites
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
+import { AgentAccess } from "../agents/AgentAccess";
 import { CommandButton } from "../connection-command/CommandButton";
 import { describeConnection } from "./driver";
 import { useCommandExits } from "../connection-command/hooks";
@@ -154,6 +155,10 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
           ))}
         </ul>
       </div>
+
+      <footer className="border-base-300 flex items-center justify-end border-t p-2">
+        <AgentAccess />
+      </footer>
 
       {editing && (
         <ConnectionFormDialog
