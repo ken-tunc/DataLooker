@@ -16,6 +16,8 @@ describe("AgentAccess", () => {
   it("says nothing to hand over while it is shut", async () => {
     const { screen } = await agents({ agent_access: shut });
 
+    // The dialog says what it is, rather than being announced as "dialog".
+    await expect.element(screen.getByRole("dialog", { name: "Agents" })).toBeVisible();
     await expect.element(screen.getByText("Answer agents")).toBeVisible();
     expect(screen.getByLabelText("Token", { exact: true }).elements()).toEqual([]);
   });

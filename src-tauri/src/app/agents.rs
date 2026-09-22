@@ -1,14 +1,40 @@
 use std::sync::Arc;
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use crate::app::App;
-use crate::db::agent::{self, AgentAccess};
+use crate::db::agent::{self, Access};
 use crate::error::AppError;
 use crate::mcp;
+
+/// Where the keychain keeps what an agent has to present. Connections are kept
+/// there by their id, which is a uuid, so this name is nobody else's.
+const AGENTS: &str = "agents";
+
+/// How the door stands, which is a row of meta.db and a secret of the
+/// keychain's read together.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct AgentAccess {
+    pub enabled: bool,
+    /// What an agent has to present. Empty until the door has been opened
+    /// once, and shown to the reader so they can hand it to the agent they
+    /// meant to.
+    pub token: String,
+    /// Chosen once and kept.
+    pub port: u16,
+}
 
 impl App {
     /// Whether agents may reach this app, and what they have to present.
     pub async fn agent_access(&self) -> Result<AgentAccess, AppError> {
-        agent::find(&self.pool).await
+        let access = agent::find(&self.pool).await?;
+        Ok(AgentAccess {
+            enabled: access.enabled,
+            token: self.secrets.get(AGENTS)?.unwrap_or_default(),
+            port: access.port,
+        })
     }
 
     /// Open or shut the door, answering with how it now stands. A token is
@@ -19,12 +45,18 @@ impl App {
         self: &Arc<Self>,
         enabled: bool,
     ) -> Result<AgentAccess, AppError> {
-        let mut access = agent::find(&self.pool).await?;
-        self.stop_answering_agents();
+        let mut access = self.agent_access().await?;
+        // Waited for rather than told to stop: the task holds the port until
+        // it has let go, and what comes next is asking for that same port.
+        let listening = self.agents.lock().unwrap().take();
+        if let Some(listening) = listening {
+            listening.stop().await;
+        }
 
         if enabled {
             if access.token.is_empty() {
                 access.token = uuid::Uuid::new_v4().to_string();
+                self.secrets.set(AGENTS, &access.token)?;
             }
             let listening =
                 mcp::listen(Arc::clone(self), access.token.clone(), access.port).await?;
@@ -33,15 +65,27 @@ impl App {
         }
 
         access.enabled = enabled;
-        agent::save(&self.pool, &access).await?;
+        agent::save(
+            &self.pool,
+            Access {
+                enabled,
+                port: access.port,
+            },
+        )
+        .await?;
         Ok(access)
     }
 
     /// Start answering if the reader left it that way. Called once, as the app
-    /// comes up.
+    /// comes up. A door that cannot be opened — the port is someone else's now
+    /// — is recorded as shut, so that what the reader is shown is what is so.
     pub async fn answer_agents_if_open(self: &Arc<Self>) -> Result<(), AppError> {
-        if self.agent_access().await?.enabled {
-            self.set_agent_access(true).await?;
+        if !self.agent_access().await?.enabled {
+            return Ok(());
+        }
+        if let Err(e) = self.set_agent_access(true).await {
+            self.set_agent_access(false).await?;
+            return Err(e);
         }
         Ok(())
     }
@@ -50,7 +94,7 @@ impl App {
     /// app's, and nothing should be left holding it.
     pub fn stop_answering_agents(&self) {
         if let Some(listening) = self.agents.lock().unwrap().take() {
-            listening.stop();
+            listening.cancel();
         }
     }
 }
@@ -74,6 +118,8 @@ mod tests {
         assert_eq!(shut.token, opened.token);
         assert_eq!(shut.port, opened.port);
 
+        // The same port, asked for again at once: the door has to be all the
+        // way shut before it can be opened.
         let reopened = app.set_agent_access(true).await.unwrap();
         assert_eq!(reopened.port, opened.port);
         assert_eq!(reopened.token, opened.token);

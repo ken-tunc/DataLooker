@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use crate::app::agents::AgentAccess;
 use crate::app::App;
-use crate::db::agent::AgentAccess;
 use crate::error::AppError;
 
 #[tauri::command]

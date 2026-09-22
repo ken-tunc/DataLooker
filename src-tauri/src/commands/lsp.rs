@@ -71,7 +71,7 @@ pub fn forward_notices(handle: AppHandle, app: &App) {
                 // nothing here can produce. Every server is stopped, which
                 // reaches the window as each one ending — the state a client
                 // recovers from by starting again.
-                Err(RecvError::Lagged(_)) => handle.state::<App>().stop_all_language_servers(),
+                Err(RecvError::Lagged(_)) => handle.state::<Arc<App>>().stop_all_language_servers(),
                 Err(RecvError::Closed) => break,
             }
         }

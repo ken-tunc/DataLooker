@@ -1,40 +1,31 @@
-//! Whether agents may reach this app, and how. It is one row: the app either
-//! answers them or it does not.
+//! Whether agents may reach this app, and on which port. It is one row: the
+//! app either answers them or it does not. What an agent presents is not here
+//! — that is the keychain's.
 
-use serde::Serialize;
 use sqlx::SqlitePool;
-use ts_rs::TS;
 
 use crate::error::AppError;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
-#[ts(export, export_to = "../../src/bindings/")]
-pub struct AgentAccess {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Access {
     pub enabled: bool,
-    /// What an agent has to present, and therefore a secret. It is shown to
-    /// the reader so that they can hand it to the agent they meant to.
-    pub token: String,
-    /// Chosen once and kept: an agent configured with an address should not
-    /// have to be told a new one after every restart.
     pub port: u16,
 }
 
-pub async fn find(pool: &SqlitePool) -> Result<AgentAccess, AppError> {
-    let row: (bool, String, i64) =
-        sqlx::query_as("SELECT enabled, token, port FROM agent_access WHERE only_row = 1")
+pub async fn find(pool: &SqlitePool) -> Result<Access, AppError> {
+    let row: (bool, i64) =
+        sqlx::query_as("SELECT enabled, port FROM agent_access WHERE only_row = 1")
             .fetch_one(pool)
             .await?;
-    Ok(AgentAccess {
+    Ok(Access {
         enabled: row.0,
-        token: row.1,
-        port: u16::try_from(row.2).unwrap_or_default(),
+        port: u16::try_from(row.1).unwrap_or_default(),
     })
 }
 
-pub async fn save(pool: &SqlitePool, access: &AgentAccess) -> Result<(), AppError> {
-    sqlx::query("UPDATE agent_access SET enabled = ?, token = ?, port = ? WHERE only_row = 1")
+pub async fn save(pool: &SqlitePool, access: Access) -> Result<(), AppError> {
+    sqlx::query("UPDATE agent_access SET enabled = ?, port = ? WHERE only_row = 1")
         .bind(access.enabled)
-        .bind(&access.token)
         .bind(i64::from(access.port))
         .execute(pool)
         .await?;
@@ -52,19 +43,28 @@ mod tests {
         let access = find(&pool).await.unwrap();
 
         assert!(!access.enabled);
-        assert!(access.token.is_empty());
+        assert_eq!(access.port, 0);
     }
 
     #[tokio::test]
-    async fn keeps_what_it_was_opened_with() {
+    async fn keeps_the_port_it_was_opened_on() {
         let pool = open_in_memory().await.unwrap();
-        let opened = AgentAccess {
-            enabled: true,
-            token: "a-secret".to_string(),
-            port: 41234,
-        };
-        save(&pool, &opened).await.unwrap();
+        save(
+            &pool,
+            Access {
+                enabled: true,
+                port: 41234,
+            },
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(find(&pool).await.unwrap(), opened);
+        assert_eq!(
+            find(&pool).await.unwrap(),
+            Access {
+                enabled: true,
+                port: 41234
+            }
+        );
     }
 }

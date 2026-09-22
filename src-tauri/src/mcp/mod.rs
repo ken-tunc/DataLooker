@@ -35,10 +35,22 @@ const PATH: &str = "/mcp";
 pub struct Listening {
     pub port: u16,
     stop: CancellationToken,
+    /// The task holding the socket. It is awaited when the port is wanted
+    /// again: cancelling only says to stop, and until the task has let go the
+    /// port is still taken.
+    serving: tokio::task::JoinHandle<()>,
 }
 
 impl Listening {
-    pub fn stop(&self) {
+    /// Stop, and wait until the port is free.
+    pub async fn stop(self) {
+        self.stop.cancel();
+        let _ = self.serving.await;
+    }
+
+    /// Stop without waiting, for an app on its way out: nothing is going to
+    /// ask for the port after this.
+    pub fn cancel(&self) {
         self.stop.cancel();
     }
 }
@@ -70,7 +82,7 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
     );
 
     let serving = stop.clone();
-    tokio::spawn(async move {
+    let accepting = tokio::spawn(async move {
         loop {
             let accepted = tokio::select! {
                 () = serving.cancelled() => break,
@@ -104,7 +116,11 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
         }
     });
 
-    Ok(Listening { port, stop })
+    Ok(Listening {
+        port,
+        stop,
+        serving: accepting,
+    })
 }
 
 type Refusal = Response<http_body_util::combinators::BoxBody<Bytes, Infallible>>;
@@ -234,7 +250,7 @@ mod tests {
         let hello = greeted(server.port).await;
 
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
-        server.stop();
+        server.stop().await;
     }
 
     #[tokio::test]
@@ -246,7 +262,7 @@ mod tests {
 
         assert_eq!(hello["result"]["protocolVersion"], "2025-06-18");
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
-        server.stop();
+        server.stop().await;
     }
 
     #[tokio::test]
@@ -261,7 +277,7 @@ mod tests {
         .await;
         assert_eq!(status, 401);
 
-        server.stop();
+        server.stop().await;
     }
 
     #[tokio::test]
@@ -287,7 +303,7 @@ mod tests {
         assert!(names.contains(&"list_connections"), "{names:?}");
         assert!(names.contains(&"list_tables"), "{names:?}");
 
-        server.stop();
+        server.stop().await;
     }
 
     #[tokio::test]
@@ -313,6 +329,6 @@ mod tests {
         assert!(said.contains("localhost:5432/shop"), "{said}");
         assert!(!said.contains("opensesame"), "{said}");
 
-        server.stop();
+        server.stop().await;
     }
 }

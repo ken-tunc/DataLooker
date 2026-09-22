@@ -42,9 +42,11 @@ function AgentAccessDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <dialog ref={dialog} className="modal" onClose={onClose}>
+    <dialog ref={dialog} className="modal" aria-labelledby="agents-title" onClose={onClose}>
       <div className="modal-box">
-        <h3 className="text-lg font-semibold">Agents</h3>
+        <h3 id="agents-title" className="text-lg font-semibold">
+          Agents
+        </h3>
         <p className="text-base-content/70 py-2 text-sm">
           An agent that can reach this app can list your connections and read what they hold. It
           answers on this machine only, and only whoever presents the token.

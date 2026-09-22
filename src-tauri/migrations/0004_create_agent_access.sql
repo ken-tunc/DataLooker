@@ -1,11 +1,12 @@
 -- What an agent may reach the app through. One row: the app either answers
--- agents or it does not, and the token and the port are how it does.
+-- agents or it does not. The token an agent presents is not here — it is in
+-- the keychain, because presenting it is worth more than reading this file:
+-- what it buys is the running app, which holds the keys to the databases.
 CREATE TABLE agent_access (
     only_row INTEGER PRIMARY KEY CHECK (only_row = 1),
     enabled INTEGER NOT NULL DEFAULT 0,
-    -- Made when the reader first turns this on, and kept, so that an agent
-    -- configured once keeps working.
-    token TEXT NOT NULL DEFAULT '',
+    -- Kept once the system has given one, so that an agent configured with an
+    -- address is not told a new one after every restart.
     port INTEGER NOT NULL DEFAULT 0
 );
 
