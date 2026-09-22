@@ -5,11 +5,13 @@
 
 use std::env;
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use datalooker_lib::db::connection::DriverConfig;
 use datalooker_lib::drivers::postgres::PostgresSession;
+use datalooker_lib::lsp::install;
 use datalooker_lib::lsp::server::{self, Server};
 use datalooker_lib::lsp::{LspNotice, LspRegistry, LspSession};
 use serde_json::{json, Value};
@@ -79,7 +81,9 @@ async fn table_or_skip() -> Option<(String, PostgresSession)> {
 }
 
 async fn started_or_skip(connection_id: &str) -> Option<Arc<LspSession>> {
-    let binary = match server::find(Server::Sqls).await {
+    // Nothing of this test's own is installed anywhere, so the reader's own
+    // `sqls` is the one it runs.
+    let binary = match server::find(Server::Sqls, Path::new("/nowhere")).await {
         Ok(binary) => binary,
         Err(e) => {
             eprintln!("skipping: {e}");
@@ -217,4 +221,38 @@ async fn a_server_that_is_gone_is_announced_rather_than_waited_for() {
     let _ = database
         .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
         .await;
+}
+
+/// Builds the real server from source, which is what a reader with none
+/// installed gets. It skips where Go is not installed, since Go is what builds
+/// it, and it is slow the first time: it fetches what sqls depends on.
+#[tokio::test]
+async fn builds_a_server_for_a_machine_that_has_none() {
+    if server::command("go").await.is_err() {
+        eprintln!("skipping: Go, which is what builds a language server, is not installed");
+        return;
+    }
+
+    let into = std::env::temp_dir().join(format!("datalooker-lsp-{}", Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&into).expect("a directory to build into");
+
+    let built = install::install(Server::Sqls, &into)
+        .await
+        .expect("a language server that builds");
+    assert_eq!(built, into.join("sqls"));
+
+    // Built for this machine, which a release binary would not be: what sqls
+    // publishes for macOS is x86_64 and nothing else.
+    let ran = tokio::process::Command::new(&built)
+        .arg("--version")
+        .output()
+        .await
+        .expect("a binary that runs here");
+    assert!(
+        String::from_utf8_lossy(&ran.stdout).contains("Version:"),
+        "{} said nothing about its version",
+        built.display()
+    );
+
+    std::fs::remove_dir_all(&into).ok();
 }

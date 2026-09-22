@@ -241,11 +241,21 @@ that wrote it. It is asked under a string id, which is not the number space
 the window's own requests use. The window is handed what the server said it
 can do, and speaks for itself from there.
 
+A reader who has no server can have one built: `lsp/install.rs` runs
+`go install` with the reader's own Go toolchain, pinned to the version this app
+was written against, into the app data directory. Built rather than downloaded,
+because sqls publishes one macOS build and it is x86_64 — on an Apple Silicon
+Mac a release binary does not run at all — and because Go's checksum database
+then vouches for what was fetched, which is a stronger answer than a hash
+written down here. It is offered from the editor's own footer, where a reader
+is when they notice that nothing is being suggested.
+
 Where the server is, is asked of the reader's login shell — a window opened
 from Finder inherits none of the places one is installed, the same reason a
 connection's command is run through one. `DATALOOKER_SQLS_BIN` names one
 directly, which is also how a test hands over something that is not a language
-server at all.
+server at all. A server the reader installed themselves comes before the one
+DataLooker built, which is the fallback for a machine that had none.
 
 A server is stopped rather than asked to shut down: it holds nothing that
 outlives it, so the protocol's parting words would buy a wait. Editing or

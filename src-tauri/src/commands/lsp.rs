@@ -4,7 +4,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::App;
 use crate::error::AppError;
-use crate::lsp::LspNotice;
+use crate::lsp::{LanguageServerState, LspNotice};
 
 /// What the window listens for to hear a language server answer.
 pub const MESSAGE_EVENT: &str = "lsp:message";
@@ -27,6 +27,22 @@ pub fn send_to_language_server(
     app: State<'_, App>,
 ) -> Result<(), AppError> {
     app.send_to_language_server(&connection_id, message)
+}
+
+#[tauri::command]
+pub async fn language_server_state(
+    connection_id: String,
+    app: State<'_, App>,
+) -> Result<LanguageServerState, AppError> {
+    app.language_server_state(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn install_language_server(
+    connection_id: String,
+    app: State<'_, App>,
+) -> Result<(), AppError> {
+    app.install_language_server(&connection_id).await
 }
 
 #[tauri::command]

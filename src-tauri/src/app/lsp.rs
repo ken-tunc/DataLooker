@@ -6,8 +6,9 @@ use tokio::sync::broadcast;
 use crate::app::App;
 use crate::db::connection;
 use crate::error::AppError;
-use crate::lsp::server;
-use crate::lsp::{LspNotice, LspSession};
+use crate::lsp::server::Server;
+use crate::lsp::{install, server};
+use crate::lsp::{LanguageServerState, LspNotice, LspSession};
 
 impl App {
     /// Start the connection's language server, answering with what it says it
@@ -30,7 +31,7 @@ impl App {
             .get(connection_id)?
             .ok_or_else(|| AppError::Secret(format!("no secret stored for {connection_id}")))?;
         let (server, options) = server::for_connection(&record.config, &secret)?;
-        let binary = server::find(server).await?;
+        let binary = server::find(server, &self.servers()).await?;
 
         let session = LspSession::start(connection_id, &binary, options).await?;
         // Into the registry before it is read from, so that the reader taking
@@ -79,5 +80,47 @@ impl App {
 
     pub fn language_server_notices(&self) -> broadcast::Receiver<LspNotice> {
         self.notices.subscribe()
+    }
+
+    /// Whether this connection can be completed against, which is the question
+    /// behind whether to offer to build a server for it.
+    pub async fn language_server_state(
+        &self,
+        connection_id: &str,
+    ) -> Result<LanguageServerState, AppError> {
+        let record = connection::find_by_id(&self.pool, connection_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
+        let Some(server) = Server::of(&record.config) else {
+            return Ok(LanguageServerState::Unsupported);
+        };
+        Ok(match server::find(server, &self.servers()).await {
+            Ok(_) => LanguageServerState::Ready,
+            Err(_) => LanguageServerState::Missing,
+        })
+    }
+
+    /// Build the server this connection would be completed against, and keep
+    /// it where the app keeps its own things.
+    pub async fn install_language_server(&self, connection_id: &str) -> Result<(), AppError> {
+        let record = connection::find_by_id(&self.pool, connection_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
+        let server = Server::of(&record.config).ok_or_else(|| {
+            AppError::Unsupported("There is no language server for this driver.".to_string())
+        })?;
+
+        let into = self.servers();
+        std::fs::create_dir_all(&into)
+            .map_err(|e| AppError::Shell(format!("{}: {e}", into.display())))?;
+        install::install(server, &into).await?;
+        // Whatever was running is the server that was there before this one.
+        self.stop_language_server(connection_id);
+        Ok(())
+    }
+
+    /// Where a server DataLooker built for the reader lives.
+    fn servers(&self) -> std::path::PathBuf {
+        self.data_dir.join("servers")
     }
 }
