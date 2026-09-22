@@ -31,7 +31,13 @@ function Strip({ count }: { count: number }) {
 
 async function strip(count = 3) {
   const screen = await renderApp(<Strip count={count} />);
-  const tabs = () => [...document.querySelectorAll<HTMLElement>('[role="tab"]')];
+  // Through the strip's own tablist rather than every tab on the page: a table
+  // tab holds a second one, for the two ways of reading it.
+  const tabs = () => [
+    ...document.querySelectorAll<HTMLElement>(
+      '[role="tablist"][aria-label="Open tabs"] [role="tab"]',
+    ),
+  ];
   /** A tab's title, which is its text before the ✕ the mouse is offered. */
   const titleOf = (tab: Element | null | undefined) => tab?.textContent?.replace("✕", "").trim();
   return {
