@@ -112,3 +112,56 @@ mod tests {
         assert!(version.starts_with('v'), "{version} is not a version");
     }
 }
+
+/// What only a real language server can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+
+    use std::time::Duration;
+
+    use uuid::Uuid;
+
+    use crate::lsp::install;
+    use crate::lsp::server::{self, Server};
+
+    /// Builds the real server from source, which is what a reader with none
+    /// installed gets. It skips where Go is not installed, since Go is what builds
+    /// it, and it is slow the first time: it fetches what sqls depends on.
+    #[tokio::test]
+    async fn builds_a_server_for_a_machine_that_has_none() {
+        if server::command("go").await.is_err() {
+            eprintln!("skipping: Go, which is what builds a language server, is not installed");
+            return;
+        }
+
+        let into = std::env::temp_dir().join(format!("datalooker-lsp-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&into).expect("a directory to build into");
+
+        // The build has a ceiling of its own, which is for a reader watching a
+        // spinner. This one is for a suite: a module proxy that has stopped
+        // answering should fail the test rather than hold it.
+        let built = tokio::time::timeout(
+            Duration::from_secs(300),
+            install::install(Server::Sqls, &into),
+        )
+        .await
+        .expect("a build that finishes while anyone is still waiting")
+        .expect("a language server that builds");
+        assert_eq!(built, into.join("sqls"));
+
+        // Built for this machine, which a release binary would not be: what sqls
+        // publishes for macOS is x86_64 and nothing else.
+        let ran = tokio::process::Command::new(&built)
+            .arg("--version")
+            .output()
+            .await
+            .expect("a binary that runs here");
+        assert!(
+            String::from_utf8_lossy(&ran.stdout).contains("Version:"),
+            "{} said nothing about its version",
+            built.display()
+        );
+
+        std::fs::remove_dir_all(&into).ok();
+    }
+}

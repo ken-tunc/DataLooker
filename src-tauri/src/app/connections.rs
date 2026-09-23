@@ -159,6 +159,7 @@ mod tests {
     use super::*;
     use crate::app::tests::app;
     use crate::db::open_in_memory;
+    use crate::drivers::session::Whose;
     use crate::secrets::InMemorySecretStore;
 
     #[tokio::test]
@@ -169,7 +170,7 @@ mod tests {
             .await
             .unwrap();
         app.session(&id).await.unwrap();
-        assert!(app.sessions.is_open(&id));
+        assert!(app.sessions.is_open(&id, Whose::Reader));
 
         app.pool.close().await;
         assert!(app
@@ -177,7 +178,7 @@ mod tests {
             .await
             .is_err());
 
-        assert!(!app.sessions.is_open(&id));
+        assert!(!app.sessions.is_open(&id, Whose::Reader));
     }
 
     #[tokio::test]

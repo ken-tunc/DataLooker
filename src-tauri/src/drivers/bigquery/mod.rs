@@ -1,6 +1,8 @@
 mod preview;
 mod query;
 mod schema;
+#[cfg(test)]
+mod testing;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -236,5 +238,42 @@ mod tests {
             panic!("a key that is not JSON opened a session");
         };
         assert!(matches!(err, AppError::Secret(_)));
+    }
+}
+
+/// What only a real BigQuery project can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use std::env;
+
+    use crate::drivers::bigquery::testing::*;
+    use crate::drivers::bigquery::BigQuerySession;
+
+    use crate::error::AppError;
+
+    #[tokio::test]
+    async fn a_project_that_is_there_can_be_reached() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        session.test().await.expect("BigQuery answered");
+    }
+
+    #[tokio::test]
+    async fn a_project_nobody_has_is_not_reached() {
+        let Some(_) = session_or_skip() else {
+            return;
+        };
+        let key = std::fs::read_to_string(env::var("DATALOOKER_TEST_BQ_KEY").unwrap()).unwrap();
+        // The key is good; the project is not one it can read, which is a failure
+        // Google reports rather than one the key does.
+        let elsewhere = BigQuerySession::new("datalooker-no-such-project", "US", &key).unwrap();
+
+        let err = elsewhere
+            .test()
+            .await
+            .expect_err("a project that is not there");
+
+        assert!(matches!(err, AppError::Database(_)), "got {err}");
     }
 }

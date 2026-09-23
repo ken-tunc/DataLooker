@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type { AppError } from "../bindings/AppError";
+import type { Commands } from "../bindings/Commands";
 
 /** Tauri rejects with the serialized `AppError`, which is not an `Error`. */
 export class IpcError extends Error {
@@ -52,9 +53,26 @@ export function toIpcError(value: unknown): Error {
   }
 }
 
-export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export type Command = keyof Commands;
+
+/**
+ * What a command is sent: its arguments, or nothing for a command that takes
+ * none. Both come from the Rust declaration, so a call that no longer matches
+ * it fails the type check here.
+ */
+export type Sent<C extends Command> = Commands[C]["args"] extends null
+  ? []
+  : [args: Commands[C]["args"]];
+
+export async function invoke<C extends Command>(
+  command: C,
+  ...sent: Sent<C>
+): Promise<Commands[C]["returns"]> {
+  // A command takes its arguments as one value under `args`, which is what
+  // lets ts-rs write down its shape.
+  const payload = sent.length === 0 ? undefined : { args: sent[0] };
   try {
-    return await tauriInvoke<T>(command, args);
+    return await tauriInvoke<Commands[C]["returns"]>(command, payload);
   } catch (error) {
     throw toIpcError(error);
   }

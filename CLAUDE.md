@@ -67,10 +67,16 @@ meta.db.
 
 `src/bindings/` holds the TypeScript types ts-rs generates from the Rust ones; `cargo test`
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
-crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
-else names a command or calls `invoke` directly. `CARRIES_MESSAGE` in
-`src/lib/invoke.ts` lists every `AppError` kind, so a variant added in Rust fails the type
-check there rather than reaching the frontend as an error nothing can branch on.
+crosses the boundary — CI fails when the committed copy differs from what the tests write.
+Each command gets a typed wrapper in `src/lib/commands.ts`; nothing else names a command or
+calls `invoke` directly. `CARRIES_MESSAGE` in `src/lib/invoke.ts` lists every `AppError`
+kind, so a variant added in Rust fails the type check there rather than reaching the
+frontend as an error nothing can branch on.
+
+Commands and events are declared once, in `commands!` and `events!` in `commands/mod.rs`,
+and everything else on both sides follows from that declaration. A command that takes
+arguments takes them as one struct under `args`, which is what lets ts-rs write its shape
+down; one that takes none is sent no payload.
 
 ## Agent skills
 
@@ -134,16 +140,23 @@ and a key to name one by is what BigQuery has no notion of.
 
 A connection holds one PostgreSQL session (`drivers::session::SessionRegistry`), reused across
 queries so `BEGIN`, `SET` and temporary tables survive the statement that created them.
-Queries on one connection therefore run one at a time. A cancelled query leaves the wire
+Queries on one connection therefore run one at a time. What the app reads of the catalog —
+the tree, a table's columns, its shape and its definition — goes over a connection of its
+own beside that one: none of it needs the reader's `BEGIN` or `SET`, and on theirs it would
+wait behind their longest query and fail inside a transaction of theirs that had failed.
+The price is that the tree shows what is committed, not what the reader's open transaction
+has made. A cancelled query leaves the wire
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
 
-`tests/bigquery.rs` reaches a real BigQuery project, and skips unless
-`DATALOOKER_TEST_BQ_KEY` and `DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery
-to stand up in a container. Only their absence is a skip.
+A test that needs a server sits with the code it covers like any other, in a module
+named `live`, and what those tests share is the driver's `testing` module. BigQuery's
+reach a real project, and skip unless `DATALOOKER_TEST_BQ_KEY` and
+`DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery to stand up in a container.
+Only their absence is a skip.
 
-`src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
---wait`) and each test skips itself when nothing is listening on that port. A server that
+PostgreSQL's run against the one in `compose.yaml` (`docker compose up -d --wait`) and
+each test skips itself when nothing is listening on that port. A server that
 does answer has to work: only absence is a skip, never a failure. CI starts the container
 on a Linux runner so that these tests actually run there; the macOS job compiles the
 keychain, which is the only code that runner can see and Linux cannot.
@@ -172,6 +185,11 @@ cannot name a row, so it is read-only. A save runs on the editor's session, so w
 reader has a transaction open there it is refused rather than run: its own COMMIT or
 ROLLBACK would end the reader's transaction too, and sqlx cannot see a `BEGIN` it did not
 send, so the server is asked.
+
+Pending edits are the table pane's own state, and a pane is never unmounted while its tab
+is open: a hidden tab stays mounted, and so does the workspace of a connection that is not
+in front. The tab knows only that there are unsaved edits, which is what the strip needs
+to mark it and to ask before closing it.
 
 ## A table's structure
 
@@ -352,7 +370,9 @@ Every run is logged to meta.db, whatever became of it: a statement that failed o
 cancelled is the one a reader most wants back. Nothing in the log is collapsed, because it
 is the record of what was run against a database and when — the palette behind ⌘Y is what
 collapses it, offering the newest run of each distinct statement and opening it in a tab of
-its own. Only the newest runs of a connection are kept, so a long-lived `meta.db` stays
+its own. A save from a table's grid is logged too, as the statements it ran with each value
+written in as the literal it was bound as — it is a write to the reader's database, and
+the one a reader most needs to find again. Only the newest runs of a connection are kept, so a long-lived `meta.db` stays
 bounded. A log that cannot be written never fails the query it describes: the rows are
 already in hand, and there is nothing the reader could do about it.
 
@@ -417,8 +437,8 @@ answer to what it is decides whether it runs.
 The agent's session is its own. A `BEGIN` or a temporary table of the reader's
 is not the agent's to see, nor the other way about. Its rows are capped lower
 than the window's, since a reader scrolls what they asked for and an agent
-reads it all; its statements have a deadline the window's do not, because
-nobody is watching this one and nothing will cancel it. The session goes with
+reads it all; its statements, and what it reads of the catalog, have a deadline the
+window's do not, because nobody is watching and nothing will cancel them. The session goes with
 that deadline: what the statement left on the wire is still there.
 
 Every run is logged where the reader's own runs are, with who ran it, and the

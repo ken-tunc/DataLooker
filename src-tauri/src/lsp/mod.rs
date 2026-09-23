@@ -6,6 +6,8 @@ pub(crate) mod framing;
 pub mod install;
 pub mod server;
 mod session;
+#[cfg(test)]
+mod testing;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -206,5 +208,88 @@ mod tests {
         assert!(registry
             .insert(LspSession::for_registry_test("c3"), starting)
             .is_none());
+    }
+}
+
+/// What only a real language server can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+
+    use std::sync::Arc;
+
+    use tokio::sync::broadcast;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::lsp::testing::*;
+    use crate::lsp::{LspNotice, LspRegistry};
+
+    #[tokio::test]
+    async fn completes_a_statement_out_of_the_database_the_connection_reaches() {
+        let Some((table, database)) = table_or_skip().await else {
+            return;
+        };
+        let Some(session) = started_or_skip("c1").await else {
+            return;
+        };
+        assert!(
+            session.capabilities["completionProvider"].is_object(),
+            "a server that cannot complete is no use here: {}",
+            session.capabilities
+        );
+
+        let notices = broadcast::channel(256).0;
+        let mut heard = notices.subscribe();
+        session.listen(Arc::new(LspRegistry::default()), notices);
+
+        let statement = "SELECT * FROM ";
+        session.send(opened(statement)).expect("the server listens");
+        session
+            .send(completion(1, 0, statement.len() as u32))
+            .expect("the server listens");
+
+        let offered = labels(&answer_to(&mut heard, 1).await);
+        assert!(
+            offered.contains(&table),
+            "the table made for this test is not among {offered:?}"
+        );
+
+        session.stop();
+        let _ = database
+            .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_server_that_is_gone_is_announced_rather_than_waited_for() {
+        let Some((table, database)) = table_or_skip().await else {
+            return;
+        };
+        let Some(session) = started_or_skip("c2").await else {
+            return;
+        };
+
+        let notices = broadcast::channel(256).0;
+        let mut heard = notices.subscribe();
+        session.listen(Arc::new(LspRegistry::default()), notices);
+        session.stop();
+
+        // What the server said before its output closed is announced first,
+        // and a server may say something unasked; the ending comes after all
+        // of it.
+        let exit = tokio::time::timeout(ANSWER, async {
+            loop {
+                match heard.recv().await.expect("the channel is open") {
+                    LspNotice::Said(_) => continue,
+                    LspNotice::Ended(exit) => return exit,
+                }
+            }
+        })
+        .await
+        .expect("an ending rather than a wait");
+        assert_eq!(exit.connection_id, "c2");
+
+        let _ = database
+            .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
+            .await;
     }
 }

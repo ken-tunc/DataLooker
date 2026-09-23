@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::App;
 
 use crate::db::connection::DriverConfig;
+use crate::drivers::session::Whose;
 use crate::error::AppError;
 
 /// How much of the log an agent is given at once. It is looking for what was
@@ -130,7 +131,7 @@ impl Agent {
     ) -> Result<Json<Vec<Table>>, ErrorData> {
         let tree = self
             .app
-            .schema_tree(&connection_id)
+            .schema_tree(&connection_id, Whose::Agent)
             .await
             .map_err(refused)?;
         Ok(Json(
@@ -161,7 +162,7 @@ impl Agent {
     ) -> Result<Json<Vec<Held>>, ErrorData> {
         let columns = self
             .app
-            .table_columns(&connection_id, &schema, &table)
+            .table_columns(&connection_id, Whose::Agent, &schema, &table)
             .await
             .map_err(refused)?;
         Ok(Json(

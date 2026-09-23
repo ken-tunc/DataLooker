@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { AgentAccess } from "./AgentAccess";
 
 const shut = { enabled: false, token: "", port: 0 };
 const open = { enabled: true, token: "a-secret-token", port: 41234 };
 
-async function agents(replies: Record<string, unknown>) {
+async function agents(replies: Replies) {
   const ipc = stubIpc(replies);
   const screen = await renderApp(<AgentAccess />);
   await screen.getByRole("button", { name: "Agents" }).click();

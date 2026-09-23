@@ -9,8 +9,8 @@ use crate::error::AppError;
 
 #[tauri::command]
 pub async fn preview_table(
-    request: PreviewRequest,
+    args: PreviewRequest,
     app: State<'_, Arc<App>>,
 ) -> Result<TablePage, AppError> {
-    app.preview_table(request).await
+    app.preview_table(args).await
 }

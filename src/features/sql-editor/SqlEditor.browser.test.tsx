@@ -1,7 +1,9 @@
+import type { LanguageServerMessageArgs } from "../../bindings/LanguageServerMessageArgs";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SyntaxError } from "../../bindings/SyntaxError";
-import { type Ipc, renderApp, stubIpc } from "../../test/harness";
+import { type Ipc, type Replies, renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
 import SqlEditor from "./SqlEditor";
 
@@ -14,7 +16,7 @@ const slect: SyntaxError = {
 };
 
 async function editor(
-  replies: Record<string, unknown>,
+  replies: Replies,
   sql = "SLECT 1",
   // A model is named after its connection and its tab, and a name Monaco
   // already holds is one it refuses to make a second model for. A connection
@@ -191,15 +193,15 @@ async function typing(text: string) {
 function server() {
   let ipc: Ipc | undefined;
   const sent: string[] = [];
-  const replies = {
+  const replies: Replies = {
     check_syntax: [],
     start_language_server: {},
-    send_to_language_server: (args: Record<string, unknown>) => {
-      const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+    send_to_language_server: (args: LanguageServerMessageArgs) => {
+      const asked = JSON.parse(args.message) as { id?: number; method: string };
       sent.push(asked.method);
       if (asked.method === "textDocument/completion") {
         ipc?.emit("lsp:message", {
-          connection_id: args.connectionId as string,
+          connection_id: args.connection_id,
           payload: JSON.stringify({
             jsonrpc: "2.0",
             id: asked.id,
@@ -231,7 +233,7 @@ describe("SqlEditor completion", () => {
     // The document was announced before it was asked about, and the statement
     // went with it.
     expect(sent[0]).toBe("textDocument/didOpen");
-    expect(made.ipc.sent("start_language_server")).toEqual({ connectionId: made.connectionId });
+    expect(made.ipc.sent("start_language_server")).toEqual({ connection_id: made.connectionId });
   });
 
   it("asks nobody when there is no server to ask", async () => {
@@ -291,20 +293,20 @@ describe("SqlEditor completion", () => {
     let holding = false;
     const held: (() => void)[] = [];
     const sent: string[] = [];
-    const replies = {
+    const replies: Replies = {
       check_syntax: [],
       start_language_server: {},
-      send_to_language_server: (args: Record<string, unknown>) => {
-        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+      send_to_language_server: (args: LanguageServerMessageArgs) => {
+        const asked = JSON.parse(args.message) as { id?: number; method: string };
         sent.push(asked.method);
         if (asked.method === "textDocument/completion") {
           ipc?.emit("lsp:message", {
-            connection_id: args.connectionId as string,
+            connection_id: args.connection_id,
             payload: JSON.stringify({ jsonrpc: "2.0", id: asked.id, result: { items: [] } }),
           });
         }
         // A server that has stopped reading, so that what follows waits.
-        return holding ? new Promise((resolve) => held.push(() => resolve(null))) : null;
+        return holding ? new Promise<null>((resolve) => held.push(() => resolve(null))) : null;
       },
     };
 
@@ -332,7 +334,7 @@ describe("SqlEditor completion", () => {
   it("completes once a server has been built for a connection that had none", async () => {
     let installed = false;
     let ipc: Ipc | undefined;
-    const replies = {
+    const replies: Replies = {
       check_syntax: [],
       language_server_state: () =>
         installed ? { kind: "ready" } : { kind: "missing", server: "sqls" },
@@ -344,11 +346,11 @@ describe("SqlEditor completion", () => {
         if (!installed) throw { kind: "NotFound", message: "sqls is not installed" };
         return {};
       },
-      send_to_language_server: (args: Record<string, unknown>) => {
-        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+      send_to_language_server: (args: LanguageServerMessageArgs) => {
+        const asked = JSON.parse(args.message) as { id?: number; method: string };
         if (asked.method === "textDocument/completion") {
           ipc?.emit("lsp:message", {
-            connection_id: args.connectionId as string,
+            connection_id: args.connection_id,
             payload: JSON.stringify({
               jsonrpc: "2.0",
               id: asked.id,
@@ -376,12 +378,12 @@ describe("SqlEditor completion", () => {
 });
 
 /** A BigQuery connection, which the analyzer completes rather than a server. */
-function bigquery(connectionId: string) {
+function bigquery(connectionId: string): ConnectionRecord[] {
   return [
     {
       id: connectionId,
       label: "BigQuery",
-      config: { kind: "bigquery", project_id: "shop", location: "US" },
+      config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
       command: null,
       created_at: "2026-09-23 00:00:00",
     },
@@ -408,7 +410,9 @@ describe("SqlEditor completion of BigQuery", () => {
       connectionId,
     );
     // The connections are read before the editor knows whom to ask.
-    await vi.waitFor(() => expect(made.ipc.sent("list_connections")).toBeDefined());
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
 
     await typing(".");
 
@@ -417,7 +421,11 @@ describe("SqlEditor completion of BigQuery", () => {
     expect(offered.element().textContent).toContain("total");
     expect(offered.element().textContent).toContain("NUMERIC");
     // The whole document and the cursor in the units the editor counts.
-    expect(made.ipc.sent("complete")).toEqual({ connectionId, text: "SELECT o.", cursor: 9 });
+    expect(made.ipc.sent("complete")).toEqual({
+      connection_id: connectionId,
+      text: "SELECT o.",
+      cursor: 9,
+    });
     expect(made.ipc.calls.map((call) => call.command)).not.toContain("start_language_server");
   });
 
@@ -439,7 +447,9 @@ describe("SqlEditor completion of BigQuery", () => {
       "SELECT * FROM sales.",
       connectionId,
     );
-    await vi.waitFor(() => expect(made.ipc.sent("list_connections")).toBeDefined());
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
 
     await typing("o");
 
@@ -461,7 +471,9 @@ describe("SqlEditor completion of BigQuery", () => {
       "SELECT o",
       connectionId,
     );
-    await vi.waitFor(() => expect(made.ipc.sent("list_connections")).toBeDefined());
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
 
     await typing(".");
 

@@ -136,7 +136,7 @@ describe("the connection rail", () => {
     await screen.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect.element(screen.getByText("Deleted Local")).toBeVisible();
-    expect(ipc.sent("delete_connection")).toEqual({ id: "id-1" });
+    expect(ipc.sent("delete_connection")).toEqual({ connection_id: "id-1" });
     // Nothing is in front any more, so there is no header to act on.
     expect(screen.getByRole("heading", { name: "Local" }).elements()).toEqual([]);
   });
@@ -217,13 +217,11 @@ describe("a connection of another kind", () => {
     await expect
       .poll(() => ipc.sent("save_connection"))
       .toEqual({
-        input: {
-          id: null,
-          label: "Warehouse",
-          config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
-          secret: '{"type":"service_account"}',
-          command: null,
-        },
+        id: null,
+        label: "Warehouse",
+        config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
+        secret: '{"type":"service_account"}',
+        command: null,
       });
   });
 

@@ -6,6 +6,7 @@ import {
   openTableTab,
   setSql,
   setTableView,
+  setUnsaved,
   shiftTab,
   type TableView,
   type TabsState,
@@ -30,9 +31,21 @@ export function useTabs() {
     });
   }
 
+  // Read from the state being updated rather than the one this render saw:
+  // two changes before the next render would otherwise each start from the
+  // same tabs, and the second would undo the first.
   function change(connectionId: string, update: (state: TabsState) => TabsState | null) {
-    const state = byConnection[connectionId];
-    if (state) write(connectionId, update(state));
+    setByConnection((current) => {
+      const state = current[connectionId];
+      if (!state) return current;
+      const next = update(state);
+      if (next === state) return current;
+      if (!next) {
+        const { [connectionId]: _closed, ...rest } = current;
+        return rest;
+      }
+      return { ...current, [connectionId]: next };
+    });
   }
 
   return {
@@ -54,6 +67,10 @@ export function useTabs() {
       change(connectionId, (state) => setSql(state, id, sql)),
     readTable: (connectionId: string, id: string, view: Partial<TableView>) =>
       change(connectionId, (state) => setTableView(state, id, view)),
+    markUnsaved: (connectionId: string, id: string, unsaved: boolean) =>
+      change(connectionId, (state) => setUnsaved(state, id, unsaved)),
+    /** Every connection with tabs open, whether or not it is the one in front. */
+    connections: (): string[] => Object.keys(byConnection),
     forget: (connectionId: string) => write(connectionId, null),
   };
 }

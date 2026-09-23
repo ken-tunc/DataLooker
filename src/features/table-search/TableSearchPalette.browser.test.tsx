@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { SchemaTree } from "../../bindings/SchemaTree";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { TableSearchPalette } from "./TableSearchPalette";
 
 const table = (name: string) => ({ name, kind: "table" as const, columns: [] });
@@ -13,7 +13,7 @@ const tree: SchemaTree = {
   ],
 };
 
-async function palette(replies: Record<string, unknown> = { schema_tree: tree }) {
+async function palette(replies: Replies = { schema_tree: tree }) {
   stubIpc(replies);
   const onOpenTable = vi.fn();
   const onClose = vi.fn();

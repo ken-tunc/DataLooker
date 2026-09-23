@@ -83,6 +83,15 @@ impl App {
         self.notices.subscribe()
     }
 
+    /// What becomes of a listener that fell behind the servers. It has missed
+    /// an answer it is still waiting for, and a request with no reply is one
+    /// nothing here can produce, so every server is stopped: that reaches the
+    /// listener as each one ending, which is the state a client recovers from
+    /// by starting again.
+    pub fn missed_language_server_notices(&self) {
+        self.stop_all_language_servers();
+    }
+
     /// Whether this connection can be completed against, which is the question
     /// behind whether to offer to build a server for it.
     pub async fn language_server_state(

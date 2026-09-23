@@ -63,7 +63,7 @@ describe("SchemaTree", () => {
     await expect.element(screen.getByText("total")).toBeVisible();
     await expect.element(screen.getByText("numeric")).toBeVisible();
     expect(ipc.sent("table_columns")).toEqual({
-      connectionId: "c1",
+      connection_id: "c1",
       schema: "shop",
       table: "orders",
     });

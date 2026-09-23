@@ -36,7 +36,7 @@ describe("CommandButton", () => {
 
     await screen.getByRole("button", { name: "Run the command for Local" }).click();
 
-    await expect.poll(() => ipc.sent("run_connection_command")).toEqual({ connectionId: "id-1" });
+    await expect.poll(() => ipc.sent("run_connection_command")).toEqual({ connection_id: "id-1" });
   });
 
   it("offers to stop what is already running, and says which command it is", async () => {
@@ -46,7 +46,7 @@ describe("CommandButton", () => {
     await expect.element(stop).toHaveAttribute("title", `Stop ${TUNNEL}`);
     await stop.click();
 
-    await expect.poll(() => ipc.sent("stop_connection_command")).toEqual({ connectionId: "id-1" });
+    await expect.poll(() => ipc.sent("stop_connection_command")).toEqual({ connection_id: "id-1" });
   });
 
   it("shows what the backend refused to run", async () => {

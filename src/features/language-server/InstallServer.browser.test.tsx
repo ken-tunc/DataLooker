@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { InstallServer } from "./InstallServer";
 
-async function footer(replies: Record<string, unknown>) {
+async function footer(replies: Replies) {
   const ipc = stubIpc(replies);
   const screen = await renderApp(<InstallServer connectionId="c1" />);
   return { ipc, screen };
@@ -19,7 +19,7 @@ describe("InstallServer", () => {
 
     await screen.getByText(offer()).click();
 
-    expect(ipc.sent("install_language_server")).toEqual({ connectionId: "c1" });
+    expect(ipc.sent("install_language_server")).toEqual({ connection_id: "c1" });
   });
 
   it("says nothing where there is a server", async () => {

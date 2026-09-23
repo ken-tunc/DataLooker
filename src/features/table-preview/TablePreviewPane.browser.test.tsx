@@ -15,6 +15,7 @@ const tab: TableTab = {
   sort: null,
   page: 0,
   shows: "rows",
+  unsaved: false,
 };
 
 const shape = {
@@ -63,7 +64,13 @@ async function preview(
   });
   const onView = vi.fn();
   const screen = await renderApp(
-    <TablePreviewPane connectionId="c1" tab={{ ...tab, shows }} hidden={false} onView={onView} />,
+    <TablePreviewPane
+      connectionId="c1"
+      tab={{ ...tab, shows }}
+      hidden={false}
+      onView={onView}
+      onUnsaved={() => {}}
+    />,
   );
 
   /** A cell is opened for editing by double-clicking it, as in the app. */
@@ -74,7 +81,7 @@ async function preview(
     await userEvent.keyboard("{Enter}");
   };
 
-  const saved = () => (ipc.sent("commit_table_edits")?.edits as TableEdits | undefined) ?? null;
+  const saved = (): TableEdits | null => ipc.sent("commit_table_edits") ?? null;
 
   return { ipc, screen, type, saved, onView };
 }
@@ -94,7 +101,7 @@ describe("TablePreviewPane", () => {
     await expect
       .poll(() => ipc.calls.filter((call) => call.command === "preview_table"))
       .toHaveLength(1);
-    expect(ipc.sent("preview_table")).toMatchObject({ request: { versioned: true } });
+    expect(ipc.sent("preview_table")).toMatchObject({ versioned: true });
   });
 
   it("sends only the cell that changed, with the version it was read at", async () => {
@@ -204,7 +211,7 @@ describe("TablePreviewPane showing the structure", () => {
     await expect.element(screen.getByText(/CREATE INDEX people_by_name/)).toBeVisible();
     await expect.element(screen.getByText("No trigger.")).toBeVisible();
     expect(ipc.sent("table_definition")).toEqual({
-      connectionId: "c1",
+      connection_id: "c1",
       schema: "shop",
       table: "people",
     });

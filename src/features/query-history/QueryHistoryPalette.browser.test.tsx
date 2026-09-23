@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { HistoryEntry } from "../../bindings/HistoryEntry";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { QueryHistoryPalette } from "./QueryHistoryPalette";
 
 const entry = (id: number, sql: string, rest: Partial<HistoryEntry> = {}): HistoryEntry => ({
@@ -21,7 +21,7 @@ const log: HistoryEntry[] = [
   entry(1, "SELECT * FROM people\nWHERE id = 1"),
 ];
 
-async function palette(replies: Record<string, unknown> = { query_history: log }) {
+async function palette(replies: Replies = { query_history: log }) {
   stubIpc(replies);
   const onOpenQuery = vi.fn();
   const onClose = vi.fn();

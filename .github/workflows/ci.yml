@@ -115,6 +115,15 @@ jobs:
           cargo llvm-cov clean --workspace
           cargo llvm-cov --no-report
 
+      # The tests just rewrote `src/bindings/`. The frontend job type-checks
+      # against the committed copy, so a copy that differs is a frontend that
+      # was checked against something other than this backend.
+      - name: Bindings are the ones the backend writes
+        working-directory: .
+        run: |
+          git add --intent-to-add src/bindings
+          git diff --exit-code -- src/bindings
+
       - name: Summarize coverage
         run: |
           cargo llvm-cov report --html --output-dir coverage

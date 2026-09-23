@@ -256,3 +256,130 @@ mod tests {
         assert_eq!(kind_of(None), TableKind::Table);
     }
 }
+
+/// What only a real BigQuery project can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+
+    use crate::drivers::bigquery::testing::*;
+
+    use crate::drivers::TableKind;
+
+    #[tokio::test]
+    async fn a_project_says_which_datasets_hold_which_tables() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "tree").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE TABLE {name}.people (id INT64, name STRING)"
+            ))
+            .await;
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE VIEW {name}.names AS SELECT name FROM {name}.people"
+            ))
+            .await;
+
+        let tree = dataset.session.schema_tree().await.expect("the tree");
+
+        let found = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == name)
+            .expect("the dataset just made is in the tree");
+        let tables: Vec<(&str, &TableKind)> = found
+            .tables
+            .iter()
+            .map(|table| (table.name.as_str(), &table.kind))
+            .collect();
+        assert_eq!(
+            tables,
+            [("names", &TableKind::View), ("people", &TableKind::Table)]
+        );
+
+        // What a table holds is asked for on its own, in the order it was written.
+        let columns: Vec<(String, String, bool)> = dataset
+            .session
+            .columns(&name, "people")
+            .await
+            .expect("the columns")
+            .into_iter()
+            .map(|column| (column.name, column.data_type, column.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("id".to_string(), "INT64".to_string(), true),
+                ("name".to_string(), "STRING".to_string(), true)
+            ]
+        );
+
+        // A table nobody has holds nothing, rather than failing.
+        assert!(dataset
+            .session
+            .columns(&name, "nothing")
+            .await
+            .expect("no columns")
+            .is_empty());
+
+        dataset.drop_it().await;
+    }
+
+    #[tokio::test]
+    async fn a_table_describes_every_type_to_its_innermost_field() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let project = std::env::var("DATALOOKER_TEST_BQ_PROJECT").unwrap();
+        let dataset = Dataset::make(session, "described").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE TABLE {name}.orders (\
+                 id INT64 NOT NULL, \
+                 items ARRAY<STRUCT<sku STRING, `at` TIMESTAMP>>, \
+                 shipping STRUCT<city STRING, tags ARRAY<STRING>>)"
+            ))
+            .await;
+
+        let columns: Vec<(String, String, bool)> = dataset
+            .session
+            .described(&project, &name, "orders")
+            .await
+            .expect("the table")
+            .expect("a table that is there")
+            .into_iter()
+            .map(|column| (column.name, column.data_type, column.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("id".to_string(), "INT64".to_string(), false),
+                (
+                    "items".to_string(),
+                    "ARRAY<STRUCT<`sku` STRING, `at` TIMESTAMP>>".to_string(),
+                    true
+                ),
+                (
+                    "shipping".to_string(),
+                    "STRUCT<`city` STRING, `tags` ARRAY<STRING>>".to_string(),
+                    true
+                ),
+            ]
+        );
+
+        // A table that is not there is nothing, rather than a failure:
+        // completion asks about whatever a half-typed statement names.
+        assert!(dataset
+            .session
+            .described(&project, &name, "nothing")
+            .await
+            .expect("an answer")
+            .is_none());
+
+        dataset.drop_it().await;
+    }
+}

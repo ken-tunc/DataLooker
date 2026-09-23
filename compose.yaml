@@ -1,4 +1,4 @@
-# The PostgreSQL the integration tests in `src-tauri/tests/` run against:
+# The PostgreSQL the `live` tests in `src-tauri` run against:
 # `docker compose up -d --wait`, then `cargo test` in `src-tauri`. The port
 # avoids the default one so the container cannot be mistaken for a local server.
 services:

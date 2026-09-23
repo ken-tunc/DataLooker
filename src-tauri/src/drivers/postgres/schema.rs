@@ -103,3 +103,104 @@ mod tests {
         assert_eq!(table_kind('f'), TableKind::ForeignTable);
     }
 }
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+
+    use crate::drivers::postgres::testing::*;
+
+    use crate::drivers::TableKind;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        // Named for this test and dropped first, so a run that failed half way
+        // through does not change what the next one sees.
+        for schema in ["tree_test", "tree_test_empty"] {
+            run(&session, &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+                .await
+                .unwrap();
+        }
+        run(&session, "CREATE SCHEMA tree_test").await.unwrap();
+        run(
+            &session,
+            "CREATE TABLE tree_test.people (id int PRIMARY KEY, name text NOT NULL, email text)",
+        )
+        .await
+        .unwrap();
+        run(
+            &session,
+            "CREATE VIEW tree_test.names AS SELECT name FROM tree_test.people",
+        )
+        .await
+        .unwrap();
+        run(&session, "CREATE SCHEMA tree_test_empty")
+            .await
+            .unwrap();
+
+        let tree = session.schema_tree().await.unwrap();
+
+        let schema = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == "tree_test")
+            .expect("the schema just created is in the tree");
+        let tables: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(tables, ["names", "people"]);
+
+        assert_eq!(schema.tables[1].kind, TableKind::Table);
+        assert_eq!(schema.tables[0].kind, TableKind::View);
+
+        // What a table holds is asked for on its own, in the order it was written
+        // with.
+        let columns: Vec<(String, String, bool)> = session
+            .columns("tree_test", "people")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|column| (column.name, column.data_type, column.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("id".to_string(), "integer".to_string(), false),
+                ("name".to_string(), "text".to_string(), false),
+                ("email".to_string(), "text".to_string(), true)
+            ]
+        );
+        assert!(session
+            .columns("tree_test", "nothing")
+            .await
+            .unwrap()
+            .is_empty());
+
+        let empty = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == "tree_test_empty")
+            .expect("an empty schema is in the tree");
+        assert!(empty.tables.is_empty());
+
+        for schema in ["tree_test", "tree_test_empty"] {
+            run(&session, &format!("DROP SCHEMA {schema} CASCADE"))
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_tree_leaves_out_the_catalogs() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+
+        let tree = session.schema_tree().await.unwrap();
+
+        let names: Vec<&str> = tree.schemas.iter().map(|s| s.name.as_str()).collect();
+        assert!(!names.contains(&"pg_catalog"), "{names:?}");
+        assert!(!names.contains(&"information_schema"), "{names:?}");
+    }
+}

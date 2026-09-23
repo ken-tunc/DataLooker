@@ -3,6 +3,8 @@ mod edit;
 mod preview;
 mod query;
 mod schema;
+#[cfg(test)]
+pub(crate) mod testing;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -12,10 +14,9 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::drivers::postgres::edit::Edits;
+pub use crate::drivers::postgres::edit::{Edits, Plan};
 use crate::drivers::{
-    Column, DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree,
-    TableDefinition, TablePage, TableShape,
+    Column, DriverError, Preview, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 
@@ -31,6 +32,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct PostgresSession {
     options: PgConnectOptions,
     conn: Mutex<Option<PgConnection>>,
+    /// Where what the app asks of the catalog goes. None of it needs the
+    /// reader's `BEGIN` or `SET`, and on the reader's connection all of it
+    /// would wait behind their longest query and fail inside a transaction
+    /// of theirs that had failed — the tree, and every table opened from it,
+    /// held hostage by a statement in an editor tab.
+    catalog: Mutex<Option<PgConnection>>,
 }
 
 impl PostgresSession {
@@ -43,6 +50,7 @@ impl PostgresSession {
                 .username(username)
                 .password(password),
             conn: Mutex::new(None),
+            catalog: Mutex::new(None),
         }
     }
 
@@ -131,10 +139,8 @@ impl PostgresSession {
     }
 
     pub async fn shape(&self, schema: &str, table: &str) -> Result<TableShape, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(edit::shape(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(edit::shape(conn, schema, table).await?))
+            .await
     }
 
     /// `None` when the schema holds no such relation.
@@ -143,62 +149,72 @@ impl PostgresSession {
         schema: &str,
         table: &str,
     ) -> Result<Option<TableDefinition>, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(ddl::definition(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(ddl::definition(conn, schema, table).await?))
+            .await
     }
 
-    /// Applies everything one save carries in one transaction and resolves to
-    /// how many rows it changed — which is how the caller learns that one of
-    /// them matched nothing because the row had moved on.
-    pub async fn apply_edits(
+    /// The statements a save would run. The shape is the catalog's, so it is
+    /// read there; nothing touches the reader's connection until it runs.
+    pub async fn plan_edits(
         &self,
         schema: &str,
         table: &str,
-        inserts: &[RowInsert],
-        updates: &[RowUpdate],
-        deletes: &[RowDelete],
-    ) -> Result<u32, AppError> {
+        edits: Edits<'_>,
+    ) -> Result<Plan, AppError> {
+        let shape = self.shape(schema, table).await?;
+        Ok(edit::plan(&shape, schema, table, edits)?)
+    }
+
+    /// Runs a save in one transaction and resolves to how many rows it
+    /// changed — which is how the caller learns that one of them matched
+    /// nothing because the row had moved on.
+    pub async fn apply_plan(&self, plan: &Plan) -> Result<u32, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
-            let shape = edit::shape(conn, schema, table).await?;
-            let edits = Edits {
-                inserts,
-                updates,
-                deletes,
-            };
-            edit::apply(conn, &shape, schema, table, edits).await
+            edit::apply(conn, plan).await
         })
         .await
     }
 
-    /// The tree shares the session, so it waits behind a query already running
-    /// on it — and sees the schemas that query's transaction has created.
+    /// What the tree shows is what has been committed: a schema the reader's
+    /// open transaction created is theirs until it commits.
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(schema::tree(conn).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(schema::tree(conn).await?))
+            .await
     }
 
     pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(schema::columns(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(schema::columns(conn, schema, table).await?))
+            .await
     }
 
-    /// Runs `work` on the session's connection, opening one when the session
+    /// Runs `work` on the reader's connection, opening one when the session
     /// has none.
     async fn with_connection<T>(
         &self,
         cancel: &CancellationToken,
         work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
+        self.run_on(&self.conn, cancel, work).await
+    }
+
+    async fn on_catalog<T>(
+        &self,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
+    ) -> Result<T, AppError> {
+        self.run_on(&self.catalog, &CancellationToken::new(), work)
+            .await
+    }
+
+    async fn run_on<T>(
+        &self,
+        slot: &Mutex<Option<PgConnection>>,
+        cancel: &CancellationToken,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
+    ) -> Result<T, AppError> {
         let mut held = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(AppError::Cancelled),
-            held = self.conn.lock() => held,
+            held = slot.lock() => held,
         };
 
         let mut conn = match held.take() {
@@ -249,4 +265,115 @@ async fn connect(options: &PgConnectOptions) -> Result<PgConnection, AppError> {
 /// like `weird"name` stays one identifier instead of ending the quoting.
 fn quote(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use std::time::Duration;
+
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::drivers::postgres::testing::*;
+
+    use crate::error::AppError;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_outlives_the_statement_that_set_it_up() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+
+        run(&session, "CREATE TEMPORARY TABLE scratch (n int)")
+            .await
+            .unwrap();
+        run(&session, "INSERT INTO scratch VALUES (1), (2)")
+            .await
+            .unwrap();
+
+        let result = run(&session, "SELECT count(*) FROM scratch").await.unwrap();
+
+        assert_eq!(result.rows, vec![vec![json!(2)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rejected_statement_leaves_the_session_usable() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        run(&session, "CREATE TEMPORARY TABLE scratch (n int)")
+            .await
+            .unwrap();
+
+        let err = run(&session, "SELEC 1").await.unwrap_err();
+
+        assert!(matches!(err, AppError::Database(_)), "{err}");
+        let result = run(&session, "SELECT count(*) FROM scratch").await.unwrap();
+        assert_eq!(result.rows, vec![vec![json!(0)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_query_stops_and_the_next_one_reconnects() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        let cancel = CancellationToken::new();
+        let waiting = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            waiting.cancel();
+        });
+
+        let err = session
+            .execute("SELECT pg_sleep(30)", ROW_LIMIT, &cancel)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Cancelled), "{err}");
+        // The cancelled connection was thrown away, so this opens a new one.
+        let result = run(&session, "SELECT 1 AS one").await.unwrap();
+        assert_eq!(result.rows, vec![vec![json!(1)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        let session = std::sync::Arc::new(session);
+        let cancel = CancellationToken::new();
+
+        let slow = tokio::spawn({
+            let session = session.clone();
+            let cancel = cancel.clone();
+            async move {
+                session
+                    .execute("SELECT pg_sleep(5)", ROW_LIMIT, &cancel)
+                    .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let waiting = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .execute(
+                        "SELECT 'behind' AS marker",
+                        ROW_LIMIT,
+                        &CancellationToken::new(),
+                    )
+                    .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        cancel.cancel();
+
+        assert!(matches!(
+            slow.await.unwrap().unwrap_err(),
+            AppError::Cancelled
+        ));
+        let behind = waiting.await.unwrap().unwrap();
+        assert_eq!(behind.rows, vec![vec![json!("behind")]]);
+    }
 }

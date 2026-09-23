@@ -116,15 +116,16 @@ run's summary page. No external coverage service is involved, so there is nothin
 up for and no secret to keep — the workflow posts its comment with the token GitHub already
 gives the run.
 
-The tests in `src-tauri/tests/` need the PostgreSQL from `compose.yaml`; each one skips
-itself when nothing is listening on its port, so `cargo test` still passes without Docker.
+The tests that reach a database sit in a `live` module beside the code they cover. Those
+for PostgreSQL need the one from `compose.yaml`; each skips itself when nothing is
+listening on its port, so `cargo test` still passes without Docker.
 `--wait` holds until the server is healthy, so the tests do not skip a container that is
 still starting.
 
-`tests/bigquery.rs` needs a real project, which it skips unless one is named:
+The BigQuery ones need a real project, which they skip unless one is named:
 
 ```sh
-cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test --test bigquery
+cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
 ```
 
 `DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key

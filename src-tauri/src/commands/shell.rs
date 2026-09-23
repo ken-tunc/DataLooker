@@ -1,30 +1,34 @@
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::App;
+use crate::commands::{shell_exit, ConnectionArgs};
 use crate::error::AppError;
-
-/// What the window listens for to learn that a command ended.
-pub const EXIT_EVENT: &str = "shell:exit";
 
 #[tauri::command]
 pub async fn run_connection_command(
-    connection_id: String,
+    args: ConnectionArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
-    app.run_command(&connection_id).await
+    app.run_command(&args.connection_id).await
 }
 
 #[tauri::command]
-pub fn stop_connection_command(connection_id: String, app: State<'_, Arc<App>>) {
-    app.stop_command(&connection_id);
+pub async fn stop_connection_command(
+    args: ConnectionArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<(), AppError> {
+    app.stop_command(&args.connection_id);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn running_connection_commands(app: State<'_, Arc<App>>) -> Vec<String> {
-    app.running_commands()
+pub async fn running_connection_commands(
+    app: State<'_, Arc<App>>,
+) -> Result<Vec<String>, AppError> {
+    Ok(app.running_commands())
 }
 
 /// Carry what the app announces into the window. The app has no way to reach a
@@ -36,9 +40,7 @@ pub fn forward_exits(handle: AppHandle, app: &App) {
     tauri::async_runtime::spawn(async move {
         loop {
             match exits.recv().await {
-                Ok(exit) => {
-                    let _ = handle.emit(EXIT_EVENT, exit);
-                }
+                Ok(exit) => shell_exit::emit(&handle, exit),
                 // A window too slow to keep up missed an ending. It asks what
                 // is running when it hears one, so the next ending sets it
                 // right; there is nothing to recover here.
