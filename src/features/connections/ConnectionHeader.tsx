@@ -1,5 +1,5 @@
 import { Ellipsis } from "lucide-react";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
@@ -28,8 +28,17 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
   const test = useTestConnection();
   const [editing, setEditing] = useState<FormMode | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // An anchor name is a dashed ident, which `useId`'s colons are not.
+  const menuId = `actions-${useId().replaceAll(":", "")}`;
+  const menu = useRef<HTMLUListElement>(null);
 
   if (!connection) return null;
+
+  /** Choosing an item is done with the menu. */
+  function act(choose: (connection: ConnectionRecord) => void) {
+    menu.current?.hidePopover();
+    if (connection) choose(connection);
+  }
 
   function runTest(connection: ConnectionRecord) {
     test.mutate(connection.id, {
@@ -66,38 +75,51 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
         {connection.command && (
           <CommandButton connection={connection} command={connection.command} />
         )}
-        {/* The open menu sits inside the header, and a press on its padding is
-          not a press on the bar. */}
-        <details data-tauri-drag-region="false" className="dropdown dropdown-end shrink-0">
-          <summary
-            className="btn btn-ghost btn-xs btn-square"
-            aria-label={`${connection.label} actions`}
-          >
-            <Ellipsis className="size-4" />
-          </summary>
-          <ul className="dropdown-content menu bg-base-100 rounded-box z-10 w-40 p-2 shadow-sm">
-            <li>
-              <button type="button" disabled={test.isPending} onClick={() => runTest(connection)}>
-                Test
-              </button>
-            </li>
-            <li>
-              <button type="button" onClick={() => setEditing("edit")}>
-                Edit
-              </button>
-            </li>
-            <li>
-              <button type="button" onClick={() => setEditing("duplicate")}>
-                Duplicate
-              </button>
-            </li>
-            <li>
-              <button type="button" className="text-error" onClick={() => setDeleting(true)}>
-                Delete
-              </button>
-            </li>
-          </ul>
-        </details>
+        <button
+          type="button"
+          data-tauri-drag-region="false"
+          className="btn btn-ghost btn-xs btn-square shrink-0"
+          aria-label={`${connection.label} actions`}
+          popoverTarget={menuId}
+          style={{ anchorName: `--${menuId}` }}
+        >
+          <Ellipsis className="size-4" />
+        </button>
+        {/* A popover rather than a disclosure, because the browser closes one
+          on a press outside it and on Escape. It lives in the top layer, out
+          of the header, so a press on it is not a press on the bar. */}
+        <ul
+          ref={menu}
+          id={menuId}
+          popover="auto"
+          className="dropdown dropdown-end menu bg-base-200 rounded-box border-base-content/15 w-40 border p-1 shadow-lg"
+          style={{ positionAnchor: `--${menuId}` }}
+        >
+          <li>
+            <button type="button" disabled={test.isPending} onClick={() => act(runTest)}>
+              Test
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => act(() => setEditing("edit"))}>
+              Edit
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => act(() => setEditing("duplicate"))}>
+              Duplicate
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className="text-error"
+              onClick={() => act(() => setDeleting(true))}
+            >
+              Delete
+            </button>
+          </li>
+        </ul>
       </header>
 
       {editing && (

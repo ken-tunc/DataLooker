@@ -38,8 +38,7 @@ async function sidebar(replies: Parameters<typeof stubIpc>[0]) {
 
   /**
    * A connection's actions are in the header once it is in front, behind a ⋯
-   * menu that starts closed. The menu opens a `<summary>`, which is a
-   * disclosure rather than a button, so it is found by its label.
+   * menu that starts closed.
    */
   const actions = async (label: string, action: string) => {
     await screen.getByRole("button", { name: label, exact: true }).click();
@@ -84,6 +83,22 @@ describe("the connection rail", () => {
     await screen.getByRole("button", { name: "Retry" }).click();
 
     await expect.element(screen.getByRole("button", { name: "Local", exact: true })).toBeVisible();
+  });
+
+  it("closes its menu on a press outside it, and once an item is chosen", async () => {
+    const { screen, actions } = await sidebar({ list_connections: [local], test_connection: 12 });
+    const test = screen.getByRole("button", { name: "Test", exact: true });
+
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
+    await screen.getByLabelText("Local actions").click();
+    await expect.element(test).toBeVisible();
+    await screen.getByRole("heading", { name: "Local" }).click();
+    // A closed menu is out of the accessibility tree, so its items are not found.
+    await expect.poll(() => test.query()).toBeNull();
+
+    await actions("Local", "Test");
+    await expect.element(screen.getByText("Reached Local in 12 ms")).toBeVisible();
+    await expect.poll(() => test.query()).toBeNull();
   });
 
   it("reports how long a test took, in a toast", async () => {
