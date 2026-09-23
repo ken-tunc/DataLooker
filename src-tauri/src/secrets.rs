@@ -8,44 +8,165 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, id: &str) -> Result<(), AppError>;
 }
 
-pub struct KeyringStore {
-    service: String,
-}
+/// The keychain, holding every secret in one item. macOS asks the reader
+/// whether an app may read an item, and it asks per item: one item per
+/// connection was one question per connection, every time a build changed the
+/// app's signature. One item is one question, and the secrets are kept in
+/// memory once read so that it is asked at most once per run — a session and
+/// a language server both want a connection's password, and "Allow" rather
+/// than "Always Allow" would otherwise be asked again for each.
+pub type KeyringStore = Bundled<Keychain>;
 
 impl KeyringStore {
     /// Registers the platform credential store, which keyring-core needs once
     /// per process before any entry works.
     pub fn new(service: impl Into<String>) -> Result<Self, AppError> {
         register_default_store()?;
-        Ok(Self {
+        Ok(Bundled::over(Keychain {
             service: service.into(),
-        })
-    }
-
-    fn entry(&self, id: &str) -> Result<keyring_core::Entry, AppError> {
-        Ok(keyring_core::Entry::new(&self.service, id)?)
+        }))
     }
 }
 
-impl SecretStore for KeyringStore {
-    fn get(&self, id: &str) -> Result<Option<String>, AppError> {
-        match self.entry(id)?.get_password() {
+/// Somewhere that keeps a secret under a name, one item apiece.
+pub trait Items: Send + Sync {
+    fn read(&self, name: &str) -> Result<Option<String>, AppError>;
+    fn write(&self, name: &str, secret: &str) -> Result<(), AppError>;
+    fn remove(&self, name: &str) -> Result<(), AppError>;
+}
+
+pub struct Keychain {
+    service: String,
+}
+
+impl Keychain {
+    fn entry(&self, name: &str) -> Result<keyring_core::Entry, AppError> {
+        Ok(keyring_core::Entry::new(&self.service, name)?)
+    }
+}
+
+impl Items for Keychain {
+    fn read(&self, name: &str) -> Result<Option<String>, AppError> {
+        match self.entry(name)?.get_password() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
 
-    fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
-        self.entry(id)?.set_password(secret)?;
+    fn write(&self, name: &str, secret: &str) -> Result<(), AppError> {
+        self.entry(name)?.set_password(secret)?;
         Ok(())
     }
 
-    fn delete(&self, id: &str) -> Result<(), AppError> {
-        match self.entry(id)?.delete_credential() {
+    fn remove(&self, name: &str) -> Result<(), AppError> {
+        match self.entry(name)?.delete_credential() {
             Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+/// The name of the one item every secret is kept in. A connection's id is a
+/// uuid, so no connection's own item was ever called this.
+const BUNDLE: &str = "secrets";
+
+type Secrets = std::collections::HashMap<String, String>;
+
+/// Every secret in one item, written whole on each change and read once.
+pub struct Bundled<I> {
+    items: I,
+    /// What the item holds, once it has been read. The lock is held across a
+    /// read and the write that follows it, so two changes at once cannot each
+    /// write the bundle without the other's.
+    read: std::sync::Mutex<Option<Secrets>>,
+}
+
+impl<I: Items> Bundled<I> {
+    fn over(items: I) -> Self {
+        Self {
+            items,
+            read: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// The secrets, read from the item the first time they are asked for.
+    fn with<T>(
+        &self,
+        act: impl FnOnce(&mut Secrets) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let mut read = self.read.lock().unwrap();
+        let secrets = match &mut *read {
+            Some(secrets) => secrets,
+            empty => {
+                let secrets = match self.items.read(BUNDLE)? {
+                    Some(json) => serde_json::from_str(&json).map_err(|e| {
+                        AppError::Secret(format!("the stored secrets cannot be read: {e}"))
+                    })?,
+                    None => Secrets::new(),
+                };
+                empty.insert(secrets)
+            }
+        };
+        act(secrets)
+    }
+
+    /// The bundle with one change made, written before it is kept: a change
+    /// the item refused is not one this run should go on believing.
+    fn change(
+        &self,
+        secrets: &mut Secrets,
+        change: impl FnOnce(&mut Secrets),
+    ) -> Result<(), AppError> {
+        let mut changed = secrets.clone();
+        change(&mut changed);
+        let json = serde_json::to_string(&changed)
+            .map_err(|e| AppError::Secret(format!("the secrets cannot be written: {e}")))?;
+        self.items.write(BUNDLE, &json)?;
+        *secrets = changed;
+        Ok(())
+    }
+}
+
+impl<I: Items> SecretStore for Bundled<I> {
+    fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+        self.with(|secrets| {
+            if let Some(secret) = secrets.get(id) {
+                return Ok(Some(secret.clone()));
+            }
+            // A secret saved before they were bundled is in an item of its
+            // own. It is moved in the first time it is read, which is the one
+            // question it costs.
+            let Some(secret) = self.items.read(id)? else {
+                return Ok(None);
+            };
+            self.change(secrets, |secrets| {
+                secrets.insert(id.to_string(), secret.clone());
+            })?;
+            // Left behind, it is only a copy; the bundle is what is read.
+            let _ = self.items.remove(id);
+            Ok(Some(secret))
+        })
+    }
+
+    fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
+        self.with(|secrets| {
+            self.change(secrets, |secrets| {
+                secrets.insert(id.to_string(), secret.to_string());
+            })
+        })
+    }
+
+    fn delete(&self, id: &str) -> Result<(), AppError> {
+        self.with(|secrets| {
+            if secrets.contains_key(id) {
+                self.change(secrets, |secrets| {
+                    secrets.remove(id);
+                })?;
+            }
+            // One saved before the bundle may still be in an item of its own.
+            self.items.remove(id)
+        })
     }
 }
 
@@ -106,5 +227,105 @@ impl SecretStore for InMemorySecretStore {
         self.guard()?;
         self.entries.lock().unwrap().remove(id);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    /// Items in memory, counting how often one is read — each read being a
+    /// question the keychain may put to the reader.
+    #[derive(Default)]
+    struct Counted {
+        items: Mutex<HashMap<String, String>>,
+        reads: Mutex<u32>,
+        refuse_writes: bool,
+    }
+
+    impl Items for Counted {
+        fn read(&self, name: &str) -> Result<Option<String>, AppError> {
+            *self.reads.lock().unwrap() += 1;
+            Ok(self.items.lock().unwrap().get(name).cloned())
+        }
+        fn write(&self, name: &str, secret: &str) -> Result<(), AppError> {
+            if self.refuse_writes {
+                return Err(AppError::Secret("keychain unavailable".into()));
+            }
+            self.items
+                .lock()
+                .unwrap()
+                .insert(name.into(), secret.into());
+            Ok(())
+        }
+        fn remove(&self, name: &str) -> Result<(), AppError> {
+            self.items.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+
+    fn reads(store: &Bundled<Counted>) -> u32 {
+        *store.items.reads.lock().unwrap()
+    }
+
+    #[test]
+    fn every_secret_is_read_with_one_question() {
+        let store = Bundled::over(Counted::default());
+        store.set("a", "one").unwrap();
+        store.set("b", "two").unwrap();
+
+        let again = Bundled::over(Counted {
+            items: Mutex::new(store.items.items.lock().unwrap().clone()),
+            ..Counted::default()
+        });
+        assert_eq!(again.get("a").unwrap().as_deref(), Some("one"));
+        assert_eq!(again.get("b").unwrap().as_deref(), Some("two"));
+        assert_eq!(again.get("a").unwrap().as_deref(), Some("one"));
+
+        assert_eq!(reads(&again), 1);
+    }
+
+    #[test]
+    fn a_secret_kept_in_an_item_of_its_own_is_moved_into_the_bundle() {
+        let store = Bundled::over(Counted::default());
+        store
+            .items
+            .items
+            .lock()
+            .unwrap()
+            .insert("old".into(), "hunter2".into());
+
+        assert_eq!(store.get("old").unwrap().as_deref(), Some("hunter2"));
+
+        let items = store.items.items.lock().unwrap();
+        assert!(!items.contains_key("old"));
+        let bundle: Secrets = serde_json::from_str(&items[BUNDLE]).unwrap();
+        assert_eq!(bundle["old"], "hunter2");
+    }
+
+    #[test]
+    fn a_deleted_secret_is_gone_from_the_bundle() {
+        let store = Bundled::over(Counted::default());
+        store.set("a", "one").unwrap();
+
+        store.delete("a").unwrap();
+
+        assert_eq!(store.get("a").unwrap(), None);
+        let items = store.items.items.lock().unwrap();
+        assert_eq!(items[BUNDLE], "{}");
+    }
+
+    #[test]
+    fn a_write_the_keychain_refuses_changes_nothing() {
+        let store = Bundled::over(Counted {
+            refuse_writes: true,
+            ..Counted::default()
+        });
+
+        assert!(store.set("a", "one").is_err());
+
+        assert_eq!(store.get("a").unwrap(), None);
     }
 }

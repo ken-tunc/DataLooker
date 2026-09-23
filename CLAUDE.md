@@ -88,7 +88,11 @@ type system is the place for everything a file can be checked for afterwards.
 `src-tauri/migrations/` holds the numbered migration files sqlx applies at startup, so a
 schema change is a new file, never an edit to an existing one. Connection secrets live in
 the OS keychain behind the `SecretStore` trait, which tests swap for an in-memory
-implementation so they never touch the real keychain. The keychain write sits inside the
+implementation so they never touch the real keychain. They are kept in one keychain item
+rather than one per connection, and in memory once read: macOS asks whether the app may
+read an item per item, so one per connection was one question per connection, and again
+after every build that changed the app's signature. A secret saved in an item of its own
+is moved into the one the first time it is read. The keychain write sits inside the
 SQLite transaction, so a keychain failure rolls the row back; a commit that then fails
 still leaves the password changed, which is the floor with two stores that cannot commit
 together, and nothing tries to compensate for it.
