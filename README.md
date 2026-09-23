@@ -52,6 +52,20 @@ A native window titled "DataLooker" opens.
 The sidebar is as wide, and the editor as tall, as the line beside it is dragged to; a
 double-click on the line puts it back.
 
+### Something to look at
+
+`compose.yaml` holds a PostgreSQL with a small shop in it — customers, products, orders, a
+view, a materialized view, a partitioned table, a table with no primary key and a run of
+day-named tables — made from `demo/postgres/` the first time it starts:
+
+```sh
+docker compose --profile demo up -d --wait demo
+```
+
+Add a PostgreSQL connection to `localhost:55433`, database `demo`, user and password
+`demo`. `docker compose --profile demo down -v` throws it away, and the next `up` makes it
+again.
+
 ## Keyboard
 
 | Keys              | What it does                         |
