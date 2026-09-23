@@ -6,6 +6,8 @@ mod framing;
 pub mod install;
 pub mod server;
 mod session;
+#[cfg(test)]
+mod testing;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -206,5 +208,142 @@ mod tests {
         assert!(registry
             .insert(LspSession::for_registry_test("c3"), starting)
             .is_none());
+    }
+}
+
+/// What only a real language server can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use std::env;
+
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use tokio::sync::broadcast;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::db::connection::DriverConfig;
+    use crate::drivers::postgres::testing::var;
+
+    use crate::lsp::server::{self, Server};
+    use crate::lsp::testing::*;
+    use crate::lsp::{LspNotice, LspRegistry, LspSession};
+
+    #[tokio::test]
+    async fn completes_a_statement_out_of_the_database_the_connection_reaches() {
+        let Some((table, database)) = table_or_skip().await else {
+            return;
+        };
+        let Some(session) = started_or_skip("c1").await else {
+            return;
+        };
+        assert!(
+            session.capabilities["completionProvider"].is_object(),
+            "a server that cannot complete is no use here: {}",
+            session.capabilities
+        );
+
+        let notices = broadcast::channel(256).0;
+        let mut heard = notices.subscribe();
+        session.listen(Arc::new(LspRegistry::default()), notices);
+
+        let statement = "SELECT * FROM ";
+        session.send(opened(statement)).expect("the server listens");
+        session
+            .send(completion(1, 0, statement.len() as u32))
+            .expect("the server listens");
+
+        let offered = labels(&answer_to(&mut heard, 1).await);
+        assert!(
+            offered.contains(&table),
+            "the table made for this test is not among {offered:?}"
+        );
+
+        session.stop();
+        let _ = database
+            .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_server_that_is_gone_is_announced_rather_than_waited_for() {
+        let Some((table, database)) = table_or_skip().await else {
+            return;
+        };
+        let Some(session) = started_or_skip("c2").await else {
+            return;
+        };
+
+        let notices = broadcast::channel(256).0;
+        let mut heard = notices.subscribe();
+        session.listen(Arc::new(LspRegistry::default()), notices);
+        session.stop();
+
+        let ended = tokio::time::timeout(ANSWER, heard.recv())
+            .await
+            .expect("an ending rather than a wait")
+            .expect("the channel is open");
+        assert!(matches!(ended, LspNotice::Ended(exit) if exit.connection_id == "c2"));
+
+        let _ = database
+            .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
+            .await;
+    }
+
+    /// The BigQuery server, against the project the BigQuery driver's tests read. It
+    /// completes as whoever the reader is to Google rather than as the
+    /// connection's service account, so it needs their own credentials to be
+    /// there: the three things it skips for are the server, those credentials and
+    /// a project to read.
+    #[tokio::test]
+    async fn completes_a_statement_out_of_a_bigquery_project() {
+        let Ok(project) = env::var("DATALOOKER_TEST_BQ_PROJECT") else {
+            eprintln!("skipping: DATALOOKER_TEST_BQ_PROJECT names no project");
+            return;
+        };
+        let Ok(binary) = server::find(Server::Bqls, Path::new("/nowhere")).await else {
+            eprintln!("skipping: bqls is not installed");
+            return;
+        };
+        let adc = home().join(".config/gcloud/application_default_credentials.json");
+        if !adc.is_file() {
+            eprintln!("skipping: there are no application default credentials to read as");
+            return;
+        }
+
+        let (_, options) = server::for_connection(
+            &DriverConfig::BigQuery {
+                project_id: project.clone(),
+                location: var("DATALOOKER_TEST_BQ_LOCATION", "US"),
+            },
+            "the key bqls is never handed",
+        )
+        .expect("options for BigQuery");
+
+        let session = LspSession::start("c3", &binary, options)
+            .await
+            .expect("a language server that starts");
+        let notices = broadcast::channel(256).0;
+        let mut heard = notices.subscribe();
+        session.listen(Arc::new(LspRegistry::default()), notices);
+
+        // The datasets of the project, which are the reader's rather than this
+        // test's — so what is asserted is that it answered out of the project at
+        // all, not what the project holds.
+        let statement = format!("SELECT * FROM `{project}.`");
+        session
+            .send(opened(&statement))
+            .expect("the server listens");
+        session
+            .send(completion(1, 0, statement.len() as u32 - 1))
+            .expect("the server listens");
+
+        let offered = labels(&answer_to(&mut heard, 1).await);
+        assert!(
+            !offered.is_empty(),
+            "nothing was offered for a project that is there"
+        );
+
+        session.stop();
     }
 }

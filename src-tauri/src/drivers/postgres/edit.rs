@@ -564,3 +564,400 @@ mod tests {
         );
     }
 }
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use serde_json::json;
+    use sqlx::ConnectOptions;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::drivers::postgres::testing::*;
+    use crate::drivers::postgres::{Edits, PostgresSession};
+    use crate::drivers::{Preview, RowDelete, RowInsert, RowUpdate, Sort};
+    use crate::error::AppError;
+
+    /// A save the way the app makes one: planned against the table's shape, then
+    /// run.
+    async fn save(
+        session: &PostgresSession,
+        schema: &str,
+        table: &str,
+        inserts: &[RowInsert],
+        updates: &[RowUpdate],
+        deletes: &[RowDelete],
+    ) -> Result<u32, AppError> {
+        let edits = Edits {
+            inserts,
+            updates,
+            deletes,
+        };
+        let plan = session.plan_edits(schema, table, edits).await?;
+        session.apply_plan(&plan).await
+    }
+
+    /// A table of its own for each edit test: they run at the same time, and a
+    /// schema they shared would be torn down under one of them.
+    async fn edit_table(session: &PostgresSession, schema: &str) {
+        for statement in [
+            format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            format!("CREATE SCHEMA {schema}"),
+            format!(
+                "CREATE TABLE {schema}.people (id int PRIMARY KEY, name text NOT NULL, note text)"
+            ),
+            format!("INSERT INTO {schema}.people VALUES (1, 'Ada', 'first'), (2, 'Grace', NULL)"),
+        ] {
+            run(session, &statement).await.unwrap();
+        }
+    }
+
+    fn update(id: &str, set: &[(&str, Option<&str>)], version: &str) -> RowUpdate {
+        RowUpdate {
+            key: std::collections::HashMap::from([("id".to_string(), Some(id.to_string()))]),
+            set: set
+                .iter()
+                .map(|(column, value)| ((*column).to_string(), value.map(str::to_string)))
+                .collect(),
+            version: version.to_string(),
+        }
+    }
+
+    /// The version of each row of an edit test's table, in `order` order.
+    async fn versions(
+        session: &PostgresSession,
+        schema: &str,
+        table: &str,
+        order: &str,
+    ) -> Vec<String> {
+        session
+            .preview(
+                &Preview {
+                    schema,
+                    table,
+                    filter: "",
+                    sort: Some(&Sort {
+                        column: order.into(),
+                        descending: false,
+                    }),
+                    limit: 10,
+                    offset: 0,
+                    versioned: true,
+                },
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap()
+            .versions
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_logged_save_replays_as_typed_in_a_client_that_reads_backslashes_as_escapes() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_replay").await;
+        let read = versions(&session, "edit_replay", "people", "id").await;
+        let typed = r"C:\temp\new's";
+        let edits = Edits {
+            inserts: &[],
+            updates: &[update("1", &[("name", Some(typed))], &read[0])],
+            deletes: &[],
+        };
+        let script = session
+            .plan_edits("edit_replay", "people", edits)
+            .await
+            .unwrap()
+            .script();
+
+        // Pasted into psql, which sends it as a simple query, by a reader who
+        // has turned standard strings off.
+        let mut psql = sqlx::postgres::PgConnectOptions::new()
+            .host(&var("DATALOOKER_TEST_PG_HOST", "localhost"))
+            .port(var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap())
+            .database(&var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"))
+            .username(&var("DATALOOKER_TEST_PG_USERNAME", "datalooker"))
+            .password(&var("DATALOOKER_TEST_PG_PASSWORD", "datalooker"))
+            .connect()
+            .await
+            .unwrap();
+        // A query of its own: a simple query is parsed whole before any of it
+        // runs, so a setting beside the script would come too late for it.
+        sqlx::raw_sql("SET standard_conforming_strings = off")
+            .execute(&mut psql)
+            .await
+            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+            .execute(&mut psql)
+            .await
+            .unwrap();
+
+        let name = run(&session, "SELECT name FROM edit_replay.people WHERE id = 1")
+            .await
+            .unwrap();
+        assert_eq!(name.rows, vec![vec![json!(typed)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_edit_writes_the_value_the_reader_typed() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_write").await;
+
+        let read = versions(&session, "edit_write", "people", "id").await;
+
+        let applied = save(
+            &session,
+            "edit_write",
+            "people",
+            &[],
+            &[
+                update("1", &[("name", Some("Ada Lovelace"))], &read[0]),
+                update("2", &[("note", Some("added"))], &read[1]),
+            ],
+            &[],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(applied, 2);
+        let rows = run(
+            &session,
+            "SELECT name, note FROM edit_write.people ORDER BY id",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rows.rows,
+            vec![
+                vec![json!("Ada Lovelace"), json!("first")],
+                vec![json!("Grace"), json!("added")],
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_row_that_changed_underneath_saves_nothing_at_all() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_conflict").await;
+
+        let read = versions(&session, "edit_conflict", "people", "id").await;
+        // Someone else writes to Grace after the page was read, which is what
+        // makes the second update below stale.
+        run(
+            &session,
+            "UPDATE edit_conflict.people SET note = 'theirs' WHERE id = 2",
+        )
+        .await
+        .unwrap();
+
+        let refused = save(
+            &session,
+            "edit_conflict",
+            "people",
+            &[],
+            &[
+                update("1", &[("name", Some("Written"))], &read[0]),
+                update("2", &[("name", Some("Hopper"))], &read[1]),
+            ],
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+        let rows = run(
+            &session,
+            "SELECT name FROM edit_conflict.people ORDER BY id",
+        )
+        .await
+        .unwrap();
+        assert_eq!(rows.rows, vec![vec![json!("Ada")], vec![json!("Grace")]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_value_the_column_cannot_hold_is_the_database_saying_so() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_bad_value").await;
+
+        let err = save(
+            &session,
+            "edit_bad_value",
+            "people",
+            &[],
+            &[update("1", &[("id", Some("not a number"))], "1")],
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("invalid input syntax"), "{message}");
+        // The session survived the rejection.
+        assert_eq!(
+            run(&session, "SELECT count(*) FROM edit_bad_value.people")
+                .await
+                .unwrap()
+                .rows,
+            vec![vec![json!(2)]]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_table_without_a_primary_key_cannot_name_a_row() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_no_key").await;
+        run(&session, "CREATE TABLE edit_no_key.notes (body text)")
+            .await
+            .unwrap();
+
+        let shape = session.shape("edit_no_key", "notes").await.unwrap();
+        assert!(shape.primary_key.is_empty());
+
+        let refused = save(
+            &session,
+            "edit_no_key",
+            "notes",
+            &[],
+            &[update("1", &[("body", Some("x"))], "1")],
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_shape_says_what_a_row_is_named_by_and_what_its_columns_hold() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_shape").await;
+
+        let shape = session.shape("edit_shape", "people").await.unwrap();
+
+        assert_eq!(shape.primary_key, ["id"]);
+        assert_eq!(shape.types.get("id").map(String::as_str), Some("integer"));
+        assert_eq!(shape.types.get("note").map(String::as_str), Some("text"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_save_adds_and_removes_rows_in_one_go() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_rows").await;
+        let read = versions(&session, "edit_rows", "people", "id").await;
+
+        let applied = save(
+            &session,
+            "edit_rows",
+            "people",
+            &[RowInsert {
+                values: std::collections::HashMap::from([
+                    ("id".to_string(), Some("3".to_string())),
+                    ("name".to_string(), Some("Katherine".to_string())),
+                ]),
+            }],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([("id".to_string(), Some("1".to_string()))]),
+                version: read[0].clone(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(applied, 2);
+        let rows = run(
+            &session,
+            "SELECT id, name, note FROM edit_rows.people ORDER BY id",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rows.rows,
+            vec![
+                vec![json!(2), json!("Grace"), serde_json::Value::Null],
+                // A column the insert left out took what the table gives it.
+                vec![json!(3), json!("Katherine"), serde_json::Value::Null],
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_row_deleted_from_under_the_reader_saves_nothing() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        edit_table(&session, "edit_gone").await;
+        let read = versions(&session, "edit_gone", "people", "id").await;
+        run(&session, "DELETE FROM edit_gone.people WHERE id = 2")
+            .await
+            .unwrap();
+
+        let refused = save(
+            &session,
+            "edit_gone",
+            "people",
+            &[],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([("id".to_string(), Some("2".to_string()))]),
+                version: read[1].clone(),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+    }
+
+    /// Two rows written by one transaction share an `xmin`, so a key that names
+    /// only part of the primary key would match both of them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn half_a_primary_key_names_no_row_at_all() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS edit_half CASCADE",
+            "CREATE SCHEMA edit_half",
+            "CREATE TABLE edit_half.sales (region text, day date, total int, PRIMARY KEY (region, day))",
+            "INSERT INTO edit_half.sales VALUES ('north', '2026-09-20', 1), ('north', '2026-09-21', 2)",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+        let read = versions(&session, "edit_half", "sales", "day").await;
+
+        let refused = save(
+            &session,
+            "edit_half",
+            "sales",
+            &[],
+            &[],
+            &[RowDelete {
+                key: std::collections::HashMap::from([(
+                    "region".to_string(),
+                    Some("north".to_string()),
+                )]),
+                version: read[0].clone(),
+            }],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(refused, AppError::Conflict(_)), "{refused}");
+        let rows = run(&session, "SELECT count(*) FROM edit_half.sales")
+            .await
+            .unwrap();
+        assert_eq!(rows.rows, vec![vec![json!(2)]]);
+    }
+}

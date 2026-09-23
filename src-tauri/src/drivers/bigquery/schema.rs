@@ -170,3 +170,75 @@ mod tests {
         assert_eq!(kind_of(None), TableKind::Table);
     }
 }
+
+/// What only a real BigQuery project can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+
+    use crate::drivers::bigquery::testing::*;
+
+    use crate::drivers::TableKind;
+
+    #[tokio::test]
+    async fn a_project_says_which_datasets_hold_which_tables() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "tree").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE TABLE {name}.people (id INT64, name STRING)"
+            ))
+            .await;
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE VIEW {name}.names AS SELECT name FROM {name}.people"
+            ))
+            .await;
+
+        let tree = dataset.session.schema_tree().await.expect("the tree");
+
+        let found = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == name)
+            .expect("the dataset just made is in the tree");
+        let tables: Vec<(&str, &TableKind)> = found
+            .tables
+            .iter()
+            .map(|table| (table.name.as_str(), &table.kind))
+            .collect();
+        assert_eq!(
+            tables,
+            [("names", &TableKind::View), ("people", &TableKind::Table)]
+        );
+
+        // What a table holds is asked for on its own, in the order it was written.
+        let columns: Vec<(String, String, bool)> = dataset
+            .session
+            .columns(&name, "people")
+            .await
+            .expect("the columns")
+            .into_iter()
+            .map(|column| (column.name, column.data_type, column.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("id".to_string(), "INT64".to_string(), true),
+                ("name".to_string(), "STRING".to_string(), true)
+            ]
+        );
+
+        // A table nobody has holds nothing, rather than failing.
+        assert!(dataset
+            .session
+            .columns(&name, "nothing")
+            .await
+            .expect("no columns")
+            .is_empty());
+
+        dataset.drop_it().await;
+    }
+}

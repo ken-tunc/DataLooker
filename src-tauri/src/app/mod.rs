@@ -91,13 +91,11 @@ impl App {
 
 #[cfg(test)]
 pub mod tests {
-    use std::net::{TcpStream, ToSocketAddrs};
-    use std::time::Duration;
-
     use super::*;
     use crate::app::connections::SaveConnectionInput;
     use crate::db::connection::DriverConfig;
     use crate::db::open_in_memory;
+    use crate::drivers::postgres::testing::{config, listening};
     use crate::secrets::InMemorySecretStore;
 
     pub async fn app() -> App {
@@ -108,24 +106,16 @@ pub mod tests {
         )
     }
 
-    fn var(name: &str, fallback: &str) -> String {
-        std::env::var(name).unwrap_or_else(|_| fallback.to_string())
-    }
-
     /// An app with one connection saved, reaching the PostgreSQL of
     /// `compose.yaml` — or nothing, when nothing is listening there. What an
     /// `App` does with the sessions it holds is a question only a server can
     /// answer, so these tests drive the same methods the window does.
     pub async fn app_reaching_postgres() -> Option<(App, String)> {
-        let (host, port) = (
-            var("DATALOOKER_TEST_PG_HOST", "localhost"),
-            var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap(),
-        );
-        let listening = (host.as_str(), port)
-            .to_socket_addrs()
-            .ok()?
-            .any(|address| TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok());
-        if !listening {
+        let (config, password) = config();
+        let DriverConfig::Postgres { host, port, .. } = &config else {
+            unreachable!("the compose database is a PostgreSQL");
+        };
+        if !listening(host, *port) {
             eprintln!("skipping: nothing is listening on {host}:{port}");
             return None;
         }
@@ -135,13 +125,8 @@ pub mod tests {
             .save_connection(SaveConnectionInput {
                 id: None,
                 label: "Test".into(),
-                config: DriverConfig::Postgres {
-                    host,
-                    port,
-                    database: var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"),
-                    username: var("DATALOOKER_TEST_PG_USERNAME", "datalooker"),
-                },
-                secret: Some(var("DATALOOKER_TEST_PG_PASSWORD", "datalooker")),
+                config,
+                secret: Some(password),
                 command: None,
             })
             .await

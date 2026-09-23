@@ -150,3 +150,107 @@ mod tests {
         assert!(!sql.contains("WHERE"), "{sql}");
     }
 }
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::drivers::postgres::testing::*;
+    use crate::drivers::postgres::PostgresSession;
+    use crate::drivers::{Preview, Sort, TablePage};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_preview_reads_one_page_of_a_table_in_order() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        run(&session, "DROP SCHEMA IF EXISTS preview_test CASCADE")
+            .await
+            .unwrap();
+        run(&session, "CREATE SCHEMA preview_test").await.unwrap();
+        run(
+            &session,
+            "CREATE TABLE preview_test.numbers AS SELECT n, n % 2 = 0 AS even FROM generate_series(1, 10) AS n",
+        )
+        .await
+        .unwrap();
+
+        async fn page(
+            session: &PostgresSession,
+            page: usize,
+            filter: &str,
+            sort: Option<Sort>,
+        ) -> TablePage {
+            session
+                .preview(
+                    &Preview {
+                        schema: "preview_test",
+                        table: "numbers",
+                        filter,
+                        sort: sort.as_ref(),
+                        limit: 4,
+                        offset: page * 4,
+                        versioned: false,
+                    },
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap()
+        }
+
+        let first = page(
+            &session,
+            0,
+            "",
+            Some(Sort {
+                column: "n".into(),
+                descending: false,
+            }),
+        )
+        .await;
+        assert_eq!(
+            first
+                .result
+                .rows
+                .iter()
+                .map(|row| row[0].clone())
+                .collect::<Vec<_>>(),
+            [json!(1), json!(2), json!(3), json!(4)]
+        );
+        assert!(first.result.truncated);
+
+        let second = page(
+            &session,
+            1,
+            "",
+            Some(Sort {
+                column: "n".into(),
+                descending: false,
+            }),
+        )
+        .await;
+        assert_eq!(second.result.rows[0][0], json!(5));
+
+        let filtered = page(&session, 0, "even", None).await;
+        assert_eq!(filtered.result.rows.len(), 4);
+        assert!(filtered.result.rows.iter().all(|row| row[1] == json!(true)));
+
+        let descending = page(
+            &session,
+            0,
+            "",
+            Some(Sort {
+                column: "n".into(),
+                descending: true,
+            }),
+        )
+        .await;
+        assert_eq!(descending.result.rows[0][0], json!(10));
+
+        run(&session, "DROP SCHEMA preview_test CASCADE")
+            .await
+            .unwrap();
+    }
+}

@@ -3,6 +3,8 @@ mod edit;
 mod preview;
 mod query;
 mod schema;
+#[cfg(test)]
+pub(crate) mod testing;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -263,4 +265,115 @@ async fn connect(options: &PgConnectOptions) -> Result<PgConnection, AppError> {
 /// like `weird"name` stays one identifier instead of ending the quoting.
 fn quote(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use std::time::Duration;
+
+    use serde_json::json;
+    use tokio_util::sync::CancellationToken;
+
+    use crate::drivers::postgres::testing::*;
+
+    use crate::error::AppError;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_outlives_the_statement_that_set_it_up() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+
+        run(&session, "CREATE TEMPORARY TABLE scratch (n int)")
+            .await
+            .unwrap();
+        run(&session, "INSERT INTO scratch VALUES (1), (2)")
+            .await
+            .unwrap();
+
+        let result = run(&session, "SELECT count(*) FROM scratch").await.unwrap();
+
+        assert_eq!(result.rows, vec![vec![json!(2)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_rejected_statement_leaves_the_session_usable() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        run(&session, "CREATE TEMPORARY TABLE scratch (n int)")
+            .await
+            .unwrap();
+
+        let err = run(&session, "SELEC 1").await.unwrap_err();
+
+        assert!(matches!(err, AppError::Database(_)), "{err}");
+        let result = run(&session, "SELECT count(*) FROM scratch").await.unwrap();
+        assert_eq!(result.rows, vec![vec![json!(0)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_query_stops_and_the_next_one_reconnects() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        let cancel = CancellationToken::new();
+        let waiting = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            waiting.cancel();
+        });
+
+        let err = session
+            .execute("SELECT pg_sleep(30)", ROW_LIMIT, &cancel)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Cancelled), "{err}");
+        // The cancelled connection was thrown away, so this opens a new one.
+        let result = run(&session, "SELECT 1 AS one").await.unwrap();
+        assert_eq!(result.rows, vec![vec![json!(1)]]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        let session = std::sync::Arc::new(session);
+        let cancel = CancellationToken::new();
+
+        let slow = tokio::spawn({
+            let session = session.clone();
+            let cancel = cancel.clone();
+            async move {
+                session
+                    .execute("SELECT pg_sleep(5)", ROW_LIMIT, &cancel)
+                    .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let waiting = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .execute(
+                        "SELECT 'behind' AS marker",
+                        ROW_LIMIT,
+                        &CancellationToken::new(),
+                    )
+                    .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        cancel.cancel();
+
+        assert!(matches!(
+            slow.await.unwrap().unwrap_err(),
+            AppError::Cancelled
+        ));
+        let behind = waiting.await.unwrap().unwrap();
+        assert_eq!(behind.rows, vec![vec![json!("behind")]]);
+    }
 }

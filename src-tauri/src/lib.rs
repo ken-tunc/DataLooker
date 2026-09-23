@@ -1,12 +1,12 @@
-pub mod app;
+mod app;
 mod commands;
-pub mod db;
-pub mod drivers;
-pub mod error;
-pub mod lsp;
-pub mod mcp;
+mod db;
+mod drivers;
+mod error;
+mod lsp;
+mod mcp;
 mod secrets;
-pub mod shell;
+mod shell;
 
 use tauri::Manager;
 
