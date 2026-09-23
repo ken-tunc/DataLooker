@@ -104,13 +104,12 @@ jobs:
               exit 1
             fi
           elif git rev-parse --verify --quiet "refs/tags/$tag" > /dev/null; then
-            if git diff --quiet "$tag" HEAD -- bigquery-analyzer ':!bigquery-analyzer/**.md' ':!bigquery-analyzer/*.md'; then
-              echo "$tag is what the helper is already."
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
+            if ! git diff --quiet "$tag" HEAD -- bigquery-analyzer ':!bigquery-analyzer/**.md' ':!bigquery-analyzer/*.md'; then
+              echo "The helper changed since $tag: raise kVersion in main.cc to publish it." >&2
+              exit 1
             fi
-            echo "The helper changed since $tag: raise kVersion in main.cc to publish it." >&2
-            exit 1
+            # The code is the tag's. Whether it was published is the Release's
+            # to say: the run the tag started can have failed before that.
           fi
 
           # A Release already there is one a run before this one published.
@@ -154,8 +153,11 @@ jobs:
           set -euo pipefail
           # Seven gigabytes of memory and three cores: two compilers at once
           # is as many as fit without the machine swapping.
-          bazel build -c opt --strip=always --jobs=2 //:datalooker-bigquery-analyzer
-          built="$(bazel info -c opt execution_root)/$(bazel cquery -c opt --output=files //:datalooker-bigquery-analyzer)"
+          flags=(-c opt --strip=always)
+          bazel build "${flags[@]}" --jobs=2 //:datalooker-bigquery-analyzer
+          # Asked under the same flags as the build, which is what says where
+          # the build put it.
+          built="$(bazel info "${flags[@]}" execution_root)/$(bazel cquery "${flags[@]}" --output=files //:datalooker-bigquery-analyzer)"
           # It has to answer, and as the version it is published as.
           printf 'Content-Length: 41\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"hello"}' |
             "$built" | grep -q "\"version\":\"${{ needs.decide.outputs.version }}\""
