@@ -3,6 +3,8 @@
 //! nothing it holds is a connection's — and is started the first time it is
 //! asked something. Its protocol is in `bigquery-analyzer/README.md`.
 
+pub mod fetch;
+
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;

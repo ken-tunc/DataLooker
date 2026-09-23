@@ -342,7 +342,16 @@ any driver could answer in it. A statement the helper cannot read yet, such as
 one with no `FROM`, is offered nothing.
 
 `DATALOOKER_BQ_ANALYZER_BIN` names a helper directly; otherwise it is the one
-under the app's data directory.
+under the app's data directory, which the editor's footer offers to fetch.
+Fetched rather than built, unlike `sqls`:
+building it compiles GoogleSQL, which is most of an hour and a toolchain no
+reader has. `analyzer/fetch.rs` writes down the one build the app was made
+against and its hash, and checks what arrives against the hash before
+unpacking any of it. That build is a Release `.github/workflows/analyzer.yml`
+publishes when a change to the helper reaches `main` under a version not yet
+published — built on a Mac, which takes hours on the free runner, and so only
+then. The address and hash are therefore changed after the helper is, in a
+change of their own, together with the version `analyzer/mod.rs` expects.
 
 `wordBasedSuggestions` is off: what a server says is the only thing offered,
 and Monaco's own suggestions are the words already in the statement. The

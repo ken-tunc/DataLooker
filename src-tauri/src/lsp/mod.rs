@@ -27,8 +27,10 @@ pub enum LanguageServerState {
     /// There is a server to talk to.
     Ready,
     /// This connection has one, and it is not installed. Named, because it is
-    /// what the offer to build one is an offer of.
-    Missing { server: String },
+    /// what the offer to install one is an offer of — and said whether it is
+    /// downloaded or built with the reader's own toolchain, which is worth
+    /// knowing before waiting for it.
+    Missing { server: String, downloaded: bool },
     /// The reader named a server themselves and it is not there. Building one
     /// would change nothing: the name they set is what is read first.
     Named { message: String },

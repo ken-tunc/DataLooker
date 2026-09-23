@@ -25,9 +25,13 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
       type="button"
       className="btn btn-ghost btn-xs"
       disabled={install.isPending}
-      // The build is the reader's toolchain doing it, which is worth saying
-      // before they wait a minute for it.
-      title={`Completion needs ${state.data.server}. DataLooker builds it with your Go toolchain.`}
+      // Where it comes from is worth saying before the reader waits for it: a
+      // build is their own toolchain doing it.
+      title={`Completion needs ${state.data.server}. ${
+        state.data.downloaded
+          ? "DataLooker downloads it."
+          : "DataLooker builds it with your Go toolchain."
+      }`}
       onClick={() =>
         install.mutate(undefined, {
           onError: (error) => show(describeError(error), "error"),
@@ -37,7 +41,7 @@ export function InstallServer({ connectionId }: { connectionId: string }) {
       {install.isPending ? (
         <>
           <span className="loading loading-spinner loading-xs" />
-          Building {state.data.server}…
+          {state.data.downloaded ? "Downloading" : "Building"} {state.data.server}…
         </>
       ) : (
         `Install ${state.data.server} for completion`

@@ -114,6 +114,7 @@ impl App {
             Ok(()) => LanguageServerState::Ready,
             Err(AppError::NotFound(_)) => LanguageServerState::Missing {
                 server: binary.to_string(),
+                downloaded: binary == analyzer::BINARY,
             },
             // Anything else is the reader's own setting being wrong, which
             // installing a server would not put right.
@@ -130,11 +131,10 @@ impl App {
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
         let Some(server) = Server::of(&record.config) else {
-            return Err(AppError::Unsupported(format!(
-                "{} cannot be fetched yet. Build it from bigquery-analyzer/ and name it in \
-                 DATALOOKER_BQ_ANALYZER_BIN.",
-                analyzer::BINARY
-            )));
+            // A connection with no language server is completed by the
+            // analyzer, which is downloaded rather than built.
+            analyzer::fetch::fetch(&self.servers()).await?;
+            return Ok(());
         };
         let into = self.servers();
         std::fs::create_dir_all(&into)

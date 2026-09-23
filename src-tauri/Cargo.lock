@@ -708,6 +708,7 @@ name = "datalooker"
 version = "0.0.0"
 dependencies = [
  "apple-native-keyring-store",
+ "flate2",
  "futures-util",
  "gcp-bigquery-client",
  "http",
@@ -717,9 +718,11 @@ dependencies = [
  "keyring-core",
  "nix",
  "pg_query",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tauri",
  "tauri-build",
