@@ -333,7 +333,9 @@ Every run is logged to meta.db, whatever became of it: a statement that failed o
 cancelled is the one a reader most wants back. Nothing in the log is collapsed, because it
 is the record of what was run against a database and when — the palette behind ⌘Y is what
 collapses it, offering the newest run of each distinct statement and opening it in a tab of
-its own. Only the newest runs of a connection are kept, so a long-lived `meta.db` stays
+its own. A save from a table's grid is logged too, as the statements it ran with each value
+written in as the literal it was bound as — it is a write to the reader's database, and
+the one a reader most needs to find again. Only the newest runs of a connection are kept, so a long-lived `meta.db` stays
 bounded. A log that cannot be written never fails the query it describes: the rows are
 already in hand, and there is nothing the reader could do about it.
 

@@ -12,10 +12,9 @@ use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::drivers::postgres::edit::Edits;
+pub use crate::drivers::postgres::edit::{Edits, Plan};
 use crate::drivers::{
-    Column, DriverError, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree,
-    TableDefinition, TablePage, TableShape,
+    Column, DriverError, Preview, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 
@@ -152,25 +151,24 @@ impl PostgresSession {
             .await
     }
 
-    /// Applies everything one save carries in one transaction and resolves to
-    /// how many rows it changed — which is how the caller learns that one of
-    /// them matched nothing because the row had moved on.
-    pub async fn apply_edits(
+    /// The statements a save would run. The shape is the catalog's, so it is
+    /// read there; nothing touches the reader's connection until it runs.
+    pub async fn plan_edits(
         &self,
         schema: &str,
         table: &str,
-        inserts: &[RowInsert],
-        updates: &[RowUpdate],
-        deletes: &[RowDelete],
-    ) -> Result<u32, AppError> {
+        edits: Edits<'_>,
+    ) -> Result<Plan, AppError> {
+        let shape = self.shape(schema, table).await?;
+        Ok(edit::plan(&shape, schema, table, edits)?)
+    }
+
+    /// Runs a save in one transaction and resolves to how many rows it
+    /// changed — which is how the caller learns that one of them matched
+    /// nothing because the row had moved on.
+    pub async fn apply_plan(&self, plan: &Plan) -> Result<u32, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
-            let shape = edit::shape(conn, schema, table).await?;
-            let edits = Edits {
-                inserts,
-                updates,
-                deletes,
-            };
-            edit::apply(conn, &shape, schema, table, edits).await
+            edit::apply(conn, plan).await
         })
         .await
     }

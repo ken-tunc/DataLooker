@@ -22,22 +22,27 @@ impl App {
         connection_id: &str,
         sql: &str,
         elapsed: Duration,
-        result: &Result<QueryResult, AppError>,
+        rows: Result<u32, &AppError>,
         source: Source,
     ) {
         let run = QueryRun {
             connection_id,
             sql,
             duration_ms: elapsed.as_millis().try_into().unwrap_or(u32::MAX),
-            row_count: result
-                .as_ref()
-                .ok()
-                .map(|result| u32::try_from(result.rows.len()).unwrap_or(u32::MAX)),
-            error: result.as_ref().err().map(ToString::to_string),
+            row_count: rows.as_ref().ok().copied(),
+            error: rows.err().map(ToString::to_string),
             source,
         };
         let _ = history::record(&self.pool, &run).await;
     }
+}
+
+/// What a statement's run leaves in the log: how many rows it came back with,
+/// or why it did not.
+pub(super) fn rows_returned(result: &Result<QueryResult, AppError>) -> Result<u32, &AppError> {
+    result
+        .as_ref()
+        .map(|result| u32::try_from(result.rows.len()).unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]
@@ -76,7 +81,7 @@ mod tests {
             "c1",
             "SELECT 1",
             Duration::from_millis(7),
-            &Err(AppError::Cancelled),
+            Err(&AppError::Cancelled),
             Source::Reader,
         )
         .await;
@@ -96,7 +101,7 @@ mod tests {
             "ghost",
             "SELECT 1",
             Duration::ZERO,
-            &Err(AppError::Cancelled),
+            Err(&AppError::Cancelled),
             Source::Reader,
         )
         .await;

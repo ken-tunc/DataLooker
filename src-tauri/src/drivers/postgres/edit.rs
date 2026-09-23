@@ -39,17 +39,29 @@ pub async fn shape(
     Ok(TableShape { types, primary_key })
 }
 
-/// Applies everything the reader changed in one transaction: what they asked
-/// for is one change to the table, not a handful that might half happen.
-/// Deletions go first and additions last, so that a row can be replaced by
-/// another with the same key in a single save.
-pub async fn apply(
-    conn: &mut PgConnection,
+/// The statements one save runs, in the order it runs them. Deletions go
+/// first and additions last, so that a row can be replaced by another with the
+/// same key in a single save.
+pub struct Plan(Vec<Statement>);
+
+impl Plan {
+    /// The statements as they could be read back or run by hand: each value
+    /// written where its placeholder was, as the literal it was bound as.
+    pub fn script(&self) -> String {
+        self.0
+            .iter()
+            .map(|statement| format!("{};", statement.rendered()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+pub fn plan(
     shape: &TableShape,
     schema: &str,
     table: &str,
     edits: Edits<'_>,
-) -> Result<u32, DriverError> {
+) -> Result<Plan, DriverError> {
     if shape.primary_key.is_empty() {
         return Err(DriverError::Refused(format!(
             "{schema}.{table} has no primary key, so a row cannot be named"
@@ -68,7 +80,12 @@ pub async fn apply(
     for insert in edits.inserts {
         statements.push(Statement::insert(shape, schema, table, insert));
     }
+    Ok(Plan(statements))
+}
 
+/// Runs a save in one transaction: what the reader asked for is one change to
+/// the table, not a handful that might half happen.
+pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverError> {
     // The session is the editor's, so the reader may have left a transaction
     // open on it. sqlx counts only the transactions it began itself: `begin`
     // would send a second `BEGIN`, which PostgreSQL merely warns about, and the
@@ -95,10 +112,10 @@ pub async fn apply(
     let mut tx = conn.begin().await?;
     let mut applied = 0;
 
-    for statement in statements {
-        let mut query = sqlx::query(AssertSqlSafe(statement.sql));
-        for value in statement.values {
-            query = query.bind(value);
+    for statement in &plan.0 {
+        let mut query = sqlx::query(AssertSqlSafe(statement.sql.clone()));
+        for value in &statement.values {
+            query = query.bind(value.clone());
         }
         // One row is the only outcome that means what was asked for; dropping
         // the transaction here puts the statements before it back as well.
@@ -130,6 +147,34 @@ struct Statement {
 }
 
 impl Statement {
+    /// Each `$n` replaced by its value as a quoted literal, the cast after it
+    /// left where it was — so a value reads, and parses, as the text it was
+    /// bound as. The statement is ours, so the only other place a `$` can be
+    /// is inside a quoted identifier, which is copied as it stands.
+    fn rendered(&self) -> String {
+        let mut out = String::with_capacity(self.sql.len());
+        let mut chars = self.sql.chars().peekable();
+        let mut quoted = false;
+        while let Some(c) = chars.next() {
+            if c == '"' {
+                // A doubled quote inside an identifier closes and reopens it,
+                // which leaves it quoted.
+                quoted = !quoted;
+                out.push(c);
+            } else if c == '$' && !quoted {
+                let mut digits = String::new();
+                while let Some(d) = chars.next_if(char::is_ascii_digit) {
+                    digits.push(d);
+                }
+                let index: usize = digits.parse().expect("a placeholder is numbered");
+                out.push_str(&literal(&self.values[index - 1]));
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
     fn insert(shape: &TableShape, schema: &str, table: &str, insert: &RowInsert) -> Self {
         let mut values = Vec::new();
         let columns = sorted(&insert.values);
@@ -259,6 +304,15 @@ fn names_one_row(
         "a row is named by ({}), so nothing was saved",
         shape.primary_key.join(", ")
     )))
+}
+
+/// `standard_conforming_strings` has been on by default since PostgreSQL 9.1,
+/// so a quote is the one character a literal has to escape.
+fn literal(value: &Option<String>) -> String {
+    match value {
+        Some(text) => format!("'{}'", text.replace('\'', "''")),
+        None => "NULL".into(),
+    }
 }
 
 /// A value is cast to its column's type, which PostgreSQL printed for us.
@@ -427,6 +481,54 @@ mod tests {
             statement.values,
             [Some("7".to_string()), Some("4242".to_string())]
         );
+    }
+
+    #[test]
+    fn a_save_reads_back_as_the_statements_it_ran() {
+        let edits = Edits {
+            inserts: &[RowInsert {
+                values: HashMap::from([("name".into(), Some("O'Brien".into()))]),
+            }],
+            updates: &[update()],
+            deletes: &[RowDelete {
+                key: HashMap::from([("id".into(), Some("8".into()))]),
+                version: "4243".into(),
+            }],
+        };
+
+        let script = plan(&shape(), "shop", "products", edits).unwrap().script();
+
+        assert_eq!(
+            script,
+            concat!(
+                r#"DELETE FROM "shop"."products""#,
+                r#" WHERE "id" IS NOT DISTINCT FROM '8'::bigint AND xmin = '4243'::xid;"#,
+                "\n",
+                r#"UPDATE "shop"."products" SET "price" = '12.50'::numeric(10,2)"#,
+                r#" WHERE "id" IS NOT DISTINCT FROM '7'::bigint AND xmin = '4242'::xid;"#,
+                "\n",
+                r#"INSERT INTO "shop"."products" ("name") VALUES ('O''Brien'::text);"#,
+            )
+        );
+    }
+
+    #[test]
+    fn a_placeholder_is_read_whole_and_never_inside_a_name() {
+        let statement = Statement {
+            sql: r#"UPDATE "t" SET "a$1" = $1::text, "b""$2" = $10::text WHERE x = $2::text"#
+                .into(),
+            values: (1..=10).map(|n| Some(n.to_string())).collect(),
+        };
+
+        assert_eq!(
+            statement.rendered(),
+            r#"UPDATE "t" SET "a$1" = '1'::text, "b""$2" = '10'::text WHERE x = '2'::text"#
+        );
+    }
+
+    #[test]
+    fn a_null_is_written_as_null() {
+        assert_eq!(literal(&None), "NULL");
     }
 
     #[test]
