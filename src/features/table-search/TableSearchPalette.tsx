@@ -34,7 +34,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
         tree.isPending ? (
           <p className="text-base-content/60 p-2 text-sm">Reading the schema…</p>
         ) : tree.isError ? (
-          <div role="alert" className="alert alert-error text-sm">
+          <div role="alert" className="alert alert-soft alert-error text-sm">
             <span className="truncate">{describeError(tree.error)}</span>
           </div>
         ) : null

@@ -75,7 +75,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
       {tree.isError && (
         <div
           role="alert"
-          className="alert alert-error alert-vertical m-2 justify-items-start text-start text-sm"
+          className="alert alert-soft alert-error alert-vertical m-2 justify-items-start text-start text-sm"
         >
           <span className="wrap-anywhere">{describeError(tree.error)}</span>
           <button type="button" className="btn btn-xs" onClick={() => tree.refetch()}>

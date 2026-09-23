@@ -22,7 +22,7 @@ export function TableStructure({ connectionId, schema, table }: Props) {
 
   if (definition.isError) {
     return (
-      <div role="alert" className="alert alert-error">
+      <div role="alert" className="alert alert-soft alert-error">
         <span className="font-mono text-sm">{describeError(definition.error)}</span>
       </div>
     );

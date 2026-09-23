@@ -67,7 +67,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
   return (
     <dialog
       ref={dialog}
-      className="modal"
+      className="modal backdrop-blur-sm"
       onClose={onClose}
       // Escape and the backdrop would unmount the dialog mid-save, and the
       // mutation's callbacks go with it — no toast, no refreshed list.

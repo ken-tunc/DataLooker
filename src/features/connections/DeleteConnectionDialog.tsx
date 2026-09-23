@@ -18,7 +18,7 @@ export function DeleteConnectionDialog({ connection, pending, onConfirm, onClose
   return (
     <dialog
       ref={dialog}
-      className="modal"
+      className="modal backdrop-blur-sm"
       onClose={onClose}
       // Escape and the backdrop would unmount the dialog mid-delete, and the
       // mutation's callbacks go with it — no toast, no refreshed list.

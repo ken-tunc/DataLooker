@@ -34,7 +34,7 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
         history.isPending ? (
           <p className="text-base-content/60 p-2 text-sm">Reading the history…</p>
         ) : history.isError ? (
-          <div role="alert" className="alert alert-error text-sm">
+          <div role="alert" className="alert alert-soft alert-error text-sm">
             <span className="truncate">{describeError(history.error)}</span>
           </div>
         ) : null
@@ -46,7 +46,7 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
           {/* Whose run this was, said only where it was not the reader's: the
               log is mostly theirs, and a mark on every line marks nothing. */}
           {entry.source === "agent" && (
-            <span className="badge badge-ghost badge-xs shrink-0">agent</span>
+            <span className="badge badge-soft badge-secondary badge-xs shrink-0">agent</span>
           )}
           <span className="grow" />
           <span className="shrink-0 text-xs">
