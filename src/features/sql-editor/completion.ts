@@ -115,7 +115,10 @@ export function analyzerCompleter(
     const names =
       answer.kind === "names"
         ? offered(answer.candidates, answer.expected_type)
-        : tablesAfter(answer.path, await tree(), project);
+        : // A tree that cannot be read is tables that cannot be offered.
+          await tree()
+            .then((schema) => tablesAfter(answer.path, schema, project))
+            .catch(() => []);
     const start = model.getPositionAt(answer.replace.start);
     const end = model.getPositionAt(answer.replace.end);
     const range = {

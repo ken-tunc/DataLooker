@@ -105,18 +105,26 @@ fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppErr
         "{BINARY}.{}.partial",
         uuid::Uuid::new_v4().simple()
     ));
-    let mut file = std::fs::File::create(&partial).map_err(written)?;
-    file.write_all(&unpacked).map_err(written)?;
-    file.sync_all().map_err(written)?;
+    let placed = place(&unpacked, &partial, &into.join(BINARY));
+    if placed.is_err() {
+        // A file of this install's own that nothing will look for again.
+        let _ = std::fs::remove_file(&partial);
+    }
+    placed.map_err(written)
+}
+
+/// Write `content` to `partial`, make it runnable, and move it to `binary`.
+fn place(content: &[u8], partial: &Path, binary: &Path) -> std::io::Result<PathBuf> {
+    let mut file = std::fs::File::create(partial)?;
+    file.write_all(content)?;
+    file.sync_all()?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))
-            .map_err(written)?;
+        std::fs::set_permissions(partial, std::fs::Permissions::from_mode(0o755))?;
     }
-    let binary = into.join(BINARY);
-    std::fs::rename(&partial, &binary).map_err(written)?;
-    Ok(binary)
+    std::fs::rename(partial, binary)?;
+    Ok(binary.to_path_buf())
 }
 
 #[cfg(test)]
@@ -164,6 +172,23 @@ mod tests {
             [BINARY],
             "something beside the binary was left behind"
         );
+        std::fs::remove_dir_all(&into).ok();
+    }
+
+    #[test]
+    fn an_install_that_cannot_be_moved_into_place_leaves_nothing_behind() {
+        let packed = packed(b"#!/bin/sh\n");
+        let hash = format!("{:x}", Sha256::digest(&packed));
+        let into = into();
+        // A directory where the binary would go is one a file cannot replace.
+        std::fs::create_dir_all(into.join(BINARY).join("in the way")).unwrap();
+
+        assert!(install(&packed, &hash, &into).is_err());
+        let left: Vec<_> = std::fs::read_dir(&into)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [BINARY]);
         std::fs::remove_dir_all(&into).ok();
     }
 

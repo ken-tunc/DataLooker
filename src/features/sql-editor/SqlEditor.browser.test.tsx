@@ -458,6 +458,32 @@ describe("SqlEditor completion of BigQuery", () => {
     expect(offered.element().textContent).toContain("orders");
   });
 
+  it("offers no tables where the schema tree cannot be read", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: bigquery(connectionId),
+        complete: { kind: "tables", replace: { start: 20, end: 21 }, path: ["sales"] },
+        schema_tree: () => {
+          throw { kind: "Database", message: "BigQuery refused" };
+        },
+      },
+      "SELECT * FROM sales.",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    await typing("o");
+
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("schema_tree"),
+    );
+    expect(page.getByRole("option").elements()).toEqual([]);
+  });
+
   it("offers nothing where the analyzer cannot be had", async () => {
     const connectionId = crypto.randomUUID();
     const made = await editor(

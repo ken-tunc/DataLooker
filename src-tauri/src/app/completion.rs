@@ -83,7 +83,17 @@ type TablePath = [String; 3];
 /// A table that is not there is remembered too, so that it is not asked about
 /// on every keystroke.
 #[derive(Default)]
-pub struct Catalogs(Mutex<HashMap<String, HashMap<TablePath, Known>>>);
+pub struct Catalogs(Mutex<Catalog>);
+
+#[derive(Default)]
+struct Catalog {
+    tables: HashMap<String, HashMap<TablePath, Known>>,
+    /// How often each connection has been forgotten. A completion reads it
+    /// before asking BigQuery anything, and what it learns is kept only if
+    /// the connection was not forgotten in the meantime: an answer given to
+    /// the credentials the reader has just replaced is not theirs.
+    forgotten: HashMap<String, u64>,
+}
 
 struct Known {
     columns: Option<Vec<Column>>,
@@ -96,7 +106,7 @@ impl Catalogs {
     fn catalog(&self, connection_id: &str) -> Value {
         let catalogs = self.0.lock().unwrap();
         let (mut tables, mut absent) = (Vec::new(), Vec::new());
-        for (path, known) in catalogs.get(connection_id).into_iter().flatten() {
+        for (path, known) in catalogs.tables.get(connection_id).into_iter().flatten() {
             if known.at.elapsed() > BELIEVED {
                 continue;
             }
@@ -114,10 +124,37 @@ impl Catalogs {
         json!({ "tables": tables, "absent": absent })
     }
 
-    fn learn(&self, connection_id: &str, path: TablePath, columns: Option<Vec<Column>>) {
-        self.0
-            .lock()
-            .unwrap()
+    /// Which forgetting of the connection this is, for `learn` to be handed.
+    fn generation(&self, connection_id: &str) -> u64 {
+        let catalogs = self.0.lock().unwrap();
+        catalogs
+            .forgotten
+            .get(connection_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Keep what a table holds, unless the connection was forgotten since
+    /// `generation` was read — which is what answering `false` says.
+    fn learn(
+        &self,
+        connection_id: &str,
+        generation: u64,
+        path: TablePath,
+        columns: Option<Vec<Column>>,
+    ) -> bool {
+        let mut catalogs = self.0.lock().unwrap();
+        if catalogs
+            .forgotten
+            .get(connection_id)
+            .copied()
+            .unwrap_or_default()
+            != generation
+        {
+            return false;
+        }
+        catalogs
+            .tables
             .entry(connection_id.to_string())
             .or_default()
             .insert(
@@ -127,12 +164,18 @@ impl Catalogs {
                     at: Instant::now(),
                 },
             );
+        true
     }
 
     /// Forget a connection, whose credentials — and so whose view of which
     /// tables there are — may have changed.
     pub fn forget(&self, connection_id: &str) {
-        self.0.lock().unwrap().remove(connection_id);
+        let mut catalogs = self.0.lock().unwrap();
+        catalogs.tables.remove(connection_id);
+        *catalogs
+            .forgotten
+            .entry(connection_id.to_string())
+            .or_default() += 1;
     }
 }
 
@@ -154,6 +197,9 @@ impl App {
             ));
         };
         let cursor = byte_offset(text, cursor);
+        // Before the session is asked for: a save that lands after this is
+        // one whose credentials that session may not have.
+        let generation = self.catalogs.generation(connection_id);
 
         for _ in 0..ROUNDS {
             let answer = self
@@ -176,8 +222,16 @@ impl App {
             let session = self.session(connection_id).await?;
             for [project, dataset, table] in answer.needs {
                 let columns = session.described(&project, &dataset, &table).await?;
-                self.catalogs
-                    .learn(connection_id, [project, dataset, table], columns);
+                if !self.catalogs.learn(
+                    connection_id,
+                    generation,
+                    [project, dataset, table],
+                    columns,
+                ) {
+                    // The connection changed under this completion, and the
+                    // next keystroke asks again of what it is now.
+                    return Ok(Completion::Nothing);
+                }
             }
         }
         Ok(Completion::Nothing)
@@ -489,6 +543,7 @@ mod tests {
         let path = || ["p".to_string(), "d".to_string(), "t".to_string()];
         catalogs.learn(
             "c1",
+            0,
             path(),
             Some(vec![Column {
                 name: "id".into(),
@@ -496,7 +551,7 @@ mod tests {
                 nullable: false,
             }]),
         );
-        catalogs.learn("c1", ["p".into(), "d".into(), "gone".into()], None);
+        catalogs.learn("c1", 0, ["p".into(), "d".into(), "gone".into()], None);
 
         let catalog = catalogs.catalog("c1");
         assert_eq!(catalog["tables"][0]["path"], json!(["p", "d", "t"]));
@@ -508,6 +563,7 @@ mod tests {
             .0
             .lock()
             .unwrap()
+            .tables
             .get_mut("c1")
             .unwrap()
             .get_mut(&path())
@@ -517,5 +573,20 @@ mod tests {
 
         catalogs.forget("c1");
         assert_eq!(catalogs.catalog("c1")["absent"], json!([]));
+    }
+
+    #[test]
+    fn what_was_asked_before_a_connection_changed_is_not_kept_after() {
+        let catalogs = Catalogs::default();
+        let path = || ["p".to_string(), "d".to_string(), "t".to_string()];
+        let asked = catalogs.generation("c1");
+        // A save lands while BigQuery is answering with the old key.
+        catalogs.forget("c1");
+
+        assert!(!catalogs.learn("c1", asked, path(), None));
+        assert_eq!(catalogs.catalog("c1")["absent"], json!([]));
+        // A completion that began after the save keeps what it learns.
+        assert!(catalogs.learn("c1", catalogs.generation("c1"), path(), None));
+        assert_eq!(catalogs.catalog("c1")["absent"], json!([["p", "d", "t"]]));
     }
 }
