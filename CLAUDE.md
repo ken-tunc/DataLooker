@@ -74,8 +74,9 @@ kind, so a variant added in Rust fails the type check there rather than reaching
 frontend as an error nothing can branch on.
 
 Commands and events are declared once, in `commands!` and `events!` in `commands/mod.rs`,
-and everything else on both sides follows from that declaration; each command takes its
-arguments as one struct under `args`, which is what lets ts-rs write its shape down.
+and everything else on both sides follows from that declaration. A command that takes
+arguments takes them as one struct under `args`, which is what lets ts-rs write its shape
+down; one that takes none is sent no payload.
 
 ## Agent skills
 
