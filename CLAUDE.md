@@ -323,8 +323,10 @@ already in hand, and there is nothing the reader could do about it.
 ## A connection's command
 
 A connection can carry a shell command the reader runs before connecting — a port forward,
-an SSH tunnel — started and stopped from its row in the list. It is the reader's, not the
-driver's, so it sits in a column of its own rather than in `config`.
+an SSH tunnel — started and stopped from the connection's header, and marked on its entry in
+the rail while it runs, so a tunnel left up is seen from whichever connection is in front.
+It is the reader's, not the driver's, so it sits in a column of its own rather than in
+`config`.
 
 `shell/` runs it through the reader's login shell (`$SHELL -l -c`), because a window opened
 from Finder inherits a `PATH` with none of the places `ssh` or `kubectl` are installed and
@@ -456,7 +458,7 @@ Monaco in the page rather than two.
   own floor rather than the bundler's default, which is older than anything this stack runs
   on.
 - The window draws its own title bar (`titleBarStyle: "Overlay"`) and is transparent, so
-  the connection sidebar can show the desktop through macOS's sidebar material. A
+  the connection rail can show the desktop through macOS's sidebar material. A
   transparent window is a private API on macOS (`macOSPrivateApi`), which the App Store
   refuses and nothing else here cares about. The page is transparent only in the window
   (`data-window="native"`), so every panel paints its own background, and the window is

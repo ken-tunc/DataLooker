@@ -9,13 +9,19 @@ const MARKS: Record<DriverKind, { icon: SimpleIcon; tile: string }> = {
 };
 
 /** The driver's own mark, so a list of connections says which is which before it is read. */
-export function DriverIcon({ kind }: { kind: DriverKind }) {
+export function DriverIcon({
+  kind,
+  className = "size-6",
+}: {
+  kind: DriverKind;
+  className?: string;
+}) {
   const { icon, tile } = MARKS[kind];
   return (
     <svg
       role="img"
       viewBox="0 0 24 24"
-      className={`${tile} size-6 shrink-0 rounded-md p-0.5`}
+      className={`${tile} ${className} shrink-0 rounded-md p-0.5`}
       fill={`#${icon.hex}`}
       aria-label={DRIVER_LABELS[kind]}
     >

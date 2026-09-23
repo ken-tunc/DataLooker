@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { ConnectionSidebar } from "../connections/ConnectionSidebar";
+import { ConnectionHeader } from "../connections/ConnectionHeader";
+import { ConnectionRail } from "../connections/ConnectionRail";
+import { useConnections } from "../connections/hooks";
 import { QueryHistoryPalette } from "../query-history/QueryHistoryPalette";
 import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
@@ -10,7 +12,7 @@ import { useTabs } from "../tabs/useTabs";
 type Palette = { kind: "tables"; query?: string } | { kind: "history" } | null;
 
 /**
- * Holds what the sidebar and the workspace both need — which connection is in
+ * Holds what the rail and the workspace both need — which connection is in
  * front, and the tabs each one has open — and leaves the rest to them.
  */
 export function AppShell() {
@@ -57,21 +59,23 @@ export function AppShell() {
 
   return (
     <div className="flex h-full">
-      <ConnectionSidebar
-        selectedId={selectedId}
-        onSelect={select}
-        onRemoved={(id) => {
-          if (selectedId === id) setSelectedId(null);
-          tabs.forget(id);
-        }}
-      />
+      <ConnectionRail selectedId={selectedId} onSelect={select} />
 
       {selectedId && (
-        <SchemaTree
-          key={selectedId}
-          connectionId={selectedId}
-          onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
-        />
+        <section className="hairline bg-base-100 flex w-72 shrink-0 flex-col border-r">
+          <ConnectionHeader
+            connectionId={selectedId}
+            onRemoved={(id) => {
+              setSelectedId(null);
+              tabs.forget(id);
+            }}
+          />
+          <SchemaTree
+            key={selectedId}
+            connectionId={selectedId}
+            onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
+          />
+        </section>
       )}
 
       {selectedId && palette?.kind === "tables" && (
@@ -99,11 +103,20 @@ export function AppShell() {
             onFindTable={(query) => setPalette({ kind: "tables", query })}
           />
         ) : (
-          <div className="text-base-content/50 flex h-full items-center justify-center">
-            Select a connection to start querying.
-          </div>
+          <NothingInFront />
         )}
       </main>
+    </div>
+  );
+}
+
+function NothingInFront() {
+  const connections = useConnections();
+  return (
+    <div className="text-base-content/50 flex h-full items-center justify-center">
+      {connections.data?.length === 0
+        ? "Add a connection with + to start querying."
+        : "Select a connection to start querying."}
     </div>
   );
 }

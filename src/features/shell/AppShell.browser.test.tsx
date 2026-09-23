@@ -67,7 +67,7 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
       .querySelector<HTMLElement>(`${strip} [role="tab"][aria-selected="true"]`)
       ?.textContent.trim();
   const open = async (label: string) => {
-    await screen.getByText(label, { exact: true }).click();
+    await screen.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(titles).toEqual(["Query 1"]);
   };
   return { ipc, screen, titles, selected, open };
@@ -83,7 +83,7 @@ describe("AppShell", () => {
   it("opens a query tab and the connection's tree when one is chosen", async () => {
     const { screen } = await shell();
 
-    await screen.getByText("Local", { exact: true }).click();
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
 
     await expect.element(screen.getByRole("tab", { name: /Query 1/ })).toBeVisible();
     await expect.element(screen.getByText("shop")).toBeVisible();
@@ -160,10 +160,10 @@ describe("AppShell", () => {
     await userEvent.keyboard("{Meta>}t{/Meta}");
     await expect.poll(titles).toEqual(["Query 1", "Query 2"]);
 
-    await screen.getByText("Staging", { exact: true }).click();
+    await screen.getByRole("button", { name: "Staging", exact: true }).click();
     await expect.poll(titles).toEqual(["Query 1"]);
 
-    await screen.getByText("Local", { exact: true }).click();
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
     await expect.poll(titles).toEqual(["Query 1", "Query 2"]);
   });
 

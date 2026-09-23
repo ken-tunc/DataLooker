@@ -1,3 +1,4 @@
+import { Bot } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
@@ -13,8 +14,14 @@ export function AgentAccess() {
 
   return (
     <>
-      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setOpen(true)}>
-        Agents
+      <button
+        type="button"
+        className="btn btn-ghost btn-square"
+        aria-label="Agents"
+        title="Agents"
+        onClick={() => setOpen(true)}
+      >
+        <Bot className="size-5" />
       </button>
       {open && <AgentAccessDialog onClose={() => setOpen(false)} />}
     </>
