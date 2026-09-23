@@ -12,7 +12,7 @@
 use std::env;
 
 use datalooker_lib::drivers::bigquery::BigQuerySession;
-use datalooker_lib::drivers::TableKind;
+use datalooker_lib::drivers::{Preview, Sort, TableKind};
 use datalooker_lib::error::AppError;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -287,6 +287,98 @@ async fn a_project_says_which_datasets_hold_which_tables() {
         .await
         .expect("no columns")
         .is_empty());
+
+    dataset.drop_it().await;
+}
+
+fn page_of<'a>(dataset: &'a str, table: &'a str) -> Preview<'a> {
+    Preview {
+        schema: dataset,
+        table,
+        filter: "",
+        sort: None,
+        limit: 2,
+        offset: 0,
+        versioned: false,
+    }
+}
+
+fn names(page: &datalooker_lib::drivers::TablePage) -> Vec<Value> {
+    page.result.rows.iter().map(|row| row[1].clone()).collect()
+}
+
+#[tokio::test]
+async fn a_table_is_read_a_page_at_a_time() {
+    let Some(session) = session_or_skip() else {
+        return;
+    };
+    let dataset = Dataset::make(session, "preview").await;
+    let name = dataset.name.clone();
+    dataset
+        .run(&format!(
+            "CREATE OR REPLACE TABLE {name}.people AS \
+             SELECT * FROM UNNEST([STRUCT(1 AS id, 'Ada' AS name), (2, 'Grace'), (3, 'Edsger')])"
+        ))
+        .await;
+    dataset
+        .run(&format!(
+            "CREATE OR REPLACE VIEW {name}.people_view AS SELECT * FROM {name}.people"
+        ))
+        .await;
+    let cancel = CancellationToken::new();
+
+    // Listed in the order the table stores it, which is not one to assert on,
+    // so only how much came back is.
+    let first = dataset
+        .session
+        .preview(&page_of(&name, "people"), &cancel)
+        .await
+        .expect("the first page");
+    assert_eq!(first.result.rows.len(), 2);
+    assert!(first.result.truncated, "a third row is still to come");
+    assert_eq!(first.result.columns[1].type_name, "STRING");
+    let last = dataset
+        .session
+        .preview(
+            &Preview {
+                offset: 2,
+                ..page_of(&name, "people")
+            },
+            &cancel,
+        )
+        .await
+        .expect("the last page");
+    assert_eq!(last.result.rows.len(), 1);
+    assert!(!last.result.truncated);
+
+    // A filter and a sort are a query.
+    let sort = Sort {
+        column: "id".into(),
+        descending: true,
+    };
+    let sorted = dataset
+        .session
+        .preview(
+            &Preview {
+                filter: "id > 1",
+                sort: Some(&sort),
+                ..page_of(&name, "people")
+            },
+            &cancel,
+        )
+        .await
+        .expect("a sorted page");
+    assert_eq!(names(&sorted), [json!("Edsger"), json!("Grace")]);
+    assert!(!sorted.result.truncated);
+
+    // A view has no rows of its own to list, so it is queried as well.
+    let viewed = dataset
+        .session
+        .preview(&page_of(&name, "people_view"), &cancel)
+        .await
+        .expect("a page of a view");
+    assert_eq!(viewed.result.rows.len(), 2);
+    assert!(viewed.result.truncated);
 
     dataset.drop_it().await;
 }

@@ -120,7 +120,7 @@ fn request(sql: &str, location: &str, wanted: i32) -> QueryRequest {
     request
 }
 
-fn cells(row: &TableRow, fields: &[TableFieldSchema]) -> Vec<serde_json::Value> {
+pub(super) fn cells(row: &TableRow, fields: &[TableFieldSchema]) -> Vec<serde_json::Value> {
     let cells = row.columns.as_deref().unwrap_or_default();
     fields
         .iter()
@@ -254,7 +254,7 @@ fn count(total_rows: Option<&str>) -> Option<u64> {
     total_rows.and_then(|total| total.parse().ok())
 }
 
-fn refused(error: gcp_bigquery_client::error::BQError) -> AppError {
+pub(super) fn refused(error: gcp_bigquery_client::error::BQError) -> AppError {
     AppError::Database(error.to_string())
 }
 

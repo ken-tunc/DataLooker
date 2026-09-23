@@ -172,6 +172,20 @@ describe("TablePreviewPane", () => {
       .toBeVisible();
     await expect.element(screen.getByRole("button", { name: "New row" })).not.toBeInTheDocument();
   });
+
+  it("reads the rows of a table its driver cannot write, and says why rather than failing", async () => {
+    const reason = "A BigQuery table cannot be edited.";
+    const { screen } = await preview({
+      table_shape: () => {
+        throw { kind: "Unsupported", message: reason };
+      },
+      preview_table: { ...page, versions: [] },
+    });
+
+    await expect.element(screen.getByText("Ada")).toBeVisible();
+    await expect.element(screen.getByText(reason)).toBeVisible();
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("TablePreviewPane showing the structure", () => {

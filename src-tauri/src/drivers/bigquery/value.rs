@@ -87,10 +87,47 @@ fn scalar(value: &Value, kind: &FieldType) -> Value {
         // The text of a JSON column is JSON, and a reader is better served by
         // the value than by its punctuation.
         FieldType::Json => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
+        // A timestamp is the one kind that is not sent the way it is written:
+        // it comes as seconds since the epoch, in a float's notation.
+        FieldType::Timestamp => timestamp(text).map_or_else(|| value.clone(), Value::String),
         // NUMERIC and BIGNUMERIC hold more digits than a JSON number keeps,
-        // and a date or a timestamp is text to begin with.
+        // and a date or a time is text to begin with.
         _ => value.clone(),
     }
+}
+
+/// Seconds since the epoch, as BigQuery writes them — `1735812000.0`, or
+/// `1.735812E9` — written as PostgreSQL's timestamps are here. The digits are
+/// read as they are written rather than through an `f64`, which would lose the
+/// microseconds of anything this century.
+fn timestamp(text: &str) -> Option<String> {
+    let (mantissa, exponent) = match text.split_once(['E', 'e']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+        None => (text, 0),
+    };
+    let (negative, mantissa) = match mantissa.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, mantissa),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{whole}{fraction}");
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut micros: i128 = digits.parse().ok()?;
+    // The digits as a whole number, and how far the point has to move to make
+    // them microseconds.
+    let shift = exponent - fraction.len() as i32 + 6;
+    if shift >= 0 {
+        micros = micros.checked_mul(10i128.checked_pow(shift as u32)?)?;
+    } else {
+        micros /= 10i128.checked_pow(shift.unsigned_abs())?;
+    }
+    if negative {
+        micros = -micros;
+    }
+    let at = time::OffsetDateTime::from_unix_timestamp_nanos(micros.checked_mul(1000)?).ok()?;
+    Some(at.to_string())
 }
 
 fn from_i64(value: i64) -> Value {
@@ -133,6 +170,22 @@ fn scalar_name(kind: &FieldType) -> &'static str {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_timestamp_is_written_as_a_time_rather_than_as_seconds() {
+        let written = "2025-01-02 10:00:00.0 +00:00:00";
+        assert_eq!(timestamp("1735812000.0").as_deref(), Some(written));
+        assert_eq!(timestamp("1.735812E9").as_deref(), Some(written));
+        let micros = Some("2025-01-02 10:00:00.123456 +00:00:00");
+        assert_eq!(timestamp("1.735812000123456E9").as_deref(), micros);
+        // BigQuery keeps microseconds, so a digit past them is not one.
+        assert_eq!(timestamp("1735812000.1234567").as_deref(), micros);
+        assert_eq!(
+            timestamp("-1.5").as_deref(),
+            Some("1969-12-31 23:59:58.5 +00:00:00")
+        );
+        assert_eq!(timestamp("soon"), None);
+    }
 
     fn field(name: &str, kind: FieldType) -> TableFieldSchema {
         TableFieldSchema::new(name, kind)

@@ -118,7 +118,7 @@ impl Session {
     ) -> Result<TablePage, AppError> {
         match self {
             Session::Postgres(session) => session.preview(request, cancel).await,
-            Session::BigQuery(_) => Err(not_yet("show a table's rows")),
+            Session::BigQuery(session) => session.preview(request, cancel).await,
         }
     }
 

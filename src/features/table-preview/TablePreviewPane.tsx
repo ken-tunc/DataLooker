@@ -44,6 +44,12 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   // key is for. A view has none, and neither has a table nobody gave one.
   const primaryKey = shape.data?.primary_key ?? [];
   const editable = primaryKey.length > 0;
+  // A driver that cannot write a row at all says so, and says why; that is a
+  // fact about the table rather than a failure to read its shape.
+  const unwritable =
+    shape.error instanceof IpcError && shape.error.kind === "Unsupported"
+      ? shape.error.message
+      : null;
 
   const preview = useTablePreview(connectionId, tab, editable, !structure && !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
@@ -281,7 +287,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
         </div>
       )}
 
-      {!structure && shape.isError && (
+      {!structure && shape.isError && !unwritable && (
         <div role="alert" className="alert alert-soft alert-error">
           <span className="text-sm">
             {describeError(shape.error)} — the rows can still be read, but nothing here knows how to
@@ -342,7 +348,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             </span>
             {page && <span>{page.result.elapsed_ms} ms</span>}
             <span className="grow" />
-            <span>{editingHint(editingPage, shape.isError)}</span>
+            <span>{unwritable ?? editingHint(editingPage, shape.isError)}</span>
           </div>
         </>
       )}
