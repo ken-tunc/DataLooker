@@ -108,9 +108,26 @@ mod tests {
             return;
         };
 
-        let (query, waited) = tokio::join!(run(&app, &id, "SELECT pg_sleep(2)"), async {
-            // Let the query take the reader's connection first.
-            tokio::time::sleep(Duration::from_millis(200)).await;
+        // Named, so that the server can say when this one is running rather
+        // than another test's.
+        let marker = format!("waiting_{}", uuid::Uuid::new_v4().simple());
+        let sleep = format!("SELECT pg_sleep(2) AS {marker}");
+        let (query, waited) = tokio::join!(run(&app, &id, &sleep), async {
+            // The tree is timed from the moment the server is running the
+            // reader's query, which is when the reader's connection is taken.
+            // The agent asks, since its session is not the one being held.
+            let running = format!(
+                "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%{marker}%' AND pid <> pg_backend_pid()"
+            );
+            while app
+                .run_agent_query(&id, &running)
+                .await
+                .unwrap()
+                .rows
+                .is_empty()
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
             let started = Instant::now();
             app.schema_tree(&id, Whose::Reader).await.unwrap();
             started.elapsed()
