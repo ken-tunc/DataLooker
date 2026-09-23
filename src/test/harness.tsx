@@ -14,14 +14,23 @@ import type { Command } from "../lib/invoke";
  */
 type Reply<C extends Command> =
   | Commands[C]["returns"]
-  | ((args: Commands[C]["args"]) => Commands[C]["returns"] | Promise<Commands[C]["returns"]>);
+  | ((args: Received<C>) => Commands[C]["returns"] | Promise<Commands[C]["returns"]>);
+
+/**
+ * What a command's stub is handed. A command that takes nothing is sent no
+ * payload at all, so it receives `undefined` rather than the `null` the
+ * bindings write for "no arguments".
+ */
+type Received<C extends Command> = Commands[C]["args"] extends null
+  ? undefined
+  : Commands[C]["args"];
 
 export type Replies = { [C in Command]?: Reply<C> };
 
 export type Ipc = {
   calls: { command: string; args: unknown }[];
   /** What was sent the last time `command` was called, or undefined. */
-  sent<C extends Command>(command: C): Commands[C]["args"] | undefined;
+  sent<C extends Command>(command: C): Received<C> | undefined;
   /** Announce what the backend would have announced, to whoever is listening. */
   emit<E extends keyof Events>(event: E, payload: Events[E]): void;
 };
@@ -84,9 +93,7 @@ export function stubIpc(replies: Replies): Ipc {
   return {
     calls,
     sent: <C extends Command>(command: C) =>
-      calls.filter((call) => call.command === command).at(-1)?.args as
-        | Commands[C]["args"]
-        | undefined,
+      calls.filter((call) => call.command === command).at(-1)?.args as Received<C> | undefined,
     emit: (event, payload) => {
       for (const [id, listener] of listeners) {
         if (listener.event === event) listener.handler({ event, id, payload });

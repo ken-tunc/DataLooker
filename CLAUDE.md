@@ -69,19 +69,13 @@ meta.db.
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
 crosses the boundary — CI fails when the committed copy differs from what the tests write.
 Each command gets a typed wrapper in `src/lib/commands.ts`; nothing else names a command or
-calls `invoke` directly.
+calls `invoke` directly. `CARRIES_MESSAGE` in `src/lib/invoke.ts` lists every `AppError`
+kind, so a variant added in Rust fails the type check there rather than reaching the
+frontend as an error nothing can branch on.
 
-The contract between the two sides is declared once, in `commands!` and `events!` in
-`commands/mod.rs`: every command takes its arguments as one struct under `args`, so that
-ts-rs can write that shape down, and the declaration is what Tauri is handed, what each
-function's signature is checked against when it compiles, and what `Commands.ts` and
-`Events.ts` are generated from. `invoke` and `subscribe` accept only what those say, and so
-do the stubs in `src/test/harness.tsx`, so a command renamed or an argument changed in Rust
-fails the frontend's type check rather than a click in the running app. A test in
-`commands/mod.rs` sends one through Tauri's mock runtime, which is what says the shape
-`invoke` sends is the one Tauri reads. `CARRIES_MESSAGE` in
-`src/lib/invoke.ts` lists every `AppError` kind, so a variant added in Rust fails the type
-check there rather than reaching the frontend as an error nothing can branch on.
+Commands and events are declared once, in `commands!` and `events!` in `commands/mod.rs`,
+and everything else on both sides follows from that declaration; each command takes its
+arguments as one struct under `args`, which is what lets ts-rs write its shape down.
 
 ## Agent skills
 
