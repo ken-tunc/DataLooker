@@ -94,8 +94,13 @@ absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
   std::vector<const ParseToken*> tokens;
   for (const ParseToken& token : all) {
     if (token.IsEndOfInput()) break;
+    // A line comment runs to the end of its line, so a cursor at the end of
+    // the text is still inside one that has no newline yet to end it.
+    const bool open_line_comment = token.IsComment() &&
+                                   !absl::StartsWith(token.GetImage(), "/*") &&
+                                   !absl::EndsWith(token.GetImage(), "\n");
     if ((token.IsComment() || token.IsValue()) && Start(token) < cursor &&
-        cursor < End(token)) {
+        (cursor < End(token) || (open_line_comment && cursor == End(token)))) {
       place.quiet = true;
     }
     if (Is(token, ";")) {
@@ -375,10 +380,10 @@ json Analyzer::Complete(const json& params) {
       const googlesql::Type* type = nullptr;
       absl::Status parsed =
           googlesql::AnalyzeType(type_name, options_, &builtins_, &types, &type);
-      if (!parsed.ok()) {
-        throw InvalidParams(absl::StrCat("column ", name, " has type ", type_name,
-                                         ": ", parsed.message()));
-      }
+      // A type GoogleSQL does not know is a column it cannot offer, and no
+      // reason to offer nothing else: every table the app has read is sent,
+      // whether or not this statement names it.
+      if (!parsed.ok()) continue;
       columns.emplace_back(name, type);
     }
     tables.Add(path, std::make_unique<googlesql::SimpleTable>(

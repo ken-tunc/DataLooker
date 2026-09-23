@@ -175,6 +175,11 @@ TEST(Complete, KeepsToTheStatementTheCursorIsIn) {
 TEST(Complete, OffersNothingInsideAStringOrAComment) {
   EXPECT_EQ(Ask("SELECT 'o.|' FROM sales.orders o")["context"], "none");
   EXPECT_EQ(Ask("SELECT 1 -- o.|\nFROM sales.orders o")["context"], "none");
+  // A line comment with nothing after it is still open at the end of the text.
+  EXPECT_EQ(Ask("SELECT * FROM sales.orders o -- o.|")["context"], "none");
+  EXPECT_EQ(Ask("SELECT * FROM sales.orders o # o.|")["context"], "none");
+  // A block comment that has ended is not where the cursor is.
+  EXPECT_EQ(Ask("SELECT /* x */ o.| FROM sales.orders o")["context"], "member");
 }
 
 TEST(Complete, LeavesWhatItCannotResolveToTheCaller) {
@@ -182,10 +187,19 @@ TEST(Complete, LeavesWhatItCannotResolveToTheCaller) {
   EXPECT_TRUE(Ask("SELECT o.|").contains("unresolved"));
 }
 
-TEST(Complete, RefusesATypeBigQueryWouldNotHaveWritten) {
-  json broken = {{"path", {"shop", "sales", "t"}},
-                 {"columns", {{{"name", "x"}, {"type", "NOT A TYPE"}}}}};
-  EXPECT_THROW(Ask("SELECT t.| FROM sales.t", json::array({broken})), InvalidParams);
+TEST(Complete, LeavesOutAColumnOfATypeItDoesNotKnow) {
+  json odd = {{"path", {"shop", "sales", "t"}},
+              {"columns",
+               {{{"name", "x"}, {"type", "NOT A TYPE"}}, {{"name", "y"}, {"type", "INT64"}}}}};
+  EXPECT_THAT(Fields(Ask("SELECT t.| FROM sales.t", json::array({odd}))), ElementsAre("y"));
+  // Nor does it stop a statement that names another table.
+  EXPECT_THAT(Fields(Ask("SELECT c.| FROM sales.customers c", json::array({odd, kCustomers}))),
+              ElementsAre("customer_id", "name"));
+}
+
+TEST(Complete, RefusesARequestWithoutWhatTheProtocolAsksFor) {
+  EXPECT_THROW(Shared().Complete({{"cursor", 0}}), json::exception);
+  EXPECT_THROW(Shared().Complete({{"text", ""}, {"cursor", 5}}), InvalidParams);
 }
 
 }  // namespace

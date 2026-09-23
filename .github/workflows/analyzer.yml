@@ -1,38 +1,55 @@
 name: Analyzer
 
 # `bigquery-analyzer/` is built by Bazel and nothing else in the repository
-# needs Bazel, so it has a workflow of its own: it runs where the helper
-# changed, and the app's own CI never waits on a GoogleSQL build.
+# needs Bazel, so it has a workflow of its own, which runs only where the
+# helper's code changed: the app's own CI never waits on a GoogleSQL build.
 #
-# A tag `analyzer-v<version>` publishes that version: the helper is built for
-# Apple silicon and put on a Release of that name, which is where the app
-# fetches it from, at the hash the app has written down. The version is the
-# one `main.cc` answers `hello` with, and a tag that says otherwise fails.
+# The tests run on Linux, whose free runner has twice the memory of the macOS
+# one and is GoogleSQL's own reference platform. The helper the app fetches has
+# to be built on a Mac, since it runs on one, and that build takes hours on the
+# free macOS runner — so it is made only when there is a version to publish:
 #
-# Building and publishing are two jobs for the reason `release.yml` gives: the
-# token that can make a Release is never in a step that runs the build.
+# - A push to `main` that changes the helper publishes `analyzer-v<version>`,
+#   the version `main.cc` answers `hello` with, if there is no such tag yet.
+#   If there is one and the code has changed since it, the run fails: one
+#   version is one binary, so a change to the helper is a change to kVersion.
+# - Pushing the tag itself publishes it too, for a version that has to exist
+#   before the change that needs it can be merged.
+#
+# The app fetches a build from the address and at the hash
+# `src-tauri/src/analyzer/fetch.rs` writes down, which is changed once the
+# Release exists.
+#
+# Building and publishing are separate jobs for the reason `release.yml`
+# gives: the token that can make a Release is never in a step that runs the
+# build.
 
 on:
   pull_request:
     branches: [main]
     paths:
       - "bigquery-analyzer/**"
+      - "!bigquery-analyzer/**.md"
       - ".github/workflows/analyzer.yml"
   push:
+    branches: [main]
     tags: ["analyzer-v*"]
+    paths:
+      - "bigquery-analyzer/**"
+      - "!bigquery-analyzer/**.md"
+      - ".github/workflows/analyzer.yml"
 
 permissions: {}
 
 concurrency:
   group: analyzer-${{ github.ref }}
+  # A publish half done must not be killed by the push behind it.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    # An Apple silicon runner, whose host is the platform the app fetches for.
-    runs-on: macos-26
-    # GoogleSQL is most of an hour to compile on a cold cache.
-    timeout-minutes: 150
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     permissions:
       contents: read
     defaults:
@@ -43,70 +60,138 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: The tag names the version the helper answers with
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          tagged="${GITHUB_REF_NAME#analyzer-v}"
-          answers="$(sed -n 's/^constexpr char kVersion\[\] = "\(.*\)";$/\1/p' main.cc)"
-          if [[ "$tagged" != "$answers" ]]; then
-            echo "the tag says $tagged and main.cc says $answers" >&2
-            exit 1
-          fi
-
-      # Bazelisk, which reads `.bazelversion`, and a cache of what was compiled.
-      # The tests and the release are both built `-c opt`, so that one cache
-      # serves the two.
+      # Bazelisk, which reads `.bazelversion`, and what was compiled before.
+      # Caches are kept per branch and a pull request can read `main`'s, so it
+      # is the runs on `main` that make a pull request's build a short one.
       - uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: analyzer
+          disk-cache: analyzer-linux
           repository-cache: true
 
       - run: bazel test -c opt //:complete_test
 
-      - name: Build the helper
-        if: github.event_name == 'push'
+  # What a push is for, decided before anything is built.
+  decide:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          # The tags, and the history they are compared against.
+          fetch-depth: 0
+
+      - id: decide
         run: |
           set -euo pipefail
-          bazel build -c opt --strip=always //:datalooker-bigquery-analyzer
+          version="$(sed -n 's/^constexpr char kVersion\[\] = "\(.*\)";$/\1/p' bigquery-analyzer/main.cc)"
+          if [[ -z "$version" ]]; then
+            echo "main.cc says no version" >&2
+            exit 1
+          fi
+          tag="analyzer-v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
+              echo "the tag says $GITHUB_REF_NAME and main.cc says $version" >&2
+              exit 1
+            fi
+          elif git rev-parse --verify --quiet "refs/tags/$tag" > /dev/null; then
+            if git diff --quiet "$tag" HEAD -- bigquery-analyzer ':!bigquery-analyzer/**.md' ':!bigquery-analyzer/*.md'; then
+              echo "$tag is what the helper is already."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "The helper changed since $tag: raise kVersion in main.cc to publish it." >&2
+            exit 1
+          fi
+
+          # A Release already there is one a run before this one published.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$tag is published already."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    needs: [test, decide]
+    if: needs.decide.outputs.publish == 'true'
+    # An Apple silicon runner, whose host is the platform the app fetches for.
+    runs-on: macos-26
+    # GoogleSQL is hours to compile on the free macOS runner when nothing is
+    # cached, and six hours is as long as a job may run.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: bigquery-analyzer
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # Kept on `main` by the build before this one, which is the one a
+      # release can read.
+      - uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: analyzer-macos
+          repository-cache: true
+
+      - name: Build the helper
+        run: |
+          set -euo pipefail
+          # Seven gigabytes of memory and three cores: two compilers at once
+          # is as many as fit without the machine swapping.
+          bazel build -c opt --strip=always --jobs=2 //:datalooker-bigquery-analyzer
           built="$(bazel info -c opt execution_root)/$(bazel cquery -c opt --output=files //:datalooker-bigquery-analyzer)"
-          # It has to answer before it is published.
+          # It has to answer, and as the version it is published as.
           printf 'Content-Length: 41\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"hello"}' |
-            "$built" | grep -q '"googlesql"'
+            "$built" | grep -q "\"version\":\"${{ needs.decide.outputs.version }}\""
           gzip -9 -c "$built" > "$RUNNER_TEMP/datalooker-bigquery-analyzer-darwin-arm64.gz"
-          shasum -a 256 "$RUNNER_TEMP/datalooker-bigquery-analyzer-darwin-arm64.gz"
 
       - uses: actions/upload-artifact@v7.0.1
-        if: github.event_name == 'push'
         with:
           name: analyzer
           path: ${{ runner.temp }}/datalooker-bigquery-analyzer-darwin-arm64.gz
           retention-days: 1
 
   publish:
-    needs: build
-    if: github.event_name == 'push'
+    needs: [decide, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: analyzer-v${{ needs.decide.outputs.version }}
     steps:
       - uses: actions/download-artifact@v8.0.1
         with:
           name: analyzer
 
       # Not the latest Release: that is the app's, and what its release notes
-      # are counted from.
+      # are counted from. A push to `main` makes the tag here, at the commit
+      # that was built.
       - name: Publish the helper
         run: |
           set -euo pipefail
-          sha256sum datalooker-bigquery-analyzer-darwin-arm64.gz | tee checksum.txt
-          gh release create "$GITHUB_REF_NAME" \
+          sha="$(sha256sum datalooker-bigquery-analyzer-darwin-arm64.gz | cut -d' ' -f1)"
+          echo "SHA-256: $sha" >> "$GITHUB_STEP_SUMMARY"
+          gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
+            --target "$GITHUB_SHA" \
             --latest=false \
-            --title "BigQuery analyzer ${GITHUB_REF_NAME#analyzer-v}" \
-            --notes "The helper DataLooker completes BigQuery statements with, for Apple silicon. SHA-256: $(cut -d' ' -f1 checksum.txt)" \
+            --title "BigQuery analyzer ${TAG#analyzer-v}" \
+            --notes "The helper DataLooker completes BigQuery statements with, for Apple silicon. SHA-256: $sha" \
             datalooker-bigquery-analyzer-darwin-arm64.gz

@@ -20,7 +20,7 @@ is the app's.
 Bazel builds it, pinned by `.bazelversion`; [bazelisk](https://github.com/bazelbuild/bazelisk)
 reads that file and fetches the version. The first build compiles GoogleSQL and
 takes a quarter of an hour or more; the app does not need it to be built, and
-finds a helper the way it finds a language server.
+fetches the build CI publishes.
 
 ```bash
 bazel test //:complete_test
@@ -29,7 +29,17 @@ bazel cquery -c opt --output=files //:datalooker-bigquery-analyzer
 ```
 
 The last line prints where the binary is: `.bazelrc` keeps Bazel's `bazel-*`
-links out of the tree.
+links out of the tree. `DATALOOKER_BQ_ANALYZER_BIN` hands a build of your own to
+the app.
+
+`.github/workflows/analyzer.yml` runs the tests on Linux wherever the helper's
+code changes, and publishes it, built for Apple silicon, as the Release
+`analyzer-v<version>` — the version `main.cc` answers `hello` with — when a
+change to it reaches `main` with a version that has not been published. A
+change to the helper is therefore a change to `kVersion`: one version is one
+binary, and a change without one fails there. The app fetches the build from
+the address and at the hash `src-tauri/src/analyzer/fetch.rs` writes down,
+which is changed once the Release exists.
 
 ## Protocol
 
@@ -93,9 +103,10 @@ The answer is one of these:
 span where none has begun. `expected_type` is the type the place wants where
 that is known, which is what a candidate can be ranked by.
 
-A request the protocol cannot read — a missing field, a type BigQuery would not
-have written — is a JSON-RPC error, `-32602`. What the statement says is never
-an error: it is an answer.
+A request the protocol cannot read — a missing field, a cursor past the text —
+is a JSON-RPC error, `-32602`. What the statement says is never an error: it is
+an answer. Nor is a column of a type GoogleSQL does not know: it is left out of
+its table, and the rest of the catalog is read as usual.
 
 ## How a name is resolved
 
