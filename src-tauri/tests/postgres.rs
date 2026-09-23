@@ -3,6 +3,8 @@
 //! without Docker still runs the rest of the suite.
 
 use std::env;
+
+use sqlx::ConnectOptions;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -467,8 +469,6 @@ async fn a_cancelled_query_does_not_disturb_the_one_waiting_behind_it() {
     assert_eq!(behind.rows, vec![vec![json!("behind")]]);
 }
 
-/// A table of its own for each edit test: they run at the same time, and a
-/// schema they shared would be torn down under one of them.
 /// A save the way the app makes one: planned against the table's shape, then
 /// run.
 async fn save(
@@ -488,6 +488,8 @@ async fn save(
     session.apply_plan(&plan).await
 }
 
+/// A table of its own for each edit test: they run at the same time, and a
+/// schema they shared would be torn down under one of them.
 async fn edit_table(session: &PostgresSession, schema: &str) {
     for statement in [
         format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
@@ -536,6 +538,53 @@ async fn versions(
         .await
         .unwrap()
         .versions
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_logged_save_replays_as_typed_in_a_client_that_reads_backslashes_as_escapes() {
+    let Some(session) = session_or_skip().await else {
+        return;
+    };
+    edit_table(&session, "edit_replay").await;
+    let read = versions(&session, "edit_replay", "people", "id").await;
+    let typed = r"C:\temp\new's";
+    let edits = Edits {
+        inserts: &[],
+        updates: &[update("1", &[("name", Some(typed))], &read[0])],
+        deletes: &[],
+    };
+    let script = session
+        .plan_edits("edit_replay", "people", edits)
+        .await
+        .unwrap()
+        .script();
+
+    // Pasted into psql, which sends it as a simple query, by a reader who
+    // has turned standard strings off.
+    let mut psql = sqlx::postgres::PgConnectOptions::new()
+        .host(&var("DATALOOKER_TEST_PG_HOST", "localhost"))
+        .port(var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap())
+        .database(&var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"))
+        .username(&var("DATALOOKER_TEST_PG_USERNAME", "datalooker"))
+        .password(&var("DATALOOKER_TEST_PG_PASSWORD", "datalooker"))
+        .connect()
+        .await
+        .unwrap();
+    // A query of its own: a simple query is parsed whole before any of it
+    // runs, so a setting beside the script would come too late for it.
+    sqlx::raw_sql("SET standard_conforming_strings = off")
+        .execute(&mut psql)
+        .await
+        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+        .execute(&mut psql)
+        .await
+        .unwrap();
+
+    let name = run(&session, "SELECT name FROM edit_replay.people WHERE id = 1")
+        .await
+        .unwrap();
+    assert_eq!(name.rows, vec![vec![json!(typed)]]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

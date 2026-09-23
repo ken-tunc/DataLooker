@@ -90,6 +90,17 @@ mod tests {
 
     /// Renames the one row of `table`, read with the version it has now.
     async fn rename(app: &App, id: &str, table: &str, to: &str) -> Result<u32, AppError> {
+        set(app, id, table, "name", to).await
+    }
+
+    /// Sets `column` of the one row of `table`, read with the version it has now.
+    async fn set(
+        app: &App,
+        id: &str,
+        table: &str,
+        column: &str,
+        to: &str,
+    ) -> Result<u32, AppError> {
         let page = app
             .preview_table(PreviewRequest {
                 connection_id: id.into(),
@@ -110,7 +121,7 @@ mod tests {
             inserts: Vec::new(),
             updates: vec![RowUpdate {
                 key: HashMap::from([("id".into(), Some("1".into()))]),
-                set: HashMap::from([("name".into(), Some(to.into()))]),
+                set: HashMap::from([(column.into(), Some(to.into()))]),
                 version: page.versions[0].clone(),
             }],
             deletes: Vec::new(),
@@ -210,7 +221,7 @@ mod tests {
         let renamed = saved("UPDATE");
         assert!(
             renamed.sql.contains(
-                r#"SET "name" = 'O''Brien'::text WHERE "id" IS NOT DISTINCT FROM '1'::integer"#
+                r#"SET "name" = E'O''Brien'::text WHERE "id" IS NOT DISTINCT FROM E'1'::integer"#
             ),
             "{}",
             renamed.sql
@@ -220,6 +231,38 @@ mod tests {
         let refused = saved("DELETE");
         assert_eq!(refused.row_count, None);
         assert!(refused.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_type_of_the_reader_s_own_is_named_so_their_search_path_cannot_lose_it() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let (mood, table) = (format!("mood_{suffix}"), format!("moods_{suffix}"));
+        run(
+            &app,
+            &id,
+            &format!("CREATE TYPE {mood} AS ENUM ('ok', 'sad')"),
+        )
+        .await;
+        run(
+            &app,
+            &id,
+            &format!("CREATE TABLE {table} (id integer PRIMARY KEY, feeling {mood})"),
+        )
+        .await;
+        run(&app, &id, &format!("INSERT INTO {table} VALUES (1, 'ok')")).await;
+
+        // The type is in `public`, which the reader's session no longer
+        // searches; the connection the shape is read over still does.
+        run(&app, &id, "SET search_path TO pg_catalog").await;
+        let saved = set(&app, &id, &table, "feeling", "sad").await;
+        run(&app, &id, "RESET search_path").await;
+        run(&app, &id, &format!("DROP TABLE {table}")).await;
+        run(&app, &id, &format!("DROP TYPE {mood}")).await;
+
+        assert_eq!(saved.unwrap(), 1);
     }
 
     #[tokio::test]

@@ -19,6 +19,13 @@ const SHAPE: &str = "
      ORDER BY a.attnum
 ";
 
+/// The shape is read over the catalog's connection and its types are written
+/// into statements that run on the reader's, whose `search_path` is the
+/// reader's to set. `format_type` names a type the way the connection asking
+/// can find it — without its schema where the search path reaches it — so it
+/// is asked with nothing but `pg_catalog` on the path: every type outside it
+/// comes back with its schema, and the built-in ones, which every session
+/// finds, come back as they are.
 pub async fn shape(
     conn: &mut PgConnection,
     schema: &str,
@@ -27,14 +34,21 @@ pub async fn shape(
     let mut types = HashMap::new();
     let mut primary_key = Vec::new();
 
-    let mut rows = sqlx::query(SHAPE).bind(schema).bind(table).fetch(conn);
-    while let Some(row) = rows.try_next().await? {
-        let name: String = row.try_get("column_name")?;
-        if row.try_get::<bool, _>("is_primary")? {
-            primary_key.push(name.clone());
+    let mut tx = conn.begin().await?;
+    sqlx::query("SET LOCAL search_path TO pg_catalog")
+        .execute(&mut *tx)
+        .await?;
+    {
+        let mut rows = sqlx::query(SHAPE).bind(schema).bind(table).fetch(&mut *tx);
+        while let Some(row) = rows.try_next().await? {
+            let name: String = row.try_get("column_name")?;
+            if row.try_get::<bool, _>("is_primary")? {
+                primary_key.push(name.clone());
+            }
+            types.insert(name, row.try_get("data_type")?);
         }
-        types.insert(name, row.try_get("data_type")?);
     }
+    tx.commit().await?;
 
     Ok(TableShape { types, primary_key })
 }
@@ -306,11 +320,13 @@ fn names_one_row(
     )))
 }
 
-/// `standard_conforming_strings` has been on by default since PostgreSQL 9.1,
-/// so a quote is the one character a literal has to escape.
+/// An escape string, because it is the one form of literal that reads the same
+/// whatever the session's `standard_conforming_strings` is: a plain one reads
+/// a backslash as itself or as an escape depending on that setting, and a
+/// reader can turn it off.
 fn literal(value: &Option<String>) -> String {
     match value {
-        Some(text) => format!("'{}'", text.replace('\'', "''")),
+        Some(text) => format!("E'{}'", text.replace('\\', "\\\\").replace('\'', "''")),
         None => "NULL".into(),
     }
 }
@@ -502,12 +518,12 @@ mod tests {
             script,
             concat!(
                 r#"DELETE FROM "shop"."products""#,
-                r#" WHERE "id" IS NOT DISTINCT FROM '8'::bigint AND xmin = '4243'::xid;"#,
+                r#" WHERE "id" IS NOT DISTINCT FROM E'8'::bigint AND xmin = E'4243'::xid;"#,
                 "\n",
-                r#"UPDATE "shop"."products" SET "price" = '12.50'::numeric(10,2)"#,
-                r#" WHERE "id" IS NOT DISTINCT FROM '7'::bigint AND xmin = '4242'::xid;"#,
+                r#"UPDATE "shop"."products" SET "price" = E'12.50'::numeric(10,2)"#,
+                r#" WHERE "id" IS NOT DISTINCT FROM E'7'::bigint AND xmin = E'4242'::xid;"#,
                 "\n",
-                r#"INSERT INTO "shop"."products" ("name") VALUES ('O''Brien'::text);"#,
+                r#"INSERT INTO "shop"."products" ("name") VALUES (E'O''Brien'::text);"#,
             )
         );
     }
@@ -522,12 +538,13 @@ mod tests {
 
         assert_eq!(
             statement.rendered(),
-            r#"UPDATE "t" SET "a$1" = '1'::text, "b""$2" = '10'::text WHERE x = '2'::text"#
+            r#"UPDATE "t" SET "a$1" = E'1'::text, "b""$2" = E'10'::text WHERE x = E'2'::text"#
         );
     }
 
     #[test]
-    fn a_null_is_written_as_null() {
+    fn a_literal_escapes_backslashes_and_doubles_quotes() {
+        assert_eq!(literal(&Some(r"C:\temp's".into())), r"E'C:\\temp''s'");
         assert_eq!(literal(&None), "NULL");
     }
 
