@@ -1,7 +1,8 @@
+import type { LanguageServerMessageArgs } from "../../bindings/LanguageServerMessageArgs";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import type { SyntaxError } from "../../bindings/SyntaxError";
-import { type Ipc, renderApp, stubIpc } from "../../test/harness";
+import { type Ipc, type Replies, renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
 import SqlEditor from "./SqlEditor";
 
@@ -13,7 +14,7 @@ const slect: SyntaxError = {
   end_column: 6,
 };
 
-async function editor(replies: Record<string, unknown>, sql = "SLECT 1") {
+async function editor(replies: Replies, sql = "SLECT 1") {
   const ipc = stubIpc(replies);
   // A model is named after its connection and its tab, and a name Monaco
   // already holds is one it refuses to make a second model for. A connection
@@ -188,15 +189,15 @@ async function typing(text: string) {
 function server() {
   let ipc: Ipc | undefined;
   const sent: string[] = [];
-  const replies = {
+  const replies: Replies = {
     check_syntax: [],
     start_language_server: {},
-    send_to_language_server: (args: Record<string, unknown>) => {
-      const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+    send_to_language_server: (args: LanguageServerMessageArgs) => {
+      const asked = JSON.parse(args.message) as { id?: number; method: string };
       sent.push(asked.method);
       if (asked.method === "textDocument/completion") {
         ipc?.emit("lsp:message", {
-          connection_id: args.connectionId as string,
+          connection_id: args.connection_id,
           payload: JSON.stringify({
             jsonrpc: "2.0",
             id: asked.id,
@@ -228,7 +229,7 @@ describe("SqlEditor completion", () => {
     // The document was announced before it was asked about, and the statement
     // went with it.
     expect(sent[0]).toBe("textDocument/didOpen");
-    expect(made.ipc.sent("start_language_server")).toEqual({ connectionId: made.connectionId });
+    expect(made.ipc.sent("start_language_server")).toEqual({ connection_id: made.connectionId });
   });
 
   it("asks nobody when there is no server to ask", async () => {
@@ -288,20 +289,20 @@ describe("SqlEditor completion", () => {
     let holding = false;
     const held: (() => void)[] = [];
     const sent: string[] = [];
-    const replies = {
+    const replies: Replies = {
       check_syntax: [],
       start_language_server: {},
-      send_to_language_server: (args: Record<string, unknown>) => {
-        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+      send_to_language_server: (args: LanguageServerMessageArgs) => {
+        const asked = JSON.parse(args.message) as { id?: number; method: string };
         sent.push(asked.method);
         if (asked.method === "textDocument/completion") {
           ipc?.emit("lsp:message", {
-            connection_id: args.connectionId as string,
+            connection_id: args.connection_id,
             payload: JSON.stringify({ jsonrpc: "2.0", id: asked.id, result: { items: [] } }),
           });
         }
         // A server that has stopped reading, so that what follows waits.
-        return holding ? new Promise((resolve) => held.push(() => resolve(null))) : null;
+        return holding ? new Promise<null>((resolve) => held.push(() => resolve(null))) : null;
       },
     };
 
@@ -329,7 +330,7 @@ describe("SqlEditor completion", () => {
   it("completes once a server has been built for a connection that had none", async () => {
     let installed = false;
     let ipc: Ipc | undefined;
-    const replies = {
+    const replies: Replies = {
       check_syntax: [],
       language_server_state: () =>
         installed ? { kind: "ready" } : { kind: "missing", server: "sqls" },
@@ -341,11 +342,11 @@ describe("SqlEditor completion", () => {
         if (!installed) throw { kind: "NotFound", message: "sqls is not installed" };
         return {};
       },
-      send_to_language_server: (args: Record<string, unknown>) => {
-        const asked = JSON.parse(args.message as string) as { id?: number; method: string };
+      send_to_language_server: (args: LanguageServerMessageArgs) => {
+        const asked = JSON.parse(args.message) as { id?: number; method: string };
         if (asked.method === "textDocument/completion") {
           ipc?.emit("lsp:message", {
-            connection_id: args.connectionId as string,
+            connection_id: args.connection_id,
             payload: JSON.stringify({
               jsonrpc: "2.0",
               id: asked.id,

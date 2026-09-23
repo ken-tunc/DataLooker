@@ -1,21 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
-import type { LspExit } from "../bindings/LspExit";
-import type { LspMessage } from "../bindings/LspMessage";
-import type { ShellExit } from "../bindings/ShellExit";
+import type { Events } from "../bindings/Events";
 
 /**
- * What the backend announces, and what each announcement carries. A command is
- * asked a question and answers it; an event is the other direction — something
- * the app learned without being asked. As with `commands.ts`, this is the only
- * module that names one.
- */
-type Events = {
-  "shell:exit": ShellExit;
-  "lsp:message": LspMessage;
-  "lsp:exit": LspExit;
-};
-
-/**
+ * An event is the other direction from a command: something the app learned
+ * without being asked. `Events` is generated from the Rust declaration of what
+ * it announces and what each carries, and as with `commands.ts`, this is the
+ * only module that names one.
+ *
  * Listen until the returned function is called. Subscribing is asynchronous
  * and unsubscribing is not, so a caller that has already given up by the time
  * the listener is in place is remembered and torn down at once — which is what

@@ -4,23 +4,23 @@ use tauri::State;
 
 use crate::app::edit::TableEdits;
 use crate::app::App;
+use crate::commands::TableArgs;
 use crate::drivers::TableShape;
 use crate::error::AppError;
 
 #[tauri::command]
 pub async fn table_shape(
-    connection_id: String,
-    schema: String,
-    table: String,
+    args: TableArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<TableShape, AppError> {
-    app.table_shape(&connection_id, &schema, &table).await
+    app.table_shape(&args.connection_id, &args.schema, &args.table)
+        .await
 }
 
 #[tauri::command]
 pub async fn commit_table_edits(
-    edits: TableEdits,
+    args: TableEdits,
     app: State<'_, Arc<App>>,
 ) -> Result<u32, AppError> {
-    app.commit_table_edits(edits).await
+    app.commit_table_edits(args).await
 }

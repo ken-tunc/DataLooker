@@ -36,33 +36,7 @@ pub fn run() {
             app.manage(state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::app_version,
-            commands::connection::list_connections,
-            commands::connection::save_connection,
-            commands::connection::delete_connection,
-            commands::query::test_connection,
-            commands::query::execute_query,
-            commands::query::cancel_query,
-            commands::query::check_syntax,
-            commands::query::query_history,
-            commands::schema::schema_tree,
-            commands::schema::table_columns,
-            commands::schema::table_definition,
-            commands::preview::preview_table,
-            commands::edit::table_shape,
-            commands::edit::commit_table_edits,
-            commands::shell::run_connection_command,
-            commands::shell::stop_connection_command,
-            commands::shell::running_connection_commands,
-            commands::lsp::start_language_server,
-            commands::lsp::send_to_language_server,
-            commands::lsp::stop_language_server,
-            commands::lsp::language_server_state,
-            commands::lsp::install_language_server,
-            commands::agents::agent_access,
-            commands::agents::set_agent_access
-        ])
+        .invoke_handler(commands::handler())
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|handle, event| {

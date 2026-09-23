@@ -67,3 +67,5 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+# The mock runtime, so that a test can send a command the way the window does.
+tauri = { version = "2", features = ["macos-private-api", "test"] }
