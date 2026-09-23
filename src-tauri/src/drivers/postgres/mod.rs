@@ -31,6 +31,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct PostgresSession {
     options: PgConnectOptions,
     conn: Mutex<Option<PgConnection>>,
+    /// Where what the app asks of the catalog goes. None of it needs the
+    /// reader's `BEGIN` or `SET`, and on the reader's connection all of it
+    /// would wait behind their longest query and fail inside a transaction
+    /// of theirs that had failed — the tree, and every table opened from it,
+    /// held hostage by a statement in an editor tab.
+    catalog: Mutex<Option<PgConnection>>,
 }
 
 impl PostgresSession {
@@ -43,6 +49,7 @@ impl PostgresSession {
                 .username(username)
                 .password(password),
             conn: Mutex::new(None),
+            catalog: Mutex::new(None),
         }
     }
 
@@ -131,10 +138,8 @@ impl PostgresSession {
     }
 
     pub async fn shape(&self, schema: &str, table: &str) -> Result<TableShape, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(edit::shape(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(edit::shape(conn, schema, table).await?))
+            .await
     }
 
     /// `None` when the schema holds no such relation.
@@ -143,10 +148,8 @@ impl PostgresSession {
         schema: &str,
         table: &str,
     ) -> Result<Option<TableDefinition>, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(ddl::definition(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(ddl::definition(conn, schema, table).await?))
+            .await
     }
 
     /// Applies everything one save carries in one transaction and resolves to
@@ -172,33 +175,46 @@ impl PostgresSession {
         .await
     }
 
-    /// The tree shares the session, so it waits behind a query already running
-    /// on it — and sees the schemas that query's transaction has created.
+    /// What the tree shows is what has been committed: a schema the reader's
+    /// open transaction created is theirs until it commits.
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(schema::tree(conn).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(schema::tree(conn).await?))
+            .await
     }
 
     pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
-        self.with_connection(&CancellationToken::new(), async |conn| {
-            Ok(schema::columns(conn, schema, table).await?)
-        })
-        .await
+        self.on_catalog(async |conn| Ok(schema::columns(conn, schema, table).await?))
+            .await
     }
 
-    /// Runs `work` on the session's connection, opening one when the session
+    /// Runs `work` on the reader's connection, opening one when the session
     /// has none.
     async fn with_connection<T>(
         &self,
         cancel: &CancellationToken,
         work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
+        self.run_on(&self.conn, cancel, work).await
+    }
+
+    async fn on_catalog<T>(
+        &self,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
+    ) -> Result<T, AppError> {
+        self.run_on(&self.catalog, &CancellationToken::new(), work)
+            .await
+    }
+
+    async fn run_on<T>(
+        &self,
+        slot: &Mutex<Option<PgConnection>>,
+        cancel: &CancellationToken,
+        work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
+    ) -> Result<T, AppError> {
         let mut held = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(AppError::Cancelled),
-            held = self.conn.lock() => held,
+            held = slot.lock() => held,
         };
 
         let mut conn = match held.take() {

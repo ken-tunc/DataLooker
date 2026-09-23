@@ -134,7 +134,12 @@ and a key to name one by is what BigQuery has no notion of.
 
 A connection holds one PostgreSQL session (`drivers::session::SessionRegistry`), reused across
 queries so `BEGIN`, `SET` and temporary tables survive the statement that created them.
-Queries on one connection therefore run one at a time. A cancelled query leaves the wire
+Queries on one connection therefore run one at a time. What the app reads of the catalog —
+the tree, a table's columns, its shape and its definition — goes over a connection of its
+own beside that one: none of it needs the reader's `BEGIN` or `SET`, and on theirs it would
+wait behind their longest query and fail inside a transaction of theirs that had failed.
+The price is that the tree shows what is committed, not what the reader's open transaction
+has made. A cancelled query leaves the wire
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
 
@@ -393,8 +398,8 @@ answer to what it is decides whether it runs.
 The agent's session is its own. A `BEGIN` or a temporary table of the reader's
 is not the agent's to see, nor the other way about. Its rows are capped lower
 than the window's, since a reader scrolls what they asked for and an agent
-reads it all; its statements have a deadline the window's do not, because
-nobody is watching this one and nothing will cancel it. The session goes with
+reads it all; its statements, and what it reads of the catalog, have a deadline the
+window's do not, because nobody is watching and nothing will cancel them. The session goes with
 that deadline: what the statement left on the wire is still there.
 
 Every run is logged where the reader's own runs are, with who ran it, and the
