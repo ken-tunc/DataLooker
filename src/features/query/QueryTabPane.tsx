@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
+import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
 import { describeError, IpcError } from "../../lib/invoke";
+import { type Pane, usePaneSize } from "../../lib/paneSize";
 import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
 import { ResultGrid } from "./ResultGrid";
@@ -9,6 +11,8 @@ import { useQueryRunner } from "./hooks";
 // Monaco is the heaviest thing here by far, so it arrives in its own chunk when
 // a connection is opened rather than at startup.
 const SqlEditor = lazy(() => import("../sql-editor/SqlEditor"));
+
+const EDITOR: Pane = { key: "datalooker.editor-height", initial: 224, min: 80, max: 2000 };
 
 type Props = {
   connectionId: string;
@@ -33,6 +37,7 @@ export function QueryTabPane({
   onFindTable,
 }: Props) {
   const { run, cancel } = useQueryRunner(connectionId);
+  const [editorHeight] = usePaneSize(EDITOR);
   const { show } = useToast();
   // The tree the sidebar is already showing, which is what a name is looked up
   // in — one cache, so asking here costs no request.
@@ -98,7 +103,12 @@ export function QueryTabPane({
         />
       </div>
 
-      <div className="hairline h-56 shrink-0 overflow-hidden rounded-box border">
+      {/* The editor gives way before the rows do: dragged taller than the
+        window, it shrinks rather than pushing them out of sight. */}
+      <div
+        className="hairline min-h-20 overflow-hidden rounded-box border"
+        style={{ flexBasis: editorHeight }}
+      >
         <Suspense fallback={<div className="skeleton h-full w-full" />}>
           <SqlEditor
             connectionId={connectionId}
@@ -111,7 +121,9 @@ export function QueryTabPane({
         </Suspense>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <Splitter pane={EDITOR} axis="y" label="Resize the editor" />
+
+      <div className="min-h-24 flex-1 basis-0">
         {run.isSuccess && run.data.columns.length > 0 ? (
           <ResultGrid result={run.data} />
         ) : (

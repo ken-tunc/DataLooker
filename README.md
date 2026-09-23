@@ -49,6 +49,9 @@ vp run tauri dev
 
 A native window titled "DataLooker" opens.
 
+The sidebar is as wide, and the editor as tall, as the line beside it is dragged to; a
+double-click on the line puts it back.
+
 ## Keyboard
 
 | Keys              | What it does                         |

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Splitter } from "../../components/Splitter";
+import { type Pane, usePaneSize } from "../../lib/paneSize";
 import { ConnectionHeader } from "../connections/ConnectionHeader";
 import { ConnectionRail } from "../connections/ConnectionRail";
 import { useConnections } from "../connections/hooks";
@@ -7,6 +9,8 @@ import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
 import { TableSearchPalette } from "../table-search/TableSearchPalette";
 import { useTabs } from "../tabs/useTabs";
+
+const SIDEBAR: Pane = { key: "datalooker.sidebar-width", initial: 288, min: 200, max: 640 };
 
 /** Which palette is in front, if any. Only one can be: each is modal. */
 type Palette = { kind: "tables"; query?: string } | { kind: "history" } | null;
@@ -19,6 +23,7 @@ export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [palette, setPalette] = useState<Palette>(null);
   const tabs = useTabs();
+  const [sidebarWidth] = usePaneSize(SIDEBAR);
 
   function select(id: string) {
     setSelectedId(id);
@@ -62,7 +67,10 @@ export function AppShell() {
       <ConnectionRail selectedId={selectedId} onSelect={select} />
 
       {selectedId && (
-        <section className="hairline bg-base-100 flex w-72 shrink-0 flex-col border-r">
+        <section
+          className="hairline bg-base-100 flex shrink-0 flex-col border-r"
+          style={{ width: sidebarWidth }}
+        >
           <ConnectionHeader
             connectionId={selectedId}
             onRemoved={(id) => {
@@ -77,6 +85,7 @@ export function AppShell() {
           />
         </section>
       )}
+      {selectedId && <Splitter pane={SIDEBAR} axis="x" label="Resize the sidebar" />}
 
       {selectedId && palette?.kind === "tables" && (
         <TableSearchPalette
