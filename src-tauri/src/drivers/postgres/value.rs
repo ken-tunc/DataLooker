@@ -191,3 +191,47 @@ mod tests {
         assert_eq!(f64_to_json(f64::INFINITY), Value::String("inf".into()));
     }
 }
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use serde_json::json;
+
+    use crate::drivers::postgres::testing::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn values_reach_the_frontend_as_json() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+
+        let result = run(
+            &session,
+            "SELECT 9007199254740993::int8 AS big,
+                    1.25::float8 AS float,
+                    12.34::numeric AS exact,
+                    '{\"a\": 1}'::jsonb AS document,
+                    ARRAY[1, NULL, 3]::int4[] AS numbers,
+                    '\\x0a0b'::bytea AS bytes,
+                    '2026-09-20'::date AS day,
+                    '00000000-0000-0000-0000-000000000001'::uuid AS identifier",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            result.rows[0],
+            vec![
+                // Past 2^53 a JSON number would reach JavaScript rounded.
+                json!("9007199254740993"),
+                json!(1.25),
+                json!("12.34"),
+                json!({"a": 1}),
+                json!([1, null, 3]),
+                json!("\\x0a0b"),
+                json!("2026-09-20"),
+                json!("00000000-0000-0000-0000-000000000001"),
+            ]
+        );
+    }
+}

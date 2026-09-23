@@ -149,12 +149,14 @@ has made. A cancelled query leaves the wire
 protocol mid-row, so its connection is dropped and the next query opens a new one; an error
 the server reported leaves the session usable and keeps it.
 
-`tests/bigquery.rs` reaches a real BigQuery project, and skips unless
-`DATALOOKER_TEST_BQ_KEY` and `DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery
-to stand up in a container. Only their absence is a skip.
+A test that needs a server sits with the code it covers like any other, in a module
+named `live`, and what those tests share is the driver's `testing` module. BigQuery's
+reach a real project, and skip unless `DATALOOKER_TEST_BQ_KEY` and
+`DATALOOKER_TEST_BQ_PROJECT` name one — there is no BigQuery to stand up in a container.
+Only their absence is a skip.
 
-`src-tauri/tests/` runs against the PostgreSQL in `compose.yaml` (`docker compose up -d
---wait`) and each test skips itself when nothing is listening on that port. A server that
+PostgreSQL's run against the one in `compose.yaml` (`docker compose up -d --wait`) and
+each test skips itself when nothing is listening on that port. A server that
 does answer has to work: only absence is a skip, never a failure. CI starts the container
 on a Linux runner so that these tests actually run there; the macOS job compiles the
 keychain, which is the only code that runner can see and Linux cannot.
