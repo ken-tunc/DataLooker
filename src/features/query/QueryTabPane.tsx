@@ -115,7 +115,7 @@ export function QueryTabPane({
         {run.isSuccess && run.data.columns.length > 0 ? (
           <ResultGrid result={run.data} />
         ) : (
-          <div className="hairline text-base-content/40 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
+          <div className="hairline text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
             {run.isSuccess ? "The statement returned no rows." : "Run a query to see its rows."}
           </div>
         )}

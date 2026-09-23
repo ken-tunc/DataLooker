@@ -455,6 +455,12 @@ Monaco in the page rather than two.
   one in the repository's secrets is what would buy that. `minimumSystemVersion` is Tauri's
   own floor rather than the bundler's default, which is older than anything this stack runs
   on.
+- The window draws its own title bar (`titleBarStyle: "Overlay"`) and is transparent, so
+  the connection sidebar can show the desktop through macOS's sidebar material. A
+  transparent window is a private API on macOS (`macOSPrivateApi`), which the App Store
+  refuses and nothing else here cares about. The page is transparent only in the window
+  (`data-window="native"`), so every panel paints its own background, and the window is
+  pinned to the dark appearance, because the material follows it rather than the theme.
 - The production CSP allows no inline scripts. `style-src 'unsafe-inline'` and
   `worker-src blob:` are there for libraries that inject styles and spawn web workers, and
   `connect-src ipc: http://ipc.localhost` is Tauri's IPC transport.

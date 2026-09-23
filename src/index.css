@@ -58,3 +58,13 @@ body,
 #root {
   height: 100%;
 }
+
+/* In the window the page is transparent, so that the sidebar can let the
+   desktop through; each panel paints its own background. A browser has no
+   desktop to show, so it gets the page colour instead. */
+html {
+  background: var(--color-base-100);
+}
+html[data-window="native"] {
+  background: transparent;
+}

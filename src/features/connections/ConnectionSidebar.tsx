@@ -54,8 +54,13 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
   // Wide enough for a label beside the buttons the row carries: a name
   // truncated to make room for them says less than the room is worth.
   return (
-    <aside className="hairline bg-base-200 flex w-72 shrink-0 flex-col border-r">
-      <header className="flex items-center justify-between p-3">
+    <aside className="hairline bg-base-200/60 flex w-72 shrink-0 flex-col border-r">
+      {/* The window's own buttons sit over the left of this header, which is
+          also where the window is dragged from. */}
+      <header
+        data-tauri-drag-region="deep"
+        className="flex h-12 shrink-0 items-center justify-between pr-3 pl-24"
+      >
         <h1 className="font-semibold">Connections</h1>
         <button
           type="button"

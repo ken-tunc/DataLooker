@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
     const kind = error instanceof IpcError ? error.kind : error.name;
     return (
-      <div className="flex min-h-screen items-center justify-center p-8">
+      <div className="bg-base-100 flex min-h-screen items-center justify-center p-8">
         <div role="alert" className="alert alert-error max-w-xl flex-col items-start gap-3">
           <span>
             <strong>{kind}:</strong> {error.message}

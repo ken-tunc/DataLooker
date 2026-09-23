@@ -18,7 +18,7 @@ export function Workspace({ connectionId, tabs, onFindTable }: Props) {
 
   return (
     <>
-      <div className="hairline flex border-b">
+      <div data-tauri-drag-region="deep" className="hairline flex h-12 shrink-0 border-b">
         <ConnectionName connectionId={connectionId} />
         <TabStrip
           state={state}

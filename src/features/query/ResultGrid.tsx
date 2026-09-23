@@ -129,6 +129,13 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
+              aria-sort={
+                sort?.column !== column.name
+                  ? undefined
+                  : sort.descending
+                    ? "descending"
+                    : "ascending"
+              }
               className="relative shrink-0 px-3 py-1 font-sans font-medium"
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
@@ -224,7 +231,7 @@ function GridCell({
         "shrink-0 truncate px-3 py-1",
         selected ? "bg-primary/20 ring-primary ring-1" : "",
         changed ? "bg-warning/20" : "",
-        value === null ? "text-base-content/40 italic" : "",
+        value === null ? "text-base-content/50 italic" : "",
       ].join(" ")}
       style={{ width }}
       title={text}
@@ -252,7 +259,7 @@ function HeaderLabel({
         ) : (
           <ArrowUp className="ml-1 inline size-3.5" />
         ))}
-      <span className="text-base-content/40 ml-2 font-normal lowercase">{column.type_name}</span>
+      <span className="text-base-content/50 ml-2 font-normal lowercase">{column.type_name}</span>
     </>
   );
 

@@ -91,7 +91,7 @@ export function AppShell() {
         />
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="bg-base-100 flex min-w-0 flex-1 flex-col">
         {selectedId ? (
           <Workspace
             connectionId={selectedId}
@@ -99,7 +99,7 @@ export function AppShell() {
             onFindTable={(query) => setPalette({ kind: "tables", query })}
           />
         ) : (
-          <div className="text-base-content/40 flex h-full items-center justify-center">
+          <div className="text-base-content/50 flex h-full items-center justify-center">
             Select a connection to start querying.
           </div>
         )}
