@@ -1,3 +1,5 @@
+import { DriverIcon } from "../connections/DriverIcon";
+import { useConnections } from "../connections/hooks";
 import { QueryTabPane } from "../query/QueryTabPane";
 import { TablePreviewPane } from "../table-preview/TablePreviewPane";
 import { TabStrip } from "../tabs/TabStrip";
@@ -16,12 +18,15 @@ export function Workspace({ connectionId, tabs, onFindTable }: Props) {
 
   return (
     <>
-      <TabStrip
-        state={state}
-        onActivate={(id) => tabs.activate(connectionId, id)}
-        onClose={(id) => tabs.close(connectionId, id)}
-        onOpen={() => tabs.open(connectionId)}
-      />
+      <div className="border-base-300 flex border-b">
+        <ConnectionName connectionId={connectionId} />
+        <TabStrip
+          state={state}
+          onActivate={(id) => tabs.activate(connectionId, id)}
+          onClose={(id) => tabs.close(connectionId, id)}
+          onOpen={() => tabs.open(connectionId)}
+        />
+      </div>
       {state.tabs.map((tab) =>
         tab.kind === "sql" ? (
           <QueryTabPane
@@ -47,5 +52,18 @@ export function Workspace({ connectionId, tabs, onFindTable }: Props) {
         ),
       )}
     </>
+  );
+}
+
+/** Every tab in the strip is this connection's, so it is named once, ahead of them. */
+function ConnectionName({ connectionId }: { connectionId: string }) {
+  const connection = useConnections().data?.find(({ id }) => id === connectionId);
+  if (!connection) return null;
+
+  return (
+    <div className="flex max-w-48 shrink-0 items-center gap-2 pr-2 pl-3 text-sm">
+      <DriverIcon kind={connection.config.kind} />
+      <span className="truncate">{connection.label}</span>
+    </div>
   );
 }

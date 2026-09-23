@@ -3,6 +3,7 @@ import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
 import { DRIVER_LABELS, type DriverKind } from "./driver";
+import { DriverIcon } from "./DriverIcon";
 import {
   EMPTY_FORM,
   type ConnectionFormValues,
@@ -91,18 +92,24 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
             </Field>
 
             <Field id={`${fieldId}-kind`} label="Driver">
-              <select
-                id={`${fieldId}-kind`}
-                className="select w-full"
-                value={values.kind}
-                onChange={(event) => update("kind", event.target.value as DriverKind)}
-              >
-                {Object.entries(DRIVER_LABELS).map(([kind, label]) => (
-                  <option key={kind} value={kind}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              {/* An option can hold only text in WebKit, so the mark sits
+                  beside the select and follows what it has chosen. A div
+                  rather than daisyUI's label, which would name the select
+                  a second time. */}
+              <div className="select w-full">
+                <DriverIcon kind={values.kind} />
+                <select
+                  id={`${fieldId}-kind`}
+                  value={values.kind}
+                  onChange={(event) => update("kind", event.target.value as DriverKind)}
+                >
+                  {Object.entries(DRIVER_LABELS).map(([kind, label]) => (
+                    <option key={kind} value={kind}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </Field>
 
             {values.kind === "postgres" ? (

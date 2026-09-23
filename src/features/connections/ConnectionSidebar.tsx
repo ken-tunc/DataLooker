@@ -5,6 +5,7 @@ import { describeError } from "../../lib/invoke";
 import { AgentAccess } from "../agents/AgentAccess";
 import { CommandButton } from "../connection-command/CommandButton";
 import { describeConnection } from "./driver";
+import { DriverIcon } from "./DriverIcon";
 import { useCommandExits } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
@@ -90,12 +91,15 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
               >
                 <button
                   type="button"
-                  className="flex min-w-0 grow flex-col items-start gap-0 text-left"
+                  className="flex min-w-0 grow items-center gap-2 text-left"
                   onClick={() => onSelect(connection.id)}
                 >
-                  <span className="w-full truncate">{connection.label}</span>
-                  <span className="w-full truncate text-xs opacity-60">
-                    {describeConnection(connection.config)}
+                  <DriverIcon kind={connection.config.kind} />
+                  <span className="flex min-w-0 grow flex-col">
+                    <span className="truncate">{connection.label}</span>
+                    <span className="truncate text-xs opacity-60">
+                      {describeConnection(connection.config)}
+                    </span>
                   </span>
                 </button>
                 {test.isPending && test.variables === connection.id && (
