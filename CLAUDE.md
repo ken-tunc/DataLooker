@@ -168,7 +168,10 @@ everywhere else and a bad value comes back as its own complaint. A save is check
 the row's `xmin` — the transaction that last wrote it — which needs no round trip through
 our rendering of a value, and catches any concurrent change to the row. One save is one
 transaction: a row that matches nothing refuses the lot. A relation with no primary key
-cannot name a row, so it is read-only.
+cannot name a row, so it is read-only. A save runs on the editor's session, so while the
+reader has a transaction open there it is refused rather than run: its own COMMIT or
+ROLLBACK would end the reader's transaction too, and sqlx cannot see a `BEGIN` it did not
+send, so the server is asked.
 
 ## A table's structure
 

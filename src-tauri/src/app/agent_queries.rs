@@ -68,50 +68,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::connections::SaveConnectionInput;
-    use crate::db::connection::DriverConfig;
-    use crate::db::history::Source;
-    use std::net::{TcpStream, ToSocketAddrs};
-
-    fn var(name: &str, fallback: &str) -> String {
-        std::env::var(name).unwrap_or_else(|_| fallback.to_string())
-    }
-
-    /// The PostgreSQL of `compose.yaml`, if it is up. Nothing here can be
-    /// tested against a database that is not there — what is being tested is
-    /// what the server does with the session this opens.
-    async fn app_reaching_postgres() -> Option<(App, String)> {
-        let (host, port) = (
-            var("DATALOOKER_TEST_PG_HOST", "localhost"),
-            var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap(),
-        );
-        let listening = (host.as_str(), port)
-            .to_socket_addrs()
-            .ok()?
-            .any(|address| TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok());
-        if !listening {
-            eprintln!("skipping: nothing is listening on {host}:{port}");
-            return None;
-        }
-
-        let app = crate::app::tests::app().await;
-        let id = app
-            .save_connection(SaveConnectionInput {
-                id: None,
-                label: "Test".into(),
-                config: DriverConfig::Postgres {
-                    host,
-                    port,
-                    database: var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"),
-                    username: var("DATALOOKER_TEST_PG_USERNAME", "datalooker"),
-                },
-                secret: Some(var("DATALOOKER_TEST_PG_PASSWORD", "datalooker")),
-                command: None,
-            })
-            .await
-            .expect("a connection to run against");
-        Some((app, id))
-    }
+    use crate::app::tests::app_reaching_postgres;
 
     #[tokio::test]
     async fn reads_for_an_agent_and_writes_for_nobody() {
