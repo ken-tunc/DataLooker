@@ -97,7 +97,9 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                   rather than daisyUI's label, which would name the select
                   a second time. */}
               <div className="select w-full">
-                <DriverIcon kind={values.kind} />
+                {/* daisyUI pulls the select a field's padding to its left, over
+                    whatever sits beside it, so the mark keeps that much clear. */}
+                <DriverIcon kind={values.kind} className="me-3 size-6" />
                 <select
                   id={`${fieldId}-kind`}
                   value={values.kind}
@@ -219,7 +221,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
               id={`${fieldId}-command`}
               label="Command"
               error={errors.command}
-              hint="Run before connecting, from the connection list: a port forward or an SSH tunnel. Optional."
+              hint="Run before connecting, from the connection's header: a port forward or an SSH tunnel. Optional."
             >
               <input
                 id={`${fieldId}-command`}

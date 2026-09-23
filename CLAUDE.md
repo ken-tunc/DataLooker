@@ -428,10 +428,11 @@ Monaco in the page rather than two.
   the frontend rounded.
 - Commands fail with `AppError`, which serializes as `{ kind, message }`; the frontend
   branches on `kind` and never on message text.
-- Monokai Pro is the only theme. It has no light counterpart, so no built-in daisyUI
-  theme is enabled and nothing follows the OS light/dark preference. Monaco paints
-  itself rather than reading the theme, so it is pinned to its own `vs-dark` — close
-  enough that a second palette to maintain is not worth it. That is set in
+- daisyUI's `dark` is the only theme, with its shape adjusted in `index.css` and its
+  colours left alone; nothing follows the OS into a light one. Monaco paints itself
+  rather than reading the theme, so it is pinned to its own `vs-dark` — close enough that
+  a second palette to maintain is not worth it, and the row under the editor takes
+  `vs-dark`'s background by hand. That is set in
   `features/sql-editor/monaco.ts` rather than on each editor, because Monaco holds one
   theme for everything it draws, including the statements it colours outside an editor.
 - The table palette (⌘O) ranks names itself rather than through a fuzzy-search library.

@@ -155,7 +155,9 @@ export default function SqlEditor({
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div ref={host} className="min-h-0 w-full flex-1" />
-      <div className="flex items-center gap-3 px-2 pt-1 text-xs">
+      {/* Monaco paints its own background (`vs-dark`) rather than reading the
+          theme, so the row under it takes the same colour by hand. */}
+      <div className="flex items-center gap-3 bg-[#1e1e1e] px-2 py-1 text-xs">
         {/* Where vim writes `-- INSERT --` and the `:` line it is reading. It
             hides the node it was handed when it is turned off, and a hidden
             node holds no space, so what keeps the row's shape is the span
