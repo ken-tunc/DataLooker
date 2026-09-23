@@ -48,7 +48,7 @@ impl App {
             connection_id,
             sql,
             started.elapsed(),
-            &result,
+            crate::app::history::rows_returned(&result),
             Source::Agent,
         )
         .await;

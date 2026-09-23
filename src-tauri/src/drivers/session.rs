@@ -7,10 +7,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db::connection::{self, DriverConfig};
 use crate::drivers::bigquery::BigQuerySession;
-use crate::drivers::postgres::PostgresSession;
+use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
-    Column, Preview, QueryResult, RowDelete, RowInsert, RowUpdate, SchemaTree, TableDefinition,
-    TablePage, TableShape,
+    Column, Preview, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -129,20 +128,22 @@ impl Session {
         }
     }
 
-    pub async fn apply_edits(
+    pub async fn plan_edits(
         &self,
         schema: &str,
         table: &str,
-        inserts: &[RowInsert],
-        updates: &[RowUpdate],
-        deletes: &[RowDelete],
-    ) -> Result<u32, AppError> {
+        edits: Edits<'_>,
+    ) -> Result<Plan, AppError> {
         match self {
-            Session::Postgres(session) => {
-                session
-                    .apply_edits(schema, table, inserts, updates, deletes)
-                    .await
-            }
+            Session::Postgres(session) => session.plan_edits(schema, table, edits).await,
+            Session::BigQuery(_) => Err(read_only("be edited")),
+        }
+    }
+
+    pub async fn apply_plan(&self, plan: &Plan) -> Result<u32, AppError> {
+        match self {
+            Session::Postgres(session) => session.apply_plan(plan).await,
+            // A plan is only ever made by a driver that can carry it out.
             Session::BigQuery(_) => Err(read_only("be edited")),
         }
     }
