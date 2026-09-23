@@ -47,7 +47,7 @@ function AgentAccessDialog({ onClose }: { onClose: () => void }) {
         <h3 id="agents-title" className="text-lg font-semibold">
           Agents
         </h3>
-        <p className="text-base-content/70 py-2 text-sm">
+        <p className="text-base-content/60 py-2 text-sm">
           An agent that can reach this app can list your connections and read what they hold. It
           answers on this machine only, and only whoever presents the token.
         </p>

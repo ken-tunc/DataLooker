@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ChevronRight, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { describeError } from "../../lib/invoke";
 import { useColumnsOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
@@ -46,8 +47,8 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf) : [];
 
   return (
-    <section className="border-base-300 flex w-72 shrink-0 flex-col border-r">
-      <div className="flex items-center gap-1 p-2">
+    <section className="hairline bg-base-100 flex w-72 shrink-0 flex-col border-r">
+      <div data-tauri-drag-region="deep" className="flex h-12 shrink-0 items-center gap-1 px-2">
         <input
           className="input input-sm grow"
           placeholder="Filter tables"
@@ -56,12 +57,16 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
         />
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm btn-square"
           aria-label="Reload the schema"
           disabled={tree.isFetching}
           onClick={() => void refresh()}
         >
-          {tree.isFetching ? <span className="loading loading-spinner loading-xs" /> : "↻"}
+          {tree.isFetching ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <RotateCw className="size-4" />
+          )}
         </button>
       </div>
 
@@ -192,7 +197,7 @@ function Row({
         type="button"
         aria-expanded={row.expanded}
         aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`}
-        className="cursor-pointer"
+        className="flex cursor-pointer self-center"
         onClick={() => onToggle(row.id)}
       >
         <Chevron expanded={row.expanded} />
@@ -211,7 +216,11 @@ function Row({
 }
 
 function Chevron({ expanded }: { expanded: boolean }) {
-  return <span className="text-base-content/40 w-3 shrink-0 text-xs">{expanded ? "▾" : "▸"}</span>;
+  return (
+    <ChevronRight
+      className={`text-base-content/50 size-3.5 shrink-0 self-center transition-transform ${expanded ? "rotate-90" : ""}`}
+    />
+  );
 }
 
 function Skeleton() {

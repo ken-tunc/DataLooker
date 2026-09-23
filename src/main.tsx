@@ -7,6 +7,8 @@ import "./index.css";
 import { ErrorBoundary } from "./lib/ErrorBoundary";
 import { queryClient } from "./lib/queryClient";
 
+if ("__TAURI_INTERNALS__" in window) document.documentElement.dataset.window = "native";
+
 const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("Root element #root not found in document.");

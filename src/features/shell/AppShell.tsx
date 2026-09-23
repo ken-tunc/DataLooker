@@ -91,7 +91,7 @@ export function AppShell() {
         />
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="bg-base-100 flex min-w-0 flex-1 flex-col">
         {selectedId ? (
           <Workspace
             connectionId={selectedId}

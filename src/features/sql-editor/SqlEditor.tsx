@@ -160,7 +160,7 @@ export default function SqlEditor({
             hides the node it was handed when it is turned off, and a hidden
             node holds no space, so what keeps the row's shape is the span
             around it rather than the one vim writes to. */}
-        <span className="text-base-content/70 grow truncate font-mono">
+        <span className="text-base-content/60 grow truncate font-mono">
           <span ref={status} />
         </span>
         <InstallServer connectionId={connectionId} />

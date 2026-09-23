@@ -35,20 +35,36 @@
   --color-error-content: #19181a;
 
   --radius-selector: 0.5rem;
-  --radius-field: 0.25rem;
-  --radius-box: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.75rem;
 
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
 
   --border: 1px;
 
-  --depth: 0;
+  --depth: 1;
   --noise: 0;
+}
+
+/* A line between two panels is drawn in the text colour at low opacity rather than
+   in a base shade, so it reads the same against whichever shade is behind it. */
+@utility hairline {
+  border-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
 }
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+/* In the window the page is transparent, so that the sidebar can let the
+   desktop through; each panel paints its own background. A browser has no
+   desktop to show, so it gets the page colour instead. */
+html {
+  background: var(--color-base-100);
+}
+html[data-window="native"] {
+  background: transparent;
 }

@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
@@ -112,7 +113,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
     // inside every cell.
     <div
       ref={setScroller}
-      className="border-base-300 h-full overflow-auto rounded-box border font-mono text-sm outline-none"
+      className="hairline h-full overflow-auto rounded-box border font-mono text-sm outline-none"
       tabIndex={0}
       role="grid"
       onKeyDown={move}
@@ -128,6 +129,13 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
+              aria-sort={
+                sort?.column !== column.name
+                  ? undefined
+                  : sort.descending
+                    ? "descending"
+                    : "ascending"
+              }
               className="relative shrink-0 px-3 py-1 font-sans font-medium"
               style={{ width: widths[index] }}
               title={`${column.name} · ${column.type_name}`}
@@ -223,7 +231,7 @@ function GridCell({
         "shrink-0 truncate px-3 py-1",
         selected ? "bg-primary/20 ring-primary ring-1" : "",
         changed ? "bg-warning/20" : "",
-        value === null ? "text-base-content/40 italic" : "",
+        value === null ? "text-base-content/50 italic" : "",
       ].join(" ")}
       style={{ width }}
       title={text}
@@ -245,8 +253,13 @@ function HeaderLabel({
   const label = (
     <>
       {column.name}
-      {sorted && <span className="ml-1">{sorted.descending ? "▾" : "▴"}</span>}
-      <span className="text-base-content/40 ml-2 font-normal lowercase">{column.type_name}</span>
+      {sorted &&
+        (sorted.descending ? (
+          <ArrowDown className="ml-1 inline size-3.5" />
+        ) : (
+          <ArrowUp className="ml-1 inline size-3.5" />
+        ))}
+      <span className="text-base-content/50 ml-2 font-normal lowercase">{column.type_name}</span>
     </>
   );
 
