@@ -1,6 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef } from "react";
-import type { TabsState } from "./tabs";
+import type { Tab, TabsState } from "./tabs";
 
 type Props = {
   state: TabsState;
@@ -8,6 +8,8 @@ type Props = {
   onClose: (id: string) => void;
   onOpen: () => void;
 };
+
+const unsaved = (tab: Tab) => tab.kind === "table" && tab.unsaved;
 
 /** The tabs are siblings in the strip, in the order they are rendered. */
 function focusTabAt(sibling: HTMLElement, index: number): void {
@@ -18,11 +20,15 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   const strip = useRef<HTMLDivElement>(null);
   // Closing the tab in focus takes the focused element with it, which would
   // otherwise drop focus on the document and end the keyboard's walk here.
-  const refocus = useRef(false);
+  // The tab is remembered rather than the wish to close it: a tab with
+  // unsaved changes asks first, and only once it is actually gone is there
+  // anything to move focus away from.
+  const refocus = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!refocus.current) return;
-    refocus.current = false;
+    const closed = refocus.current;
+    if (closed === null || state.tabs.some((tab) => tab.id === closed)) return;
+    refocus.current = null;
     strip.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   });
 
@@ -51,7 +57,7 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      refocus.current = true;
+      refocus.current = id;
       onClose(id);
       return;
     }
@@ -78,11 +84,15 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
           role="tab"
           tabIndex={tab.id === state.activeId ? 0 : -1}
           aria-selected={tab.id === state.activeId}
+          aria-label={unsaved(tab) ? `${tab.title}, unsaved changes` : undefined}
           className={`tab gap-2 ${tab.id === state.activeId ? "tab-active" : ""}`}
           onClick={() => onActivate(tab.id)}
           onKeyDown={(event) => onTabKeyDown(event, tab.id)}
         >
           {tab.title}
+          {unsaved(tab) && (
+            <span aria-hidden="true" title="Unsaved changes" className="status status-warning" />
+          )}
           <span
             aria-hidden="true"
             title={`Close ${tab.title} (Delete)`}

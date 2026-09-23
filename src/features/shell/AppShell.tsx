@@ -105,15 +105,16 @@ export function AppShell() {
       )}
 
       <main className="bg-base-100 flex min-w-0 flex-1 flex-col">
-        {selectedId ? (
+        {tabs.connections().map((connectionId) => (
           <Workspace
-            connectionId={selectedId}
+            key={connectionId}
+            connectionId={connectionId}
             tabs={tabs}
+            hidden={connectionId !== selectedId}
             onFindTable={(query) => setPalette({ kind: "tables", query })}
           />
-        ) : (
-          <NothingInFront />
-        )}
+        ))}
+        {!selectedId && <NothingInFront />}
       </main>
     </div>
   );

@@ -11,7 +11,19 @@ export type TableView = {
 
 export type Tab =
   | { kind: "sql"; id: string; title: string; sql: string }
-  | ({ kind: "table"; id: string; title: string; schema: string; table: string } & TableView);
+  | ({
+      kind: "table";
+      id: string;
+      title: string;
+      schema: string;
+      table: string;
+      /**
+       * Whether the pane holds edits it has not saved. The edits are the
+       * pane's own; the strip only needs to know there are some, to mark the
+       * tab and to ask before closing it.
+       */
+      unsaved: boolean;
+    } & TableView);
 
 export type TabsState = { tabs: Tab[]; activeId: string };
 
@@ -67,6 +79,7 @@ export function openTableTab(
     sort: null,
     page: 0,
     shows,
+    unsaved: false,
   });
 }
 
@@ -109,6 +122,18 @@ export function setTableView(state: TabsState, id: string, view: Partial<TableVi
     ...state,
     tabs: state.tabs.map((tab) =>
       tab.id === id && tab.kind === "table" ? { ...tab, ...view, page: nextPage(tab, view) } : tab,
+    ),
+  };
+}
+
+/** Hands back the same state when nothing changed, so that no one re-renders. */
+export function setUnsaved(state: TabsState, id: string, unsaved: boolean): TabsState {
+  const tab = state.tabs.find((candidate) => candidate.id === id);
+  if (tab?.kind !== "table" || tab.unsaved === unsaved) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((candidate) =>
+      candidate.id === id && candidate.kind === "table" ? { ...candidate, unsaved } : candidate,
     ),
   };
 }
@@ -163,6 +188,7 @@ if (import.meta.vitest) {
         sort: null,
         page: 0,
         shows: "rows",
+        unsaved: false,
       });
     });
 
@@ -212,6 +238,22 @@ if (import.meta.vitest) {
     it("leaves a SQL tab alone", () => {
       const mixed = setTableView(openSqlTab(undefined, "a"), "a", { filter: "x" });
       expect(mixed.tabs[0]).toMatchObject({ kind: "sql", sql: "" });
+    });
+  });
+
+  describe("setUnsaved", () => {
+    const table = () => openTableTab(openSqlTab(undefined, "a"), "t1", "public", "people");
+
+    it("marks a table tab and clears the mark", () => {
+      const marked = setUnsaved(table(), "t1", true);
+      expect(marked.tabs[1]).toMatchObject({ unsaved: true });
+      expect(setUnsaved(marked, "t1", false).tabs[1]).toMatchObject({ unsaved: false });
+    });
+
+    it("hands back the same state when nothing changes", () => {
+      const state = table();
+      expect(setUnsaved(state, "t1", false)).toBe(state);
+      expect(setUnsaved(state, "a", true)).toBe(state);
     });
   });
 

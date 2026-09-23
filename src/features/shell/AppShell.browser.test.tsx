@@ -28,7 +28,7 @@ const tree: SchemaTree = {
 const page = {
   result: {
     columns: [{ name: "id", type_name: "INT8" }],
-    rows: [[1]],
+    rows: [[4242]],
     truncated: false,
     elapsed_ms: 2,
   },
@@ -56,15 +56,19 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
     </div>,
   );
   // A table tab holds a strip of its own — Rows and Structure — so the tabs
-  // this shell keeps are the ones in the strip it draws.
-  const strip = '[role="tablist"][aria-label="Open tabs"]';
-  const titles = () =>
-    [...document.querySelectorAll<HTMLElement>(`${strip} [role="tab"]`)].map((tab) =>
-      tab.textContent?.trim(),
-    );
+  // this shell keeps are the ones in the strip it draws. Every connection with
+  // tabs keeps its strip, hidden while another is in front, so the one read is
+  // the one on screen.
+  const tabs = () =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="tablist"][aria-label="Open tabs"] [role="tab"]',
+      ),
+    ].filter((tab) => tab.checkVisibility());
+  const titles = () => tabs().map((tab) => tab.textContent?.trim());
   const selected = () =>
-    document
-      .querySelector<HTMLElement>(`${strip} [role="tab"][aria-selected="true"]`)
+    tabs()
+      .find((tab) => tab.getAttribute("aria-selected") === "true")
       ?.textContent.trim();
   const open = async (label: string) => {
     await screen.getByRole("button", { name: label, exact: true }).click();
@@ -191,6 +195,65 @@ describe("AppShell", () => {
 
     await screen.getByRole("button", { name: "Local", exact: true }).click();
     await expect.poll(titles).toEqual(["Query 1", "Query 2"]);
+  });
+
+  /** Opens shop.people through ⌘O and changes its one cell, without saving. */
+  async function editPeople(screen: Awaited<ReturnType<typeof shell>>["screen"]) {
+    await userEvent.keyboard("{Meta>}o{/Meta}");
+    await screen.getByRole("option", { name: /shop\.people/ }).click();
+    await screen.getByText("4242", { exact: true }).dblClick();
+    await screen.getByRole("textbox", { name: "id" }).fill("2");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+  }
+
+  it("keeps what a connection's tabs hold while another connection is in front", async () => {
+    const { screen, open } = await shell();
+    await open("Local");
+    await editPeople(screen);
+
+    await screen.getByRole("button", { name: "Staging", exact: true }).click();
+    await expect.element(screen.getByText("1 unsaved change")).not.toBeVisible();
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
+
+    await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+    await expect.element(screen.getByText("2", { exact: true })).toBeVisible();
+  });
+
+  it("asks before closing a tab that holds unsaved changes", async () => {
+    const { screen, titles, open } = await shell();
+    await open("Local");
+    await editPeople(screen);
+    const people = screen.getByRole("tab", { name: "shop.people, unsaved changes" });
+
+    await people.click();
+    await userEvent.keyboard("{Delete}");
+    const asking = screen.getByRole("dialog", { name: "Close shop.people?" });
+    await asking.getByRole("button", { name: "Keep editing" }).click();
+    expect(titles()).toEqual(["Query 1", "shop.people"]);
+    await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+    // Back where the reader was when they asked to close it.
+    await expect.element(people).toHaveFocus();
+
+    await people.click();
+    await userEvent.keyboard("{Delete}");
+    await asking.getByRole("button", { name: "Discard changes" }).click();
+    await expect.poll(titles).toEqual(["Query 1"]);
+    // The tab that had focus is gone, so the one left in front takes it.
+    await expect.element(screen.getByRole("tab", { name: "Query 1" })).toHaveFocus();
+  });
+
+  it("closes a table tab with nothing unsaved without asking", async () => {
+    const { screen, titles, open } = await shell();
+    await open("Local");
+    await userEvent.keyboard("{Meta>}o{/Meta}");
+    await screen.getByRole("option", { name: /shop\.people/ }).click();
+
+    await screen.getByRole("tab", { name: "shop.people" }).click();
+    await userEvent.keyboard("{Delete}");
+
+    await expect.poll(titles).toEqual(["Query 1"]);
+    expect(document.querySelector("dialog[open]")).toBeNull();
   });
 
   it("has nothing to query again once the connection in front is deleted", async () => {
