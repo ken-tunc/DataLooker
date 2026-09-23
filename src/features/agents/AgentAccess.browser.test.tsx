@@ -8,7 +8,7 @@ const open = { enabled: true, token: "a-secret-token", port: 41234 };
 async function agents(replies: Record<string, unknown>) {
   const ipc = stubIpc(replies);
   const screen = await renderApp(<AgentAccess />);
-  await screen.getByText("Agents").click();
+  await screen.getByRole("button", { name: "Agents" }).click();
   return { ipc, screen };
 }
 

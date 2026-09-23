@@ -47,8 +47,8 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf) : [];
 
   return (
-    <section className="hairline bg-base-100 flex w-72 shrink-0 flex-col border-r">
-      <div data-tauri-drag-region="deep" className="flex h-12 shrink-0 items-center gap-1 px-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-1 p-2">
         <input
           className="input input-sm grow"
           placeholder="Filter tables"
@@ -93,7 +93,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
       <div ref={setScroller} className="min-h-0 flex-1 overflow-auto">
         <Rows rows={rows} scroller={scroller} onToggle={toggle} onOpenTable={onOpenTable} />
       </div>
-    </section>
+    </div>
   );
 }
 

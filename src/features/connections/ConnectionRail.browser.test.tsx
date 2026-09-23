@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { renderApp, stubIpc } from "../../test/harness";
-import { ConnectionSidebar } from "./ConnectionSidebar";
+import { ConnectionHeader } from "./ConnectionHeader";
+import { ConnectionRail } from "./ConnectionRail";
 
 const local: ConnectionRecord = {
   id: "id-1",
@@ -17,18 +19,30 @@ const local: ConnectionRecord = {
   created_at: "2026-09-20T00:00:00Z",
 };
 
+/** The rail, and the header of whichever connection it put in front, as the shell lays them out. */
+function Host() {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  return (
+    <>
+      <ConnectionRail selectedId={selectedId} onSelect={setSelectedId} />
+      {selectedId && (
+        <ConnectionHeader connectionId={selectedId} onRemoved={() => setSelectedId(null)} />
+      )}
+    </>
+  );
+}
+
 async function sidebar(replies: Parameters<typeof stubIpc>[0]) {
   const ipc = stubIpc(replies);
-  const screen = await renderApp(
-    <ConnectionSidebar selectedId={null} onSelect={() => {}} onRemoved={() => {}} />,
-  );
+  const screen = await renderApp(<Host />);
 
   /**
-   * The row's actions live behind its ⋯ menu, which starts closed. The menu
-   * opens a `<summary>`, which is a disclosure rather than a button, so it is
-   * found by its label.
+   * A connection's actions are in the header once it is in front, behind a ⋯
+   * menu that starts closed. The menu opens a `<summary>`, which is a
+   * disclosure rather than a button, so it is found by its label.
    */
   const actions = async (label: string, action: string) => {
+    await screen.getByRole("button", { name: label, exact: true }).click();
     await screen.getByLabelText(`${label} actions`).click();
     await screen.getByRole("button", { name: action, exact: true }).click();
   };
@@ -36,21 +50,22 @@ async function sidebar(replies: Parameters<typeof stubIpc>[0]) {
   return { ipc, screen, actions };
 }
 
-describe("ConnectionSidebar", () => {
-  it("lists what the backend holds", async () => {
+describe("the connection rail", () => {
+  it("lists what the backend holds, and names the one put in front", async () => {
     const { screen } = await sidebar({
       list_connections: [local, { ...local, id: "id-2", label: "Staging" }],
     });
 
-    await expect.element(screen.getByText("Local", { exact: true })).toBeVisible();
-    await expect.element(screen.getByText("Staging", { exact: true })).toBeVisible();
-    await expect.element(screen.getByText("localhost:5432/datalooker").first()).toBeVisible();
-  });
+    await expect.element(screen.getByRole("button", { name: "Local", exact: true })).toBeVisible();
+    await expect.element(screen.getByText("ST")).toBeVisible();
 
-  it("says so when there is nothing to connect to", async () => {
-    const { screen } = await sidebar({ list_connections: [] });
+    await screen.getByRole("button", { name: "Staging", exact: true }).click();
 
-    await expect.element(screen.getByText("No connections yet.")).toBeVisible();
+    await expect.element(screen.getByRole("heading", { name: "Staging" })).toBeVisible();
+    await expect.element(screen.getByText("localhost:5432/datalooker")).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Staging", exact: true }))
+      .toHaveAttribute("aria-current", "true");
   });
 
   it("shows the database's own complaint, and can ask again", async () => {
@@ -63,10 +78,12 @@ describe("ConnectionSidebar", () => {
       },
     });
 
-    await expect.element(screen.getByText("meta.db is locked")).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Retry" }))
+      .toHaveAttribute("title", "meta.db is locked");
     await screen.getByRole("button", { name: "Retry" }).click();
 
-    await expect.element(screen.getByText("Local", { exact: true })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "Local", exact: true })).toBeVisible();
   });
 
   it("reports how long a test took, in a toast", async () => {
@@ -100,11 +117,13 @@ describe("ConnectionSidebar", () => {
     await expect.element(screen.getByText("Delete Local?")).toBeVisible();
     expect(ipc.sent("delete_connection")).toBeUndefined();
 
-    // The row's menu holds a Delete of its own, so this one is the dialog's.
+    // The header's menu holds a Delete of its own, so this one is the dialog's.
     await screen.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect.element(screen.getByText("Deleted Local")).toBeVisible();
     expect(ipc.sent("delete_connection")).toEqual({ id: "id-1" });
+    // Nothing is in front any more, so there is no header to act on.
+    expect(screen.getByRole("heading", { name: "Local" }).elements()).toEqual([]);
   });
 });
 
@@ -117,7 +136,8 @@ describe("a connection's command", () => {
       running_connection_commands: [],
     });
 
-    await expect.element(screen.getByText("Local", { exact: true })).toBeVisible();
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
+    await expect.element(screen.getByRole("heading", { name: "Local" })).toBeVisible();
     expect(screen.getByLabelText("Run the command for Local").elements()).toEqual([]);
     // Nothing was asked on behalf of a connection with no command to run.
     expect(ipc.calls.map((call) => call.command)).not.toContain("running_connection_commands");
@@ -128,7 +148,8 @@ describe("a connection's command", () => {
       list_connections: [tunnelled],
       running_connection_commands: ["id-1"],
     });
-    await expect.element(screen.getByLabelText("Stop the command for Local")).toBeVisible();
+    // The rail says the tunnel is up before the connection is even in front.
+    await expect.element(screen.getByRole("status", { name: "Command running" })).toBeVisible();
 
     ipc.emit("shell:exit", {
       connection_id: "id-1",
@@ -153,10 +174,12 @@ describe("a connection's command", () => {
       },
     });
 
+    await screen.getByRole("button", { name: "Local", exact: true }).click();
     await screen.getByLabelText("Stop the command for Local").click();
     ipc.emit("shell:exit", { connection_id: "id-1", code: null, stopped: true, output: "" });
 
     await expect.element(screen.getByLabelText("Run the command for Local")).toBeVisible();
+    expect(screen.getByRole("status", { name: "Command running" }).elements()).toEqual([]);
     expect(screen.getByTestId("toast").elements()).toEqual([]);
   });
 });
@@ -165,7 +188,7 @@ describe("a connection of another kind", () => {
   it("asks for what BigQuery needs, and sends that", async () => {
     const { ipc, screen } = await sidebar({ list_connections: [], save_connection: "id-9" });
 
-    await screen.getByRole("button", { name: "New" }).click();
+    await screen.getByRole("button", { name: "New connection" }).click();
     await screen.getByLabelText("Driver").selectOptions("BigQuery");
 
     // The fields of the driver that was not picked are not on screen at all.
@@ -200,6 +223,7 @@ describe("a connection of another kind", () => {
       ],
     });
 
+    await screen.getByRole("button", { name: "Warehouse", exact: true }).click();
     await expect.element(screen.getByText("looking · EU")).toBeVisible();
   });
 });
