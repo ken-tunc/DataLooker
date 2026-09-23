@@ -119,15 +119,21 @@ mod tests {
             let running = format!(
                 "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%{marker}%' AND pid <> pg_backend_pid()"
             );
-            while app
-                .run_agent_query(&id, &running)
-                .await
-                .unwrap()
-                .rows
-                .is_empty()
-            {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            // Well inside the two seconds the query sleeps for: a query that
+            // ended before it was seen is a failure to report, not a wait.
+            let seen = tokio::time::timeout(Duration::from_secs(1), async {
+                while app
+                    .run_agent_query(&id, &running)
+                    .await
+                    .unwrap()
+                    .rows
+                    .is_empty()
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            });
+            seen.await
+                .expect("the reader's query was never seen running");
             let started = Instant::now();
             app.schema_tree(&id, Whose::Reader).await.unwrap();
             started.elapsed()
