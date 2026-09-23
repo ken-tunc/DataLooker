@@ -6,7 +6,6 @@ import { AgentAccess } from "../agents/AgentAccess";
 import { useCommandExits, useRunningCommands } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { describeConnection } from "./driver";
-import { DriverIcon } from "./DriverIcon";
 import { useConnections } from "./hooks";
 
 type Props = {
@@ -15,8 +14,8 @@ type Props = {
 };
 
 /**
- * Every connection as a tile, the way a chat app lists its workspaces: the
- * rail is for moving between them, and what can be done to one is in the
+ * Every connection, as a narrow column beside the one in front: the rail is
+ * for moving between them, and what can be done to one is in the
  * header of the column beside it, once it is the one in front.
  */
 export function ConnectionRail({ selectedId, onSelect }: Props) {
@@ -35,17 +34,17 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
     >
       <div data-tauri-drag-region className="h-12 w-full shrink-0" />
 
-      <ul className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-y-auto py-2">
+      <ul className="menu min-h-0 w-full flex-1 flex-nowrap gap-1 overflow-y-auto p-2">
         {connections.isPending &&
           ["one", "two", "three"].map((tile) => (
-            <li key={tile} className="skeleton size-11 shrink-0 rounded-xl" />
+            <li key={tile} className="skeleton mx-auto size-9 rounded-field" />
           ))}
 
         {connections.isError && (
           <li>
             <button
               type="button"
-              className="btn btn-error btn-soft btn-square size-11 rounded-xl"
+              className="text-error justify-center"
               aria-label="Retry"
               title={describeError(connections.error)}
               onClick={() => connections.refetch()}
@@ -57,7 +56,7 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
 
         {connections.data?.map((connection) => (
           <li key={connection.id}>
-            <Tile
+            <Entry
               connection={connection}
               selected={connection.id === selectedId}
               onSelect={() => onSelect(connection.id)}
@@ -68,7 +67,7 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
         <li>
           <button
             type="button"
-            className="btn btn-ghost btn-square hairline size-11 rounded-xl border border-dashed"
+            className="justify-center"
             aria-label="New connection"
             title="New connection"
             onClick={() => setAdding(true)}
@@ -87,48 +86,48 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
   );
 }
 
-function Tile({
-  connection,
-  selected,
-  onSelect,
-}: {
-  connection: ConnectionRecord;
-  selected: boolean;
-  onSelect: () => void;
-}) {
+type EntryProps = { connection: ConnectionRecord; selected: boolean; onSelect: () => void };
+
+// Most connections carry no command, and asking what is running on their
+// behalf would be asking for nothing.
+function Entry(props: EntryProps) {
+  return props.connection.command ? (
+    <WatchedEntry {...props} />
+  ) : (
+    <Avatar {...props} running={false} />
+  );
+}
+
+/**
+ * A command left running is marked on its connection here, since a tunnel
+ * that is up is worth seeing from whichever connection is in front.
+ */
+function WatchedEntry(props: EntryProps) {
+  const running = useRunningCommands().data?.includes(props.connection.id) ?? false;
+  return <Avatar {...props} running={running} />;
+}
+
+function Avatar({ connection, selected, onSelect, running }: EntryProps & { running: boolean }) {
   return (
     <button
       type="button"
       aria-label={connection.label}
       aria-current={selected ? "true" : undefined}
       title={`${connection.label}\n${describeConnection(connection.config)}`}
-      className={`bg-neutral text-neutral-content relative flex size-11 hover:brightness-125 cursor-pointer items-center justify-center rounded-xl text-sm font-semibold transition ${
-        selected ? "ring-base-content ring-offset-base-200 ring-2 ring-offset-2" : ""
-      }`}
+      className={`justify-center ${selected ? "menu-active" : ""}`}
       onClick={onSelect}
     >
-      {initials(connection.label)}
-      <span className="absolute -right-1 -bottom-1">
-        <DriverIcon kind={connection.config.kind} className="size-4" />
-      </span>
-      {connection.command && <RunningMark connectionId={connection.id} />}
+      <div className={`avatar avatar-placeholder ${running ? "avatar-online" : ""}`}>
+        <div className="bg-neutral text-neutral-content rounded-field w-9">
+          <span className="text-xs font-semibold">{initials(connection.label)}</span>
+        </div>
+      </div>
+      {running && (
+        <span role="status" className="sr-only">
+          Command running
+        </span>
+      )}
     </button>
-  );
-}
-
-/**
- * Whether the connection's command is up, on the tile, since a tunnel left
- * running is worth seeing from whichever connection is in front.
- */
-function RunningMark({ connectionId }: { connectionId: string }) {
-  const running = useRunningCommands();
-  if (!running.data?.includes(connectionId)) return null;
-  return (
-    <span
-      role="status"
-      aria-label="Command running"
-      className="status status-success absolute -top-0.5 -right-0.5"
-    />
   );
 }
 

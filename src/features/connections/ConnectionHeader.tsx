@@ -7,6 +7,7 @@ import { CommandButton } from "../connection-command/CommandButton";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import { describeConnection } from "./driver";
+import { DriverIcon } from "./DriverIcon";
 import type { FormMode } from "./form";
 import { useConnections, useDeleteConnection, useTestConnection } from "./hooks";
 
@@ -52,8 +53,9 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
     <>
       <header
         data-tauri-drag-region="deep"
-        className="hairline flex h-12 shrink-0 items-center gap-1 border-b pr-2 pl-3"
+        className="hairline flex h-12 shrink-0 items-center gap-2 border-b pr-2 pl-3"
       >
+        <DriverIcon kind={connection.config.kind} />
         <div className="flex min-w-0 grow flex-col leading-tight">
           <h1 className="truncate text-sm font-semibold">{connection.label}</h1>
           <span className="text-base-content/60 truncate text-xs">

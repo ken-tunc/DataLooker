@@ -323,7 +323,7 @@ already in hand, and there is nothing the reader could do about it.
 ## A connection's command
 
 A connection can carry a shell command the reader runs before connecting — a port forward,
-an SSH tunnel — started and stopped from the connection's header, and marked on its tile in
+an SSH tunnel — started and stopped from the connection's header, and marked on its entry in
 the rail while it runs, so a tunnel left up is seen from whichever connection is in front.
 It is the reader's, not the driver's, so it sits in a column of its own rather than in
 `config`.

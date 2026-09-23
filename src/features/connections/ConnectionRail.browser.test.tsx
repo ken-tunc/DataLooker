@@ -149,7 +149,7 @@ describe("a connection's command", () => {
       running_connection_commands: ["id-1"],
     });
     // The rail says the tunnel is up before the connection is even in front.
-    await expect.element(screen.getByRole("status", { name: "Command running" })).toBeVisible();
+    await expect.element(screen.getByText("Command running")).toBeInTheDocument();
 
     ipc.emit("shell:exit", {
       connection_id: "id-1",
@@ -179,7 +179,7 @@ describe("a connection's command", () => {
     ipc.emit("shell:exit", { connection_id: "id-1", code: null, stopped: true, output: "" });
 
     await expect.element(screen.getByLabelText("Run the command for Local")).toBeVisible();
-    expect(screen.getByRole("status", { name: "Command running" }).elements()).toEqual([]);
+    expect(screen.getByText("Command running").elements()).toEqual([]);
     expect(screen.getByTestId("toast").elements()).toEqual([]);
   });
 });
