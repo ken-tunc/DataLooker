@@ -69,6 +69,29 @@ pub async fn apply(
         statements.push(Statement::insert(shape, schema, table, insert));
     }
 
+    // The session is the editor's, so the reader may have left a transaction
+    // open on it. sqlx counts only the transactions it began itself: `begin`
+    // would send a second `BEGIN`, which PostgreSQL merely warns about, and the
+    // COMMIT or ROLLBACK ending this save would end the reader's transaction
+    // with it. Whether one is open is the server's to say, and sqlx keeps what
+    // the server said to itself, so the server is asked: inside a transaction,
+    // `now()` is when the transaction began rather than when this statement
+    // did. It is asked as a simple query, the one protocol in which a
+    // statement outside a transaction starts the transaction at the same
+    // instant — the extended one's Bind and Execute are two messages, two
+    // instants apart. A transaction that has failed refuses the question with
+    // its own complaint, which is the one the reader needs to see.
+    let inside: bool = sqlx::raw_sql("SELECT now() <> statement_timestamp()")
+        .fetch_one(&mut *conn)
+        .await?
+        .try_get(0)?;
+    if inside {
+        return Err(DriverError::Refused(
+            "a transaction is open in the editor, so nothing was saved; commit or roll it back first"
+                .into(),
+        ));
+    }
+
     let mut tx = conn.begin().await?;
     let mut applied = 0;
 
