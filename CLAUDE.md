@@ -67,10 +67,16 @@ meta.db.
 
 `src/bindings/` holds the TypeScript types ts-rs generates from the Rust ones; `cargo test`
 rewrites it, so never edit it by hand and re-run the Rust tests after touching a type that
-crosses the boundary. Each command gets a typed wrapper in `src/lib/commands.ts`; nothing
-else names a command or calls `invoke` directly. `CARRIES_MESSAGE` in
-`src/lib/invoke.ts` lists every `AppError` kind, so a variant added in Rust fails the type
-check there rather than reaching the frontend as an error nothing can branch on.
+crosses the boundary — CI fails when the committed copy differs from what the tests write.
+Each command gets a typed wrapper in `src/lib/commands.ts`; nothing else names a command or
+calls `invoke` directly. `CARRIES_MESSAGE` in `src/lib/invoke.ts` lists every `AppError`
+kind, so a variant added in Rust fails the type check there rather than reaching the
+frontend as an error nothing can branch on.
+
+Commands and events are declared once, in `commands!` and `events!` in `commands/mod.rs`,
+and everything else on both sides follows from that declaration. A command that takes
+arguments takes them as one struct under `args`, which is what lets ts-rs write its shape
+down; one that takes none is sent no payload.
 
 ## Agent skills
 

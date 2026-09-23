@@ -81,7 +81,7 @@ async function preview(
     await userEvent.keyboard("{Enter}");
   };
 
-  const saved = () => (ipc.sent("commit_table_edits")?.edits as TableEdits | undefined) ?? null;
+  const saved = (): TableEdits | null => ipc.sent("commit_table_edits") ?? null;
 
   return { ipc, screen, type, saved, onView };
 }
@@ -101,7 +101,7 @@ describe("TablePreviewPane", () => {
     await expect
       .poll(() => ipc.calls.filter((call) => call.command === "preview_table"))
       .toHaveLength(1);
-    expect(ipc.sent("preview_table")).toMatchObject({ request: { versioned: true } });
+    expect(ipc.sent("preview_table")).toMatchObject({ versioned: true });
   });
 
   it("sends only the cell that changed, with the version it was read at", async () => {
@@ -211,7 +211,7 @@ describe("TablePreviewPane showing the structure", () => {
     await expect.element(screen.getByText(/CREATE INDEX people_by_name/)).toBeVisible();
     await expect.element(screen.getByText("No trigger.")).toBeVisible();
     expect(ipc.sent("table_definition")).toEqual({
-      connectionId: "c1",
+      connection_id: "c1",
       schema: "shop",
       table: "people",
     });

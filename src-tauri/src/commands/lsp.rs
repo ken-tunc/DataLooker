@@ -1,55 +1,63 @@
 use std::sync::Arc;
 
+use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
+use ts_rs::TS;
 
 use crate::app::App;
+use crate::commands::{lsp_exit, lsp_message, ConnectionArgs, LanguageServerMessageArgs};
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspNotice};
 
-/// What the window listens for to hear a language server answer.
-pub const MESSAGE_EVENT: &str = "lsp:message";
-
-/// What it listens for to learn that there is nothing left to ask.
-pub const EXIT_EVENT: &str = "lsp:exit";
+/// What a server said it can do, in answer to `initialize`. The window reads
+/// it as the protocol describes it, which is not a shape written down here.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Capabilities(#[ts(type = "unknown")] Value);
 
 #[tauri::command]
 pub async fn start_language_server(
-    connection_id: String,
+    args: ConnectionArgs,
     app: State<'_, Arc<App>>,
-) -> Result<Value, AppError> {
-    app.start_language_server(&connection_id).await
+) -> Result<Capabilities, AppError> {
+    app.start_language_server(&args.connection_id)
+        .await
+        .map(Capabilities)
 }
 
 #[tauri::command]
-pub fn send_to_language_server(
-    connection_id: String,
-    message: String,
+pub async fn send_to_language_server(
+    args: LanguageServerMessageArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
-    app.send_to_language_server(&connection_id, message)
+    app.send_to_language_server(&args.connection_id, args.message)
 }
 
 #[tauri::command]
 pub async fn language_server_state(
-    connection_id: String,
+    args: ConnectionArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<LanguageServerState, AppError> {
-    app.language_server_state(&connection_id).await
+    app.language_server_state(&args.connection_id).await
 }
 
 #[tauri::command]
 pub async fn install_language_server(
-    connection_id: String,
+    args: ConnectionArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
-    app.install_language_server(&connection_id).await
+    app.install_language_server(&args.connection_id).await
 }
 
 #[tauri::command]
-pub fn stop_language_server(connection_id: String, app: State<'_, Arc<App>>) {
-    app.stop_language_server(&connection_id);
+pub async fn stop_language_server(
+    args: ConnectionArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<(), AppError> {
+    app.stop_language_server(&args.connection_id);
+    Ok(())
 }
 
 /// Carry what a server says into the window. The app has no window to tell, so
@@ -60,12 +68,8 @@ pub fn forward_notices(handle: AppHandle, app: &App) {
     tauri::async_runtime::spawn(async move {
         loop {
             match notices.recv().await {
-                Ok(LspNotice::Said(message)) => {
-                    let _ = handle.emit(MESSAGE_EVENT, message);
-                }
-                Ok(LspNotice::Ended(exit)) => {
-                    let _ = handle.emit(EXIT_EVENT, exit);
-                }
+                Ok(LspNotice::Said(message)) => lsp_message::emit(&handle, message),
+                Ok(LspNotice::Ended(exit)) => lsp_exit::emit(&handle, exit),
                 // A window that fell this far behind has missed an answer it
                 // is still waiting for, and a request with no reply is one
                 // nothing here can produce. Every server is stopped, which
