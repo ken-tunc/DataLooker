@@ -2,7 +2,7 @@
 //! about that connection's database; nothing here reads the JSON-RPC going
 //! past, because what a message means belongs with the editor that asked.
 
-mod framing;
+pub(crate) mod framing;
 pub mod install;
 pub mod server;
 mod session;

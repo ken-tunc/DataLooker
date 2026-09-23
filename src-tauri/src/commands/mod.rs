@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod completion;
 pub mod connection;
 pub mod edit;
 pub mod lsp;

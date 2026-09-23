@@ -1,3 +1,4 @@
+pub mod analyzer;
 pub mod app;
 mod commands;
 pub mod db;
@@ -55,6 +56,7 @@ pub fn run() {
             commands::shell::run_connection_command,
             commands::shell::stop_connection_command,
             commands::shell::running_connection_commands,
+            commands::completion::complete,
             commands::lsp::start_language_server,
             commands::lsp::send_to_language_server,
             commands::lsp::stop_language_server,

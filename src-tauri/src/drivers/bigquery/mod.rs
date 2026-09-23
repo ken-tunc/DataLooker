@@ -164,6 +164,17 @@ impl BigQuerySession {
         .await
     }
 
+    /// What a table in any project holds, for reading a statement against, or
+    /// nothing where there is no such table this key can see.
+    pub async fn described(
+        &self,
+        project_id: &str,
+        dataset: &str,
+        table: &str,
+    ) -> Result<Option<Vec<Column>>, AppError> {
+        schema::described(self.client().await?, project_id, dataset, table).await
+    }
+
     pub async fn preview(
         &self,
         request: &Preview<'_>,

@@ -291,6 +291,61 @@ async fn a_project_says_which_datasets_hold_which_tables() {
     dataset.drop_it().await;
 }
 
+#[tokio::test]
+async fn a_table_describes_every_type_to_its_innermost_field() {
+    let Some(session) = session_or_skip() else {
+        return;
+    };
+    let project = env::var("DATALOOKER_TEST_BQ_PROJECT").unwrap();
+    let dataset = Dataset::make(session, "described").await;
+    let name = dataset.name.clone();
+    dataset
+        .run(&format!(
+            "CREATE OR REPLACE TABLE {name}.orders (\
+             id INT64 NOT NULL, \
+             items ARRAY<STRUCT<sku STRING, `at` TIMESTAMP>>, \
+             shipping STRUCT<city STRING, tags ARRAY<STRING>>)"
+        ))
+        .await;
+
+    let columns: Vec<(String, String, bool)> = dataset
+        .session
+        .described(&project, &name, "orders")
+        .await
+        .expect("the table")
+        .expect("a table that is there")
+        .into_iter()
+        .map(|column| (column.name, column.data_type, column.nullable))
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("id".to_string(), "INT64".to_string(), false),
+            (
+                "items".to_string(),
+                "ARRAY<STRUCT<`sku` STRING, `at` TIMESTAMP>>".to_string(),
+                true
+            ),
+            (
+                "shipping".to_string(),
+                "STRUCT<`city` STRING, `tags` ARRAY<STRING>>".to_string(),
+                true
+            ),
+        ]
+    );
+
+    // A table that is not there is nothing, rather than a failure: completion
+    // asks about whatever a half-typed statement names.
+    assert!(dataset
+        .session
+        .described(&project, &name, "nothing")
+        .await
+        .expect("an answer")
+        .is_none());
+
+    dataset.drop_it().await;
+}
+
 fn page_of<'a>(dataset: &'a str, table: &'a str) -> Preview<'a> {
     Preview {
         schema: dataset,

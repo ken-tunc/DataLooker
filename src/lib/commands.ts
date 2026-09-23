@@ -5,6 +5,7 @@ import type { TableEdits } from "../bindings/TableEdits";
 import type { TablePage } from "../bindings/TablePage";
 import type { TableShape } from "../bindings/TableShape";
 import type { Column } from "../bindings/Column";
+import type { Completion } from "../bindings/Completion";
 import type { SchemaTree } from "../bindings/SchemaTree";
 import type { TableDefinition } from "../bindings/TableDefinition";
 import type { SyntaxError } from "../bindings/SyntaxError";
@@ -105,6 +106,15 @@ export function startLanguageServer(connectionId: string): Promise<unknown> {
 /** One JSON-RPC message, as the text the server is handed. */
 export function sendToLanguageServer(connectionId: string, message: string): Promise<void> {
   return invoke<void>("send_to_language_server", { connectionId, message });
+}
+
+/**
+ * What could go at `cursor`, a UTF-16 offset into the whole of `text`. Only a
+ * BigQuery connection answers; a PostgreSQL one is completed by its language
+ * server.
+ */
+export function complete(connectionId: string, text: string, cursor: number): Promise<Completion> {
+  return invoke<Completion>("complete", { connectionId, text, cursor });
 }
 
 /** Whether agents may reach this app, and what they have to present. */
