@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
@@ -52,6 +53,23 @@ impl App {
         )
         .await;
         result
+    }
+
+    /// Bounds what an agent waits for the way its statements are bounded:
+    /// nobody is watching it. A reader waiting is watching, and can stop.
+    pub(super) async fn within<T>(
+        &self,
+        connection_id: &str,
+        whose: Whose,
+        work: impl Future<Output = Result<T, AppError>>,
+    ) -> Result<T, AppError> {
+        match whose {
+            Whose::Reader => work.await,
+            Whose::Agent => tokio::time::timeout(WAIT, work).await.unwrap_or_else(|_| {
+                self.sessions.drop_one(connection_id, Whose::Agent);
+                Err(AppError::Timeout)
+            }),
+        }
     }
 
     /// What has been run against this connection, whoever ran it. An agent

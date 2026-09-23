@@ -263,13 +263,12 @@ impl SessionRegistry {
     }
 
     #[cfg(test)]
-    pub fn is_open(&self, id: &str) -> bool {
+    pub fn is_open(&self, id: &str, whose: Whose) -> bool {
         self.0
             .lock()
             .unwrap()
             .open
-            .keys()
-            .any(|(open, _)| open == id)
+            .contains_key(&(id.to_string(), whose))
     }
 }
 
