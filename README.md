@@ -13,8 +13,8 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
 > what it names. A connection can carry a shell command — a port
 > forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
-> connection can be made, tested, queried, and its datasets read like any other schema
-> tree, where a table written a day at a time is folded into one row per set of
+> connection can be made, tested, queried, its tables' rows paged through, and its
+> datasets read like any other schema tree, where a table written a day at a time is folded into one row per set of
 > days. A statement completes out of the database it will run against, through
 > a language server — `sqls` for PostgreSQL, `bqls` for BigQuery — which
 > DataLooker will build with your Go toolchain if you have none. BigQuery
@@ -48,6 +48,23 @@ vp run tauri dev
 ```
 
 A native window titled "DataLooker" opens.
+
+The sidebar is as wide, and the editor as tall, as the line beside it is dragged to; a
+double-click on the line puts it back.
+
+### Something to look at
+
+`compose.yaml` holds a PostgreSQL with a small shop in it — customers, products, orders, a
+view, a materialized view, a partitioned table, a table with no primary key and a run of
+day-named tables — made from `demo/postgres/` the first time it starts:
+
+```sh
+docker compose --profile demo up -d --wait demo
+```
+
+Add a PostgreSQL connection to `localhost:55433`, database `demo`, user and password
+`demo`. `docker compose --profile demo down -v` throws it away, and the next `up` makes it
+again.
 
 ## Keyboard
 

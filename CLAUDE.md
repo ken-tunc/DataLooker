@@ -88,7 +88,11 @@ type system is the place for everything a file can be checked for afterwards.
 `src-tauri/migrations/` holds the numbered migration files sqlx applies at startup, so a
 schema change is a new file, never an edit to an existing one. Connection secrets live in
 the OS keychain behind the `SecretStore` trait, which tests swap for an in-memory
-implementation so they never touch the real keychain. The keychain write sits inside the
+implementation so they never touch the real keychain. They are kept in one keychain item
+rather than one per connection, and in memory once read: macOS asks whether the app may
+read an item per item, so one per connection was one question per connection, and again
+after every build that changed the app's signature. A secret saved in an item of its own
+is moved into the one the first time it is read. The keychain write sits inside the
 SQLite transaction, so a keychain failure rolls the row back; a commit that then fails
 still leaves the password changed, which is the floor with two stores that cannot commit
 together, and nothing tries to compensate for it.
@@ -97,7 +101,7 @@ together, and nothing tries to compensate for it.
 
 `drivers/` is what talks to a database the reader connects to, one module per driver, and
 `Session` is the enum a connection opens. PostgreSQL is whole; BigQuery reaches a project,
-runs statements against it and says what it holds. What it cannot do yet, and what it will not do, both come
+runs statements against it, says what it holds and pages through a table's rows. What it cannot do yet, and what it will not do, both come
 back as `AppError::Unsupported` with a sentence saying which.
 
 BigQuery sends every value as text, whatever its type, so the schema beside the rows is
@@ -117,6 +121,11 @@ may do is the service account's to say, the way it is the role's to say on a Pos
 connection, and a statement they are entitled to run is one this editor runs. There is no
 session to hold open, since every statement is a job of its own, so what a session keeps
 is the authenticated client — building one is an exchange with Google.
+
+A page of a BigQuery table that is neither filtered nor sorted is listed rather than
+queried: a query is billed for every column of every row it scans, whatever its `LIMIT`,
+and a listing reads the page and is not billed. A view has no rows of its own to list, so
+it is queried.
 
 A BigQuery table is read-only for a further reason: a row is written here by naming it,
 and a key to name one by is what BigQuery has no notion of.

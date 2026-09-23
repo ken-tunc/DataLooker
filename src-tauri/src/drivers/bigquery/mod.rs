@@ -1,3 +1,4 @@
+mod preview;
 mod query;
 mod schema;
 mod value;
@@ -14,7 +15,7 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
-use crate::drivers::{Column, QueryResult, SchemaTree};
+use crate::drivers::{Column, Preview, QueryResult, SchemaTree, TablePage};
 use crate::error::AppError;
 
 /// Bounds the whole of `test`: reaching Google means an OAuth exchange and
@@ -161,6 +162,18 @@ impl BigQuerySession {
             table,
         )
         .await
+    }
+
+    pub async fn preview(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<TablePage, AppError> {
+        let client = tokio::select! {
+            client = self.client() => client?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+        preview::preview(client, &self.project_id, &self.location, request, cancel).await
     }
 
     pub async fn test(&self) -> Result<(), AppError> {

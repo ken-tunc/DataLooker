@@ -74,6 +74,32 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
 }
 
 describe("AppShell", () => {
+  it("lets the sidebar and the editor be dragged to another size, and put back", async () => {
+    const { screen, open } = await shell();
+    await open("Local");
+    const sidebar = screen.getByRole("separator", { name: "Resize the sidebar" });
+    const editor = screen.getByRole("separator", { name: "Resize the editor" });
+    const width = () => document.querySelector("section")?.getBoundingClientRect().width;
+
+    const before = width() as number;
+    // Dropped a little way into the pane beside it, which is further right.
+    await userEvent.dragAndDrop(sidebar, screen.getByRole("main"), {
+      targetPosition: { x: 60, y: 100 },
+    });
+    await expect.poll(width).toBeGreaterThan(before);
+
+    await sidebar.dblClick();
+    await expect.poll(width).toBe(before);
+
+    // The keyboard moves the line as well, once it has focus.
+    const height = Number(editor.element().getAttribute("aria-valuenow"));
+    await editor.click();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(editor).toHaveAttribute("aria-valuenow", String(height + 16));
+    await editor.dblClick();
+    await expect.element(editor).toHaveAttribute("aria-valuenow", String(height));
+  });
+
   it("has nothing to query until a connection is chosen", async () => {
     const { screen } = await shell();
 

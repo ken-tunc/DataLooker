@@ -15,3 +15,28 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+
+  # A PostgreSQL with something in it to look at, kept apart from the one the
+  # tests write to: `docker compose --profile demo up -d --wait demo`. What it
+  # holds is `demo/postgres/`, which runs when the volume is first made — `down
+  # -v` throws it away so that the next `up` makes it again.
+  demo:
+    profiles: [demo]
+    image: postgres:18
+    ports:
+      - "55433:5432"
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    volumes:
+      - ./demo/postgres:/docker-entrypoint-initdb.d:ro
+      - demo:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  demo:
