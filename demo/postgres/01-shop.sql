@@ -64,7 +64,9 @@ $$;
 CREATE TRIGGER customers_touched BEFORE UPDATE ON shop.customers
     FOR EACH ROW EXECUTE FUNCTION shop.touch();
 
-INSERT INTO shop.customers (email, name, country, tags, preferences, created_at)
+-- `setseed` governs `random()` and nothing else, so what a default would take
+-- from the clock or from `gen_random_uuid()` is given here instead.
+INSERT INTO shop.customers (email, name, country, tags, preferences, created_at, updated_at)
 SELECT
     format('customer%s@example.com', n),
     (ARRAY['Ada', 'Grace', 'Edsger', 'Barbara', 'Donald', 'Frances', 'Ken', 'Radia',
@@ -76,11 +78,13 @@ SELECT
     jsonb_build_object('theme', CASE WHEN n % 2 = 0 THEN 'dark' ELSE 'light' END,
                        'language', (ARRAY['ja', 'en', 'de'])[1 + n % 3],
                        'notifications', n % 4 <> 0),
+    timestamptz '2024-01-01 00:00:00+00' + (n * interval '7 hours'),
     timestamptz '2024-01-01 00:00:00+00' + (n * interval '7 hours')
 FROM generate_series(1, 1200) AS n;
 
-INSERT INTO shop.products (name, price, stock, discontinued, description)
+INSERT INTO shop.products (sku, name, price, stock, discontinued, description)
 SELECT
+    md5('product-' || n)::uuid,
     initcap((ARRAY['walnut', 'steel', 'linen', 'ceramic', 'glass', 'oak'])[1 + n % 6])
         || ' ' || (ARRAY['mug', 'lamp', 'chair', 'notebook', 'bowl', 'shelf', 'clock', 'vase'])[1 + n % 8]
         || ' No. ' || n,

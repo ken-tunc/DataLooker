@@ -36,12 +36,15 @@ export function Splitter({ pane, axis, label }: Props) {
     const onMove = (move: globalThis.PointerEvent) => {
       setSize(startSize + (axis === "x" ? move.clientX : move.clientY) - start);
     };
-    const onUp = () => {
+    // A drag the system takes over ends without a pointerup, and its move
+    // handler would otherwise answer the next drag's moves as well.
+    const ends = ["pointerup", "pointercancel", "lostpointercapture"] as const;
+    const onEnd = () => {
       handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
+      for (const end of ends) handle.removeEventListener(end, onEnd);
     };
     handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
+    for (const end of ends) handle.addEventListener(end, onEnd);
   }
 
   function step(event: KeyboardEvent<HTMLDivElement>) {
