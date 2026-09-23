@@ -1,10 +1,14 @@
+use gcp_bigquery_client::error::BQError;
+use gcp_bigquery_client::model::field_type::FieldType;
 use gcp_bigquery_client::model::query_parameter::QueryParameter;
 use gcp_bigquery_client::model::query_parameter_type::QueryParameterType;
 use gcp_bigquery_client::model::query_parameter_value::QueryParameterValue;
+use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
 use gcp_bigquery_client::Client;
 use serde_json::Value;
 
-use super::query::{collect, region};
+use super::query::{collect, refused, region};
+use super::value::{repeated, scalar_name};
 use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
 use crate::error::AppError;
 
@@ -62,6 +66,63 @@ pub async fn columns(
             })
         })
         .collect())
+}
+
+/// What a table holds, with each column's whole type spelled out — the fields
+/// of a STRUCT and what an ARRAY holds — for reading a statement against. It
+/// is asked of the table itself rather than of `INFORMATION_SCHEMA`, which a
+/// query is billed for, so a table in any project can be asked about, and a
+/// table this key cannot see is one that is not there.
+pub async fn described(
+    client: &Client,
+    project_id: &str,
+    dataset: &str,
+    table: &str,
+) -> Result<Option<Vec<Column>>, AppError> {
+    let found = match client.table().get(project_id, dataset, table, None).await {
+        Ok(found) => found,
+        Err(BQError::ResponseError { error }) if matches!(error.error.code, 403 | 404) => {
+            return Ok(None);
+        }
+        Err(e) => return Err(refused(e)),
+    };
+    Ok(Some(
+        found
+            .schema
+            .fields
+            .unwrap_or_default()
+            .iter()
+            .map(|field| Column {
+                name: field.name.clone(),
+                data_type: spelled(field),
+                nullable: field.mode.as_deref() != Some("REQUIRED"),
+            })
+            .collect(),
+    ))
+}
+
+/// A column's type as a statement would write it. A field is always quoted:
+/// a name like `at` is a word BigQuery keeps for itself.
+fn spelled(field: &TableFieldSchema) -> String {
+    let base = match field.r#type {
+        FieldType::Record | FieldType::Struct => format!(
+            "STRUCT<{}>",
+            field
+                .fields
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|inner| format!("`{}` {}", inner.name.replace('`', "\\`"), spelled(inner)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ref scalar => scalar_name(scalar).to_string(),
+    };
+    if repeated(field) {
+        format!("ARRAY<{base}>")
+    } else {
+        base
+    }
 }
 
 fn named(name: &str, value: &str) -> QueryParameter {
@@ -151,6 +212,31 @@ mod tests {
         assert_eq!(tree.schemas[1].tables.len(), 1);
     }
 
+    fn field(name: &str, kind: FieldType, mode: Option<&str>) -> TableFieldSchema {
+        TableFieldSchema {
+            name: name.to_string(),
+            r#type: kind,
+            mode: mode.map(str::to_string),
+            ..TableFieldSchema::new(name, FieldType::String)
+        }
+    }
+
+    #[test]
+    fn a_type_is_spelled_out_to_its_innermost_field() {
+        let mut item = field("items", FieldType::Record, Some("REPEATED"));
+        item.fields = Some(vec![
+            field("sku", FieldType::String, None),
+            field("at", FieldType::Timestamp, Some("REQUIRED")),
+            field("tags", FieldType::String, Some("REPEATED")),
+        ]);
+
+        assert_eq!(
+            spelled(&item),
+            "ARRAY<STRUCT<`sku` STRING, `at` TIMESTAMP, `tags` ARRAY<STRING>>>"
+        );
+        assert_eq!(spelled(&field("n", FieldType::Integer, None)), "INT64");
+    }
+
     #[test]
     fn a_project_with_nothing_in_it_is_a_tree_with_nothing_in_it() {
         assert!(assemble(&[]).schemas.is_empty());
@@ -238,6 +324,61 @@ mod live {
             .await
             .expect("no columns")
             .is_empty());
+
+        dataset.drop_it().await;
+    }
+
+    #[tokio::test]
+    async fn a_table_describes_every_type_to_its_innermost_field() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let project = std::env::var("DATALOOKER_TEST_BQ_PROJECT").unwrap();
+        let dataset = Dataset::make(session, "described").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE TABLE {name}.orders (\
+                 id INT64 NOT NULL, \
+                 items ARRAY<STRUCT<sku STRING, `at` TIMESTAMP>>, \
+                 shipping STRUCT<city STRING, tags ARRAY<STRING>>)"
+            ))
+            .await;
+
+        let columns: Vec<(String, String, bool)> = dataset
+            .session
+            .described(&project, &name, "orders")
+            .await
+            .expect("the table")
+            .expect("a table that is there")
+            .into_iter()
+            .map(|column| (column.name, column.data_type, column.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("id".to_string(), "INT64".to_string(), false),
+                (
+                    "items".to_string(),
+                    "ARRAY<STRUCT<`sku` STRING, `at` TIMESTAMP>>".to_string(),
+                    true
+                ),
+                (
+                    "shipping".to_string(),
+                    "STRUCT<`city` STRING, `tags` ARRAY<STRING>>".to_string(),
+                    true
+                ),
+            ]
+        );
+
+        // A table that is not there is nothing, rather than a failure:
+        // completion asks about whatever a half-typed statement names.
+        assert!(dataset
+            .session
+            .described(&project, &name, "nothing")
+            .await
+            .expect("an answer")
+            .is_none());
 
         dataset.drop_it().await;
     }

@@ -2,7 +2,7 @@
 //! about that connection's database; nothing here reads the JSON-RPC going
 //! past, because what a message means belongs with the editor that asked.
 
-mod framing;
+pub(crate) mod framing;
 pub mod install;
 pub mod server;
 mod session;
@@ -27,8 +27,10 @@ pub enum LanguageServerState {
     /// There is a server to talk to.
     Ready,
     /// This connection has one, and it is not installed. Named, because it is
-    /// what the offer to build one is an offer of.
-    Missing { server: String },
+    /// what the offer to install one is an offer of — and said whether it is
+    /// downloaded or built with the reader's own toolchain, which is worth
+    /// knowing before waiting for it.
+    Missing { server: String, downloaded: bool },
     /// The reader named a server themselves and it is not there. Building one
     /// would change nothing: the name they set is what is read first.
     Named { message: String },
@@ -214,20 +216,14 @@ mod tests {
 /// What only a real language server can say; see `testing` for which one, and when it is skipped.
 #[cfg(test)]
 mod live {
-    use std::env;
 
-    use std::path::Path;
     use std::sync::Arc;
 
     use tokio::sync::broadcast;
     use tokio_util::sync::CancellationToken;
 
-    use crate::db::connection::DriverConfig;
-    use crate::drivers::postgres::testing::var;
-
-    use crate::lsp::server::{self, Server};
     use crate::lsp::testing::*;
-    use crate::lsp::{LspNotice, LspRegistry, LspSession};
+    use crate::lsp::{LspNotice, LspRegistry};
 
     #[tokio::test]
     async fn completes_a_statement_out_of_the_database_the_connection_reaches() {
@@ -297,62 +293,5 @@ mod live {
         let _ = database
             .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())
             .await;
-    }
-
-    /// The BigQuery server, against the project the BigQuery driver's tests read. It
-    /// completes as whoever the reader is to Google rather than as the
-    /// connection's service account, so it needs their own credentials to be
-    /// there: the three things it skips for are the server, those credentials and
-    /// a project to read.
-    #[tokio::test]
-    async fn completes_a_statement_out_of_a_bigquery_project() {
-        let Ok(project) = env::var("DATALOOKER_TEST_BQ_PROJECT") else {
-            eprintln!("skipping: DATALOOKER_TEST_BQ_PROJECT names no project");
-            return;
-        };
-        let Ok(binary) = server::find(Server::Bqls, Path::new("/nowhere")).await else {
-            eprintln!("skipping: bqls is not installed");
-            return;
-        };
-        let adc = home().join(".config/gcloud/application_default_credentials.json");
-        if !adc.is_file() {
-            eprintln!("skipping: there are no application default credentials to read as");
-            return;
-        }
-
-        let (_, options) = server::for_connection(
-            &DriverConfig::BigQuery {
-                project_id: project.clone(),
-                location: var("DATALOOKER_TEST_BQ_LOCATION", "US"),
-            },
-            "the key bqls is never handed",
-        )
-        .expect("options for BigQuery");
-
-        let session = LspSession::start("c3", &binary, options)
-            .await
-            .expect("a language server that starts");
-        let notices = broadcast::channel(256).0;
-        let mut heard = notices.subscribe();
-        session.listen(Arc::new(LspRegistry::default()), notices);
-
-        // The datasets of the project, which are the reader's rather than this
-        // test's — so what is asserted is that it answered out of the project at
-        // all, not what the project holds.
-        let statement = format!("SELECT * FROM `{project}.`");
-        session
-            .send(opened(&statement))
-            .expect("the server listens");
-        session
-            .send(completion(1, 0, statement.len() as u32 - 1))
-            .expect("the server listens");
-
-        let offered = labels(&answer_to(&mut heard, 1).await);
-        assert!(
-            !offered.is_empty(),
-            "nothing was offered for a project that is there"
-        );
-
-        session.stop();
     }
 }

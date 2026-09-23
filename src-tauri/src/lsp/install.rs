@@ -19,7 +19,6 @@ use crate::shell::GroupKill;
 /// The version this app was written against. Not "whatever is newest": a
 /// server that changed under a reader is a change nothing here wrote down.
 const SQLS: &str = "github.com/sqls-server/sqls@v0.2.48";
-const BQLS: &str = "github.com/kitagry/bqls@v0.7.1";
 
 /// How long a build may take. It compiles a Go program and fetches what that
 /// program depends on, which is a minute on a cold cache and more on a slow
@@ -31,7 +30,6 @@ impl Server {
     fn module(self) -> &'static str {
         match self {
             Server::Sqls => SQLS,
-            Server::Bqls => BQLS,
         }
     }
 }

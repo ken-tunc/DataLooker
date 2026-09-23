@@ -15,11 +15,11 @@ A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
 > forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
 > connection can be made, tested, queried, its tables' rows paged through, and its
 > datasets read like any other schema tree, where a table written a day at a time is folded into one row per set of
-> days. A statement completes out of the database it will run against, through
-> a language server — `sqls` for PostgreSQL, `bqls` for BigQuery — which
-> DataLooker will build with your Go toolchain if you have none. BigQuery
-> completion reads as your own `gcloud` credentials rather than as the
-> connection's service account. Your own agents can be let in over MCP, on this
+> days. A statement completes out of the database it will run against: through
+> `sqls`, a language server DataLooker will build with your Go toolchain if you
+> have none, for PostgreSQL, and through a GoogleSQL helper that reads the
+> statement itself for BigQuery, which sees the project as the connection's own
+> service account. Your own agents can be let in over MCP, on this
 > machine and behind a token, to see which connections there are, what they
 > hold, what a table holds, and to run statements that read — logged beside your
 > own, and marked. They never write: that is not something DataLooker does on an

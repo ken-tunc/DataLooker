@@ -1,10 +1,19 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { initVimMode } from "monaco-vim";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
 import { InstallServer } from "../language-server/InstallServer";
 import { languageClientFor } from "../../lib/lsp/client";
-import { registerCompletion } from "./completion";
+import { useConnections } from "../connections/hooks";
+import { schemaTreeQuery } from "../schema-tree/hooks";
+import {
+  analyzerCompleter,
+  type Completer,
+  completeWith,
+  languageServerCompleter,
+  registerCompletion,
+} from "./completion";
 import { documentUri } from "./documents";
 import { identifierAt, type QualifiedName } from "./jump";
 import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE, Uri } from "./monaco";
@@ -57,6 +66,21 @@ export default function SqlEditor({
     handlers.current = { onChange, onSubmit, onJump };
   });
 
+  // Who answers for this tab: a BigQuery connection is completed by the
+  // analyzer, and anything else — a PostgreSQL one, or one not yet read — by
+  // its language server. Held in a ref for the same reason as the handlers.
+  const queryClient = useQueryClient();
+  const config = useConnections().data?.find((c) => c.id === connectionId)?.config;
+  const completer = useRef<Completer | null>(null);
+  useLayoutEffect(() => {
+    completer.current =
+      config?.kind === "bigquery"
+        ? analyzerCompleter(connectionId, config.project_id, () =>
+            queryClient.ensureQueryData(schemaTreeQuery(connectionId)),
+          )
+        : languageServerCompleter(connectionId);
+  });
+
   useEffect(() => {
     registerCompletion();
     const client = languageClientFor(connectionId);
@@ -66,6 +90,9 @@ export default function SqlEditor({
     const uri = Uri.parse(documentUri(connectionId, tabId));
     const model = monaco.getModel(uri) ?? monaco.createModel(value, SQL_LANGUAGE, uri);
     client.wrote(uri.toString(), value);
+    const answering = completeWith(uri.toString(), async (model, position) =>
+      completer.current ? completer.current(model, position) : [],
+    );
 
     const instance = monaco.create(host.current as HTMLElement, {
       model,
@@ -114,6 +141,7 @@ export default function SqlEditor({
     return () => {
       changed.dispose();
       clicked.dispose();
+      answering();
       client.closed(uri.toString());
       instance.getModel()?.dispose();
       instance.dispose();

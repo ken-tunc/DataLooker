@@ -3,7 +3,6 @@
 //! either is missing — no server on the port, or no `sqls` installed — and
 //! nothing else is a skip: a server that answers has to answer usefully.
 
-use std::env::var_os;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -141,10 +140,4 @@ pub(crate) fn labels(answer: &Value) -> Vec<String> {
         .iter()
         .filter_map(|item| item["label"].as_str().map(str::to_string))
         .collect()
-}
-
-/// Where the reader's own credentials are kept, which is a path rather than
-/// anything this app stores.
-pub(crate) fn home() -> std::path::PathBuf {
-    std::path::PathBuf::from(var_os("HOME").expect("a home directory"))
 }

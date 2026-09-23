@@ -5,6 +5,7 @@
 //! the frontend's type check rather than a click in the running app.
 
 pub mod agents;
+pub mod completion;
 pub mod connection;
 pub mod edit;
 pub mod lsp;
@@ -21,6 +22,7 @@ use tauri::{AppHandle, Emitter, State};
 use ts_rs::TS;
 
 use crate::app::agents::AgentAccess;
+use crate::app::completion::Completion;
 use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
 use crate::app::preview::PreviewRequest;
@@ -108,6 +110,7 @@ commands! {
     shell::run_connection_command(ConnectionArgs) -> ();
     shell::stop_connection_command(ConnectionArgs) -> ();
     shell::running_connection_commands() -> Vec<String>;
+    completion::complete(CompleteArgs) -> Completion;
     lsp::start_language_server(ConnectionArgs) -> lsp::Capabilities;
     lsp::send_to_language_server(LanguageServerMessageArgs) -> ();
     lsp::stop_language_server(ConnectionArgs) -> ();
@@ -161,6 +164,16 @@ pub struct CheckSyntaxArgs {
 pub struct LanguageServerMessageArgs {
     pub connection_id: String,
     pub message: String,
+}
+
+/// `cursor` is a UTF-16 offset into `text`, which is the whole of the
+/// editor's document.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct CompleteArgs {
+    pub connection_id: String,
+    pub text: String,
+    pub cursor: u32,
 }
 
 #[derive(Debug, Deserialize, TS)]

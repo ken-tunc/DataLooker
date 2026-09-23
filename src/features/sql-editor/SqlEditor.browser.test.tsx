@@ -1,6 +1,7 @@
 import type { LanguageServerMessageArgs } from "../../bindings/LanguageServerMessageArgs";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { type Ipc, type Replies, renderApp, stubIpc } from "../../test/harness";
 import { editor as monaco } from "./monaco";
@@ -14,13 +15,16 @@ const slect: SyntaxError = {
   end_column: 6,
 };
 
-async function editor(replies: Replies, sql = "SLECT 1") {
-  const ipc = stubIpc(replies);
+async function editor(
+  replies: Replies,
+  sql = "SLECT 1",
   // A model is named after its connection and its tab, and a name Monaco
   // already holds is one it refuses to make a second model for. A connection
   // of its own also gives each test a language client of its own, since a
   // client is made once per connection and kept.
-  const connectionId = crypto.randomUUID();
+  connectionId: string = crypto.randomUUID(),
+) {
+  const ipc = stubIpc(replies);
   const tabId = crypto.randomUUID();
   const onChange = vi.fn();
   const onJump = vi.fn();
@@ -333,7 +337,7 @@ describe("SqlEditor completion", () => {
     const replies: Replies = {
       check_syntax: [],
       language_server_state: () =>
-        installed ? { kind: "ready" } : { kind: "missing", server: "sqls" },
+        installed ? { kind: "ready" } : { kind: "missing", server: "sqls", downloaded: false },
       install_language_server: () => {
         installed = true;
         return null;
@@ -370,5 +374,136 @@ describe("SqlEditor completion", () => {
     await userEvent.keyboard("{Escape}");
     await typing("e");
     await expect.element(page.getByRole("option")).toBeVisible();
+  });
+});
+
+/** A BigQuery connection, which the analyzer completes rather than a server. */
+function bigquery(connectionId: string): ConnectionRecord[] {
+  return [
+    {
+      id: connectionId,
+      label: "BigQuery",
+      config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
+      command: null,
+      created_at: "2026-09-23 00:00:00",
+    },
+  ];
+}
+
+describe("SqlEditor completion of BigQuery", () => {
+  it("offers what the analyzer says can go at the cursor", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: bigquery(connectionId),
+        complete: {
+          kind: "names",
+          replace: { start: 9, end: 9 },
+          expected_type: null,
+          candidates: [
+            { name: "total", kind: "field", type_name: "NUMERIC", qualifier: null, depth: 0 },
+          ],
+        },
+      },
+      "SELECT o",
+      connectionId,
+    );
+    // The connections are read before the editor knows whom to ask.
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    await typing(".");
+
+    const offered = page.getByRole("option");
+    await expect.element(offered).toBeVisible();
+    expect(offered.element().textContent).toContain("total");
+    expect(offered.element().textContent).toContain("NUMERIC");
+    // The whole document and the cursor in the units the editor counts.
+    expect(made.ipc.sent("complete")).toEqual({
+      connection_id: connectionId,
+      text: "SELECT o.",
+      cursor: 9,
+    });
+    expect(made.ipc.calls.map((call) => call.command)).not.toContain("start_language_server");
+  });
+
+  it("offers a dataset's tables out of the schema tree", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: bigquery(connectionId),
+        complete: {
+          kind: "tables",
+          replace: { start: 20, end: 21 },
+          path: ["sales"],
+        },
+        schema_tree: {
+          schemas: [{ name: "sales", tables: [{ name: "orders", kind: "table" }] }],
+        },
+      },
+      "SELECT * FROM sales.",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    await typing("o");
+
+    const offered = page.getByRole("option");
+    await expect.element(offered).toBeVisible();
+    expect(offered.element().textContent).toContain("orders");
+  });
+
+  it("offers no tables where the schema tree cannot be read", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: bigquery(connectionId),
+        complete: { kind: "tables", replace: { start: 20, end: 21 }, path: ["sales"] },
+        schema_tree: () => {
+          throw { kind: "Database", message: "BigQuery refused" };
+        },
+      },
+      "SELECT * FROM sales.",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    await typing("o");
+
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("schema_tree"),
+    );
+    expect(page.getByRole("option").elements()).toEqual([]);
+  });
+
+  it("offers nothing where the analyzer cannot be had", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: bigquery(connectionId),
+        complete: () => {
+          throw { kind: "NotFound", message: "datalooker-bigquery-analyzer is not installed" };
+        },
+      },
+      "SELECT o",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    await typing(".");
+
+    await vi.waitFor(() => expect(made.ipc.sent("complete")).toBeDefined());
+    expect(page.getByRole("option").elements()).toEqual([]);
   });
 });

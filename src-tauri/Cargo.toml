@@ -15,6 +15,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Unpacks the BigQuery analyzer the app fetches.
+flate2 = "1"
 futures-util = { version = "0.3", default-features = false }
 gcp-bigquery-client = { version = "0.28", default-features = false, features = ["rust-tls"] }
 http = "1.5.0"
@@ -23,9 +25,14 @@ hyper = { version = "1.11.1", features = ["server", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio", "server-auto"] }
 keyring-core = "1.0.0"
 pg_query = "6.2.0"
+# Fetches the BigQuery analyzer. The BigQuery client already brings it, built
+# the same way, so naming it here adds nothing to what is compiled.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rmcp = { version = "3.4.0", features = ["server", "transport-streamable-http-server", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Checks what was fetched against the hash written down beside its address.
+sha2 = "0.10"
 sqlx = { version = "0.9.0", default-features = false, features = [
   "runtime-tokio",
   "tls-rustls",

@@ -146,7 +146,7 @@ fn from_f64(value: f64) -> Value {
         .unwrap_or_else(|| Value::String(value.to_string()))
 }
 
-fn scalar_name(kind: &FieldType) -> &'static str {
+pub(super) fn scalar_name(kind: &FieldType) -> &'static str {
     match kind {
         FieldType::String => "STRING",
         FieldType::Bytes => "BYTES",

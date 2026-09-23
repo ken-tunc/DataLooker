@@ -13,7 +13,7 @@ const offer = () => "Install sqls for completion";
 describe("InstallServer", () => {
   it("offers to build a server where the connection has none", async () => {
     const { ipc, screen } = await footer({
-      language_server_state: { kind: "missing", server: "sqls" },
+      language_server_state: { kind: "missing", server: "sqls", downloaded: false },
       install_language_server: null,
     });
 
@@ -29,16 +29,22 @@ describe("InstallServer", () => {
 
   it("names the server the connection would be completed against", async () => {
     const { screen } = await footer({
-      language_server_state: { kind: "missing", server: "bqls" },
+      language_server_state: {
+        kind: "missing",
+        server: "datalooker-bigquery-analyzer",
+        downloaded: true,
+      },
       install_language_server: null,
     });
 
-    await expect.element(screen.getByText("Install bqls for completion")).toBeVisible();
+    await expect
+      .element(screen.getByText("Install datalooker-bigquery-analyzer for completion"))
+      .toBeVisible();
   });
 
   it("says what went wrong when the build fails, and offers again", async () => {
     const { screen } = await footer({
-      language_server_state: { kind: "missing", server: "sqls" },
+      language_server_state: { kind: "missing", server: "sqls", downloaded: false },
       install_language_server: () => {
         throw { kind: "NotFound", message: "Go, which is what builds a language server" };
       },

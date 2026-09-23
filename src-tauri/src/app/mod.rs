@@ -1,5 +1,6 @@
 pub mod agent_queries;
 pub mod agents;
+pub mod completion;
 pub mod connections;
 pub mod edit;
 pub mod history;
@@ -16,12 +17,14 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
+use crate::analyzer::Analyzer;
 use crate::drivers::session::{Session, SessionRegistry, Whose};
 use crate::error::AppError;
 use crate::lsp::{LspNotice, LspRegistry};
 use crate::mcp::Listening;
 use crate::secrets::SecretStore;
 use crate::shell::{ShellExit, ShellRegistry};
+use completion::Catalogs;
 use query::QueryRegistry;
 
 /// How many endings a listener may fall behind by before it misses one. A
@@ -53,6 +56,9 @@ pub struct App {
     /// when the server stops answering.
     servers: Arc<LspRegistry>,
     notices: broadcast::Sender<LspNotice>,
+    /// Reads BigQuery SQL for completion, and what the tables it names hold.
+    analyzer: Analyzer,
+    catalogs: Catalogs,
     /// The MCP server, while the reader has it open.
     agents: std::sync::Mutex<Option<Listening>>,
     /// Held for the whole of opening or shutting the door. Two of those at
@@ -65,6 +71,7 @@ impl App {
     pub fn new(pool: SqlitePool, data_dir: PathBuf, secrets: Box<dyn SecretStore>) -> Self {
         Self {
             pool,
+            analyzer: Analyzer::new(data_dir.join("servers")),
             data_dir,
             secrets,
             sessions: SessionRegistry::default(),
@@ -73,6 +80,7 @@ impl App {
             exits: broadcast::channel(EXITS_HELD).0,
             servers: Arc::new(LspRegistry::default()),
             notices: broadcast::channel(NOTICES_HELD).0,
+            catalogs: Catalogs::default(),
             agents: std::sync::Mutex::new(None),
             turning: tokio::sync::Mutex::new(()),
         }

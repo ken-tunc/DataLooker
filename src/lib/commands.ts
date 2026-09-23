@@ -91,6 +91,15 @@ export function stopLanguageServer(connectionId: string) {
   return invoke("stop_language_server", { connection_id: connectionId });
 }
 
+/**
+ * What could go at `cursor`, a UTF-16 offset into the whole of `text`. Only a
+ * BigQuery connection answers; a PostgreSQL one is completed by its language
+ * server.
+ */
+export function complete(connectionId: string, text: string, cursor: number) {
+  return invoke("complete", { connection_id: connectionId, text, cursor });
+}
+
 /** Whether this connection can be completed against, or could be. */
 export function languageServerState(connectionId: string) {
   return invoke("language_server_state", { connection_id: connectionId });

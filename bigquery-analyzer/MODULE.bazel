@@ -1,0 +1,32 @@
+module(name = "datalooker_bigquery_analyzer")
+
+bazel_dep(name = "googlesql")
+
+# One pinned release, checked against its hash. GoogleSQL is not in the
+# Bazel Central Registry, so the archive is named here rather than a version.
+archive_override(
+    module_name = "googlesql",
+    integrity = "sha256-Bi6Z2jQDKs31HB2VR5ds72HKT4PaQqSHYDqi4/JJJX4=",
+    strip_prefix = "googlesql-2026.9.2",
+    urls = ["https://github.com/google/googlesql/archive/refs/tags/2026.9.2.tar.gz"],
+)
+
+bazel_dep(name = "abseil-cpp", version = "20260107.0", repo_name = "absl")
+bazel_dep(name = "nlohmann_json", version = "3.12.0", repo_name = "json")
+bazel_dep(name = "googletest", version = "1.17.0", dev_dependency = True)
+bazel_dep(name = "toolchains_llvm", version = "1.5.0")
+
+# GoogleSQL builds with its own clang rather than whatever the machine has, and
+# registers it only for itself, so a module that depends on it registers it too.
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+llvm.toolchain(
+    name = "llvm_toolchain",
+    llvm_versions = {
+        "": "21.1.0",
+        "darwin-x86_64": "19.1.7",
+        "darwin-aarch64": "19.1.7",
+    },
+)
+use_repo(llvm, "llvm_toolchain")
+
+register_toolchains("@llvm_toolchain//:all")

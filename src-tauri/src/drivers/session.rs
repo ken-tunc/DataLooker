@@ -99,6 +99,24 @@ impl Session {
         }
     }
 
+    /// What a table a statement names holds, with every type spelled out to
+    /// its innermost field, or nothing where there is no such table. It is
+    /// what completion reads a statement against, and a PostgreSQL connection
+    /// is completed by its language server instead.
+    pub async fn described(
+        &self,
+        project: &str,
+        dataset: &str,
+        table: &str,
+    ) -> Result<Option<Vec<Column>>, AppError> {
+        match self {
+            Session::Postgres(_) => Err(AppError::Unsupported(
+                "A PostgreSQL connection is completed by its language server.".to_string(),
+            )),
+            Session::BigQuery(session) => session.described(project, dataset, table).await,
+        }
+    }
+
     pub async fn definition(
         &self,
         schema: &str,

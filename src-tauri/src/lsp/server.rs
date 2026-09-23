@@ -13,8 +13,6 @@ use crate::error::AppError;
 pub enum Server {
     /// `sqls`, which reads a PostgreSQL database to complete against it.
     Sqls,
-    /// `bqls`, which reads a BigQuery project the same way.
-    Bqls,
 }
 
 /// Which server a connection needs, and what that server is told about the
@@ -43,37 +41,30 @@ pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Va
                 }
             }),
         )),
-        // The connection's service account key is deliberately not here. bqls
-        // reads credentials from the environment and nowhere else, so handing
-        // it this one would mean writing it to a file — and a file with a key
-        // in it outlives the process that wrote it. It completes as whoever
-        // the reader is to Google, which is not necessarily who the queries
-        // run as.
-        DriverConfig::BigQuery {
-            project_id,
-            location,
-        } => Ok((
-            Server::Bqls,
-            json!({ "project_id": project_id, "location": location }),
-        )),
+        DriverConfig::BigQuery { .. } => Err(no_server()),
     }
 }
 
+/// A BigQuery connection is completed by `crate::analyzer`, which reads the
+/// statement itself and asks the app what the tables hold — so the
+/// connection's key never leaves it. A language server for BigQuery would
+/// read the project as whoever the reader is to Google instead.
+fn no_server() -> AppError {
+    AppError::Unsupported("A BigQuery connection is completed without a language server.".into())
+}
+
 impl Server {
-    /// Which server a connection needs. Every driver this app ships has one;
-    /// a driver that does not would have to be written down here as not
-    /// having one.
-    pub fn of(config: &DriverConfig) -> Self {
+    /// Which server a connection needs, where it has one.
+    pub fn of(config: &DriverConfig) -> Option<Self> {
         match config {
-            DriverConfig::Postgres { .. } => Server::Sqls,
-            DriverConfig::BigQuery { .. } => Server::Bqls,
+            DriverConfig::Postgres { .. } => Some(Server::Sqls),
+            DriverConfig::BigQuery { .. } => None,
         }
     }
 
     pub fn binary(self) -> &'static str {
         match self {
             Server::Sqls => "sqls",
-            Server::Bqls => "bqls",
         }
     }
 
@@ -82,7 +73,6 @@ impl Server {
     fn named_by(self) -> &'static str {
         match self {
             Server::Sqls => "DATALOOKER_SQLS_BIN",
-            Server::Bqls => "DATALOOKER_BQLS_BIN",
         }
     }
 }
@@ -177,21 +167,15 @@ mod tests {
     }
 
     #[test]
-    fn tells_the_bigquery_server_which_project_to_read() {
-        let key = r#"{"type":"service_account"}"#;
-        let (server, options) = for_connection(
-            &DriverConfig::BigQuery {
-                project_id: "t-housework".into(),
-                location: "asia-northeast1".into(),
-            },
-            key,
-        )
-        .unwrap();
-
-        assert_eq!(server, Server::Bqls);
-        assert_eq!(options["project_id"], "t-housework");
-        assert_eq!(options["location"], "asia-northeast1");
-        // What it is told is where to look, and never who to look as.
-        assert!(!options.to_string().contains("service_account"));
+    fn a_bigquery_connection_has_no_language_server() {
+        let bigquery = DriverConfig::BigQuery {
+            project_id: "t-housework".into(),
+            location: "asia-northeast1".into(),
+        };
+        assert_eq!(Server::of(&bigquery), None);
+        assert!(matches!(
+            for_connection(&bigquery, r#"{"type":"service_account"}"#),
+            Err(AppError::Unsupported(_))
+        ));
     }
 }

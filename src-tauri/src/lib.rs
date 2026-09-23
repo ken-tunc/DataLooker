@@ -1,3 +1,4 @@
+mod analyzer;
 mod app;
 mod commands;
 mod db;
