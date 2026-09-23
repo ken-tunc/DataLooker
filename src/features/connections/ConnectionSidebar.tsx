@@ -69,8 +69,11 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
         {connections.isPending && <Skeleton />}
 
         {connections.isError && (
-          <div role="alert" className="alert alert-error m-2 text-sm">
-            <span>{describeError(connections.error)}</span>
+          <div
+            role="alert"
+            className="alert alert-error alert-vertical m-2 justify-items-start text-start text-sm"
+          >
+            <span className="wrap-anywhere">{describeError(connections.error)}</span>
             <button type="button" className="btn btn-xs" onClick={() => connections.refetch()}>
               Retry
             </button>
