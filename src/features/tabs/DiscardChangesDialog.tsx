@@ -27,10 +27,19 @@ export function DiscardChangesDialog({ title, onDiscard, onClose }: Props) {
         </h3>
         <p className="py-4">Its unsaved changes are discarded.</p>
         <div className="modal-action">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          {/* Closed natively rather than unmounted open: closing is what
+              hands focus back to whatever held it before the dialog. */}
+          <button type="button" className="btn btn-ghost" onClick={() => dialog.current?.close()}>
             Keep editing
           </button>
-          <button type="button" className="btn btn-warning" onClick={onDiscard}>
+          <button
+            type="button"
+            className="btn btn-warning"
+            onClick={() => {
+              onDiscard();
+              dialog.current?.close();
+            }}
+          >
             Discard changes
           </button>
         </div>

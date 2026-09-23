@@ -232,11 +232,15 @@ describe("AppShell", () => {
     await asking.getByRole("button", { name: "Keep editing" }).click();
     expect(titles()).toEqual(["Query 1", "shop.people"]);
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+    // Back where the reader was when they asked to close it.
+    await expect.element(people).toHaveFocus();
 
     await people.click();
     await userEvent.keyboard("{Delete}");
     await asking.getByRole("button", { name: "Discard changes" }).click();
     await expect.poll(titles).toEqual(["Query 1"]);
+    // The tab that had focus is gone, so the one left in front takes it.
+    await expect.element(screen.getByRole("tab", { name: "Query 1" })).toHaveFocus();
   });
 
   it("closes a table tab with nothing unsaved without asking", async () => {

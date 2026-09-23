@@ -20,11 +20,15 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   const strip = useRef<HTMLDivElement>(null);
   // Closing the tab in focus takes the focused element with it, which would
   // otherwise drop focus on the document and end the keyboard's walk here.
-  const refocus = useRef(false);
+  // The tab is remembered rather than the wish to close it: a tab with
+  // unsaved changes asks first, and only once it is actually gone is there
+  // anything to move focus away from.
+  const refocus = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!refocus.current) return;
-    refocus.current = false;
+    const closed = refocus.current;
+    if (closed === null || state.tabs.some((tab) => tab.id === closed)) return;
+    refocus.current = null;
     strip.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   });
 
@@ -53,7 +57,7 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      refocus.current = true;
+      refocus.current = id;
       onClose(id);
       return;
     }
