@@ -279,11 +279,20 @@ mod live {
         session.listen(Arc::new(LspRegistry::default()), notices);
         session.stop();
 
-        let ended = tokio::time::timeout(ANSWER, heard.recv())
-            .await
-            .expect("an ending rather than a wait")
-            .expect("the channel is open");
-        assert!(matches!(ended, LspNotice::Ended(exit) if exit.connection_id == "c2"));
+        // What the server said before its output closed is announced first,
+        // and a server may say something unasked; the ending comes after all
+        // of it.
+        let exit = tokio::time::timeout(ANSWER, async {
+            loop {
+                match heard.recv().await.expect("the channel is open") {
+                    LspNotice::Said(_) => continue,
+                    LspNotice::Ended(exit) => return exit,
+                }
+            }
+        })
+        .await
+        .expect("an ending rather than a wait");
+        assert_eq!(exit.connection_id, "c2");
 
         let _ = database
             .execute(&format!("DROP TABLE {table}"), 1, &CancellationToken::new())

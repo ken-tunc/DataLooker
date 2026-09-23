@@ -41,6 +41,12 @@ pub(crate) async fn table_or_skip() -> Option<(String, PostgresSession)> {
         eprintln!("skipping: nothing is listening on {host}:{port}");
         return None;
     }
+    // Asked before the table is made: a test that skips for want of a server
+    // never reaches the line that drops it.
+    if let Err(e) = server::find(Server::Sqls, Path::new("/nowhere")).await {
+        eprintln!("skipping: {e}");
+        return None;
+    }
 
     let session = PostgresSession::new(&host, port, &database, &username, &password);
     let name = format!("lsp_{}", Uuid::new_v4().simple());
