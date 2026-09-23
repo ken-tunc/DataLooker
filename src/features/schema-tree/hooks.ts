@@ -8,12 +8,15 @@ import { tableRowId } from "./rows";
 /** A schema changes far less often than the rows in it. */
 const STALE_TIME = 5 * 60_000;
 
+/** The tree as a query, for whoever reads it outside a render. */
+export const schemaTreeQuery = (connectionId: string) => ({
+  queryKey: schemaKeys.tree(connectionId),
+  queryFn: () => schemaTree(connectionId),
+  staleTime: STALE_TIME,
+});
+
 export function useSchemaTree(connectionId: string) {
-  return useQuery({
-    queryKey: schemaKeys.tree(connectionId),
-    queryFn: () => schemaTree(connectionId),
-    staleTime: STALE_TIME,
-  });
+  return useQuery(schemaTreeQuery(connectionId));
 }
 
 /**

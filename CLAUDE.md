@@ -238,21 +238,14 @@ query parameter rather than written into the statement.
 
 ## Completing a statement
 
-A connection can have a language server behind it — `sqls` for PostgreSQL,
-`bqls` for BigQuery — which reads the database it is pointed at and says what
-could follow what the reader typed. `lsp/` is the pipe: it starts one server per connection, frames
+A PostgreSQL connection has a language server behind it, `sqls`, which reads
+the database it is pointed at and says what could follow what the reader typed.
+`lsp/` is the pipe: it starts one server per connection, frames
 the JSON-RPC going each way and carries it, and reads none of it. What a
 message means belongs with the editor that asked, so the client lives in the
 window.
 
-BigQuery is the exception to all of that. bqls takes credentials from the
-environment and nowhere else, so the connection's service account key is never
-handed to it: it is told the project and the location, and it completes as
-whoever the reader is to Google — their own `gcloud` credentials. That means
-completion can see a different project than the one queries run against, or
-nothing at all where the reader has never logged in, and it is the price of
-not writing a service account key to a file that outlives the process which
-wrote it.
+A BigQuery connection has none, and is completed by the analyzer below instead.
 
 The one message composed here is `initialize`, because it is the one that
 carries a PostgreSQL connection's password: the server is told about the database
@@ -268,9 +261,9 @@ a reader is when they notice that nothing is being suggested.
 
 Where the server is, is asked of the reader's login shell — a window opened
 from Finder inherits none of the places one is installed, the same reason a
-connection's command is run through one. `DATALOOKER_SQLS_BIN` and
-`DATALOOKER_BQLS_BIN` name one directly, which is also how a test hands over
-something that is not a language server at all. A server the reader installed themselves comes before the one
+connection's command is run through one. `DATALOOKER_SQLS_BIN` names one
+directly, which is also how a test hands over something that is not a language
+server at all. A server the reader installed themselves comes before the one
 DataLooker built, which is the fallback for a machine that had none — and a
 name the reader set that leads nowhere is theirs to put right rather than
 something a build would fix, so it is said rather than offered around.
@@ -296,11 +289,42 @@ server in either order, which for a document means a change arriving before the
 open that made it.
 
 Every SQL tab is a document, named `file:///datalooker/<connection>/<tab>.sql`
-(`features/sql-editor/documents.ts`). Monaco holds completion providers by
-language rather than by editor, so one provider answers for every tab and the
-document's own name is what says whose server to ask. The whole text goes with
-every change, which is the synchronization sqls asks for and the only kind that
-cannot drift from what the editor holds.
+(`features/sql-editor/documents.ts`). The whole text goes with every change,
+which is the synchronization sqls asks for and the only kind that cannot drift
+from what the editor holds. Monaco holds completion providers by language
+rather than by editor, so one provider answers for every tab, and each editor
+says who answers for its own document (`completeWith`): the language server, or
+the analyzer.
+
+### BigQuery
+
+A language server for BigQuery would read the project as whoever the reader is
+to Google: one takes credentials from the environment and nowhere else, and the
+connection's service account key is not something to write to a file that
+outlives the process which wrote it. So a BigQuery statement is read here
+instead, by `bigquery-analyzer/` — a helper built on GoogleSQL, the analyzer
+BigQuery's own dialect is defined by — and what a table holds is asked of
+BigQuery by the app, which holds the key. Completion and queries see the
+project as the same account. The helper's own README says how it reads a
+statement and what it answers.
+
+`analyzer.rs` runs one helper for the whole app, since nothing it holds is a
+connection's; `app/completion.rs` feeds it. The helper names the tables a
+statement refers to, and the app answers with what they hold, asked of each
+table (`tables.get`) rather than of `INFORMATION_SCHEMA`: a query is billed for
+however little it reads, and this is asked on keystrokes. What a table holds is
+believed for a few minutes, and a table that is not there is remembered as not
+being there, so that a half-typed name is asked about once. Which tables there
+are is the schema tree's, which the window already holds, so a table's name
+being typed is answered there.
+
+What comes back to the window is shaped for the editor rather than for BigQuery
+— names, their types, the span they replace, the type the place wants — so that
+any driver could answer in it. A statement the helper cannot read yet, such as
+one with no `FROM`, is offered nothing.
+
+`DATALOOKER_BQ_ANALYZER_BIN` names a helper directly; otherwise it is the one
+under the app's data directory.
 
 `wordBasedSuggestions` is off: what a server says is the only thing offered,
 and Monaco's own suggestions are the words already in the statement. The

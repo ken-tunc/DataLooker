@@ -29,11 +29,13 @@ describe("InstallServer", () => {
 
   it("names the server the connection would be completed against", async () => {
     const { screen } = await footer({
-      language_server_state: { kind: "missing", server: "bqls" },
+      language_server_state: { kind: "missing", server: "datalooker-bigquery-analyzer" },
       install_language_server: null,
     });
 
-    await expect.element(screen.getByText("Install bqls for completion")).toBeVisible();
+    await expect
+      .element(screen.getByText("Install datalooker-bigquery-analyzer for completion"))
+      .toBeVisible();
   });
 
   it("says what went wrong when the build fails, and offers again", async () => {

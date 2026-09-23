@@ -15,7 +15,6 @@ use datalooker_lib::lsp::install;
 use datalooker_lib::lsp::server::{self, Server};
 use datalooker_lib::lsp::{LspNotice, LspRegistry, LspSession};
 use serde_json::{json, Value};
-use std::env::var_os;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -263,67 +262,4 @@ async fn builds_a_server_for_a_machine_that_has_none() {
     );
 
     std::fs::remove_dir_all(&into).ok();
-}
-
-/// The BigQuery server, against the project `tests/bigquery.rs` reads. It
-/// completes as whoever the reader is to Google rather than as the
-/// connection's service account, so it needs their own credentials to be
-/// there: the three things it skips for are the server, those credentials and
-/// a project to read.
-#[tokio::test]
-async fn completes_a_statement_out_of_a_bigquery_project() {
-    let Ok(project) = env::var("DATALOOKER_TEST_BQ_PROJECT") else {
-        eprintln!("skipping: DATALOOKER_TEST_BQ_PROJECT names no project");
-        return;
-    };
-    let Ok(binary) = server::find(Server::Bqls, Path::new("/nowhere")).await else {
-        eprintln!("skipping: bqls is not installed");
-        return;
-    };
-    let adc = home().join(".config/gcloud/application_default_credentials.json");
-    if !adc.is_file() {
-        eprintln!("skipping: there are no application default credentials to read as");
-        return;
-    }
-
-    let (_, options) = server::for_connection(
-        &DriverConfig::BigQuery {
-            project_id: project.clone(),
-            location: var("DATALOOKER_TEST_BQ_LOCATION", "US"),
-        },
-        "the key bqls is never handed",
-    )
-    .expect("options for BigQuery");
-
-    let session = LspSession::start("c3", &binary, options)
-        .await
-        .expect("a language server that starts");
-    let notices = broadcast::channel(256).0;
-    let mut heard = notices.subscribe();
-    session.listen(Arc::new(LspRegistry::default()), notices);
-
-    // The datasets of the project, which are the reader's rather than this
-    // test's — so what is asserted is that it answered out of the project at
-    // all, not what the project holds.
-    let statement = format!("SELECT * FROM `{project}.`");
-    session
-        .send(opened(&statement))
-        .expect("the server listens");
-    session
-        .send(completion(1, 0, statement.len() as u32 - 1))
-        .expect("the server listens");
-
-    let offered = labels(&answer_to(&mut heard, 1).await);
-    assert!(
-        !offered.is_empty(),
-        "nothing was offered for a project that is there"
-    );
-
-    session.stop();
-}
-
-/// Where the reader's own credentials are kept, which is a path rather than
-/// anything this app stores.
-fn home() -> std::path::PathBuf {
-    std::path::PathBuf::from(var_os("HOME").expect("a home directory"))
 }

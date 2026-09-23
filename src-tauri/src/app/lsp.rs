@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+use crate::analyzer;
 use crate::app::App;
 use crate::db::connection;
 use crate::error::AppError;
@@ -91,11 +92,19 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
-        let server = Server::of(&record.config);
-        Ok(match server::find(server, &self.servers()).await {
-            Ok(_) => LanguageServerState::Ready,
+        // A connection with no language server is completed by the analyzer,
+        // which is the thing it would be missing instead.
+        let (found, binary) = match Server::of(&record.config) {
+            Some(server) => (
+                server::find(server, &self.servers()).await.map(drop),
+                server.binary(),
+            ),
+            None => (analyzer::find(&self.servers()).map(drop), analyzer::BINARY),
+        };
+        Ok(match found {
+            Ok(()) => LanguageServerState::Ready,
             Err(AppError::NotFound(_)) => LanguageServerState::Missing {
-                server: server.binary().to_string(),
+                server: binary.to_string(),
             },
             // Anything else is the reader's own setting being wrong, which
             // installing a server would not put right.
@@ -111,10 +120,17 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
+        let Some(server) = Server::of(&record.config) else {
+            return Err(AppError::Unsupported(format!(
+                "{} cannot be fetched yet. Build it from bigquery-analyzer/ and name it in \
+                 DATALOOKER_BQ_ANALYZER_BIN.",
+                analyzer::BINARY
+            )));
+        };
         let into = self.servers();
         std::fs::create_dir_all(&into)
             .map_err(|e| AppError::Shell(format!("{}: {e}", into.display())))?;
-        install::install(Server::of(&record.config), &into).await?;
+        install::install(server, &into).await?;
         // Whatever was running is the server that was there before this one.
         self.stop_language_server(connection_id);
         Ok(())
