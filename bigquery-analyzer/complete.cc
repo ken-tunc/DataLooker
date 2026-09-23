@@ -1,0 +1,429 @@
+#include "complete.h"
+
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include "catalog.h"
+#include "googlesql/public/analyzer.h"
+#include "googlesql/public/analyzer_output.h"
+#include "googlesql/public/builtin_function_options.h"
+#include "googlesql/public/multi_catalog.h"
+#include "googlesql/public/parse_resume_location.h"
+#include "googlesql/public/parse_tokens.h"
+#include "googlesql/public/simple_catalog.h"
+#include "googlesql/public/types/type_factory.h"
+#include "googlesql/resolved_ast/resolved_ast.h"
+
+namespace datalooker {
+namespace {
+
+using ::googlesql::ParseToken;
+using ::googlesql::ResolvedNode;
+using json = nlohmann::json;
+
+constexpr char kCursor[] = "__cursor__";
+
+struct Span {
+  size_t start;
+  size_t end;
+};
+
+size_t Start(const ParseToken& token) {
+  return token.GetLocationRange().start().GetByteOffset();
+}
+size_t End(const ParseToken& token) {
+  return token.GetLocationRange().end().GetByteOffset();
+}
+bool Is(const ParseToken& token, absl::string_view image) {
+  return token.IsKeyword() && absl::EqualsIgnoreCase(token.GetImage(), image);
+}
+
+// A word being typed can spell a keyword on its way to a name: `or` is how
+// `orders` begins.
+bool IsWord(const ParseToken& token) {
+  if (token.IsIdentifier()) return true;
+  if (!token.IsKeyword()) return false;
+  absl::string_view image = token.GetImage();
+  return !image.empty() && std::all_of(image.begin(), image.end(), [](char c) {
+    return absl::ascii_isalnum(c) || c == '_';
+  });
+}
+
+std::string TypeName(const googlesql::Type* type) {
+  return type->TypeName(googlesql::PRODUCT_EXTERNAL);
+}
+
+// Where the cursor is, read from the tokens around it.
+struct Place {
+  Span statement;
+  // The word being typed, which a candidate replaces; empty at a word's start.
+  Span replace;
+  // `a.b` in `a.b.<cursor>`, whose type names what can follow the dot.
+  std::optional<Span> member_of;
+  // The tokens of that prefix, for a table name being typed after FROM.
+  std::vector<std::string> path;
+  bool after_from = false;
+  // Inside a string or a comment, where nothing is completed.
+  bool quiet = false;
+};
+
+absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
+                             const googlesql::LanguageOptions& language) {
+  googlesql::ParseTokenOptions options;
+  options.include_comments = true;
+  options.language_options = language;
+  auto resume = googlesql::ParseResumeLocation::FromStringView(text);
+  std::vector<ParseToken> all;
+  absl::Status status = googlesql::GetParseTokens(options, &resume, &all);
+  if (!status.ok()) return status;
+
+  Place place;
+  place.statement = {0, text.size()};
+  std::vector<const ParseToken*> tokens;
+  for (const ParseToken& token : all) {
+    if (token.IsEndOfInput()) break;
+    if ((token.IsComment() || token.IsValue()) && Start(token) < cursor &&
+        cursor < End(token)) {
+      place.quiet = true;
+    }
+    if (Is(token, ";")) {
+      if (End(token) <= cursor) {
+        place.statement.start = End(token);
+        tokens.clear();
+      } else if (place.statement.end == text.size()) {
+        place.statement.end = Start(token);
+      }
+      continue;
+    }
+    if (token.IsComment() || Start(token) >= place.statement.end) continue;
+    tokens.push_back(&token);
+  }
+  if (place.quiet) return place;
+
+  // Tokens up to the cursor, the word it is in included.
+  int last = -1;
+  for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
+    if (Start(*tokens[i]) < cursor) last = i;
+  }
+  place.replace = {cursor, cursor};
+  int before = last;
+  if (last >= 0 && IsWord(*tokens[last]) && cursor <= End(*tokens[last])) {
+    place.replace = {Start(*tokens[last]), End(*tokens[last])};
+    before = last - 1;
+  }
+
+  // `ident . ident . <word>`, read backwards while each piece touches the next.
+  size_t edge = place.replace.start;
+  while (before >= 1 && Is(*tokens[before], ".") && End(*tokens[before]) == edge &&
+         tokens[before - 1]->IsIdentifier() &&
+         End(*tokens[before - 1]) == Start(*tokens[before])) {
+    edge = Start(*tokens[before - 1]);
+    before -= 2;
+  }
+  if (edge != place.replace.start) {
+    // The prefix runs from the first identifier to the last dot.
+    size_t last_dot = place.replace.start - 1;
+    place.member_of = Span{edge, last_dot};
+    for (int i = before + 1; i < static_cast<int>(tokens.size()) &&
+                             Start(*tokens[i]) < last_dot;
+         ++i) {
+      if (!tokens[i]->IsIdentifier()) continue;
+      for (absl::string_view part : absl::StrSplit(tokens[i]->GetIdentifier(), '.')) {
+        place.path.emplace_back(part);
+      }
+    }
+  }
+  if (before >= 0 && (Is(*tokens[before], "FROM") || Is(*tokens[before], "JOIN"))) {
+    place.after_from = true;
+  }
+  return place;
+}
+
+// The probes tried in turn. An undeclared parameter takes its type from an
+// operand beside it but not from a clause or a function signature, so after
+// the probe that adapts come ones of each type a clause or an argument most
+// often wants. Each attempt costs about a millisecond.
+struct Probe {
+  std::string (*make)(const std::string& finder);
+  const char* expected_type;
+};
+
+std::string Adapting(const std::string& finder) {
+  return "IF(" + finder + " IS NULL, @__any__, @__any__)";
+}
+std::string Condition(const std::string& finder) {
+  return "(" + finder + " IS NULL)";
+}
+template <const char* kType>
+std::string Typed(const std::string& finder) {
+  return absl::StrCat("IF(", finder, " IS NULL, CAST(NULL AS ", kType,
+                      "), CAST(NULL AS ", kType, "))");
+}
+constexpr char kTimestamp[] = "TIMESTAMP";
+constexpr char kDate[] = "DATE";
+constexpr char kString[] = "STRING";
+constexpr char kFloat[] = "FLOAT64";
+
+constexpr Probe kProbes[] = {
+    {&Adapting, nullptr},
+    {&Condition, "BOOL"},
+    {&Typed<kTimestamp>, kTimestamp},
+    {&Typed<kDate>, kDate},
+    {&Typed<kString>, kString},
+    {&Typed<kFloat>, kFloat},
+};
+
+bool FindPath(const ResolvedNode* node, std::vector<const ResolvedNode*>& path) {
+  path.push_back(node);
+  if (node->node_kind() == googlesql::RESOLVED_PARAMETER &&
+      node->GetAs<googlesql::ResolvedParameter>()->name() == kCursor) {
+    return true;
+  }
+  std::vector<const ResolvedNode*> children;
+  node->GetChildNodes(&children);
+  for (const ResolvedNode* child : children) {
+    if (FindPath(child, path)) return true;
+  }
+  path.pop_back();
+  return false;
+}
+
+std::string LastPart(absl::string_view name) {
+  size_t dot = name.rfind('.');
+  return std::string(dot == absl::string_view::npos ? name : name.substr(dot + 1));
+}
+
+// The names a scan brings into scope and which of them qualify which columns.
+// A subquery's scans sit under an expression and are not in scope outside it.
+struct Names {
+  std::set<std::string> range_variables;
+  std::map<int, std::string> qualifier;
+  std::set<int> elements;
+};
+
+void CollectNames(const ResolvedNode* node, Names* names) {
+  switch (node->node_kind()) {
+    case googlesql::RESOLVED_TABLE_SCAN: {
+      const auto* scan = node->GetAs<googlesql::ResolvedTableScan>();
+      std::string name =
+          scan->alias().empty() ? LastPart(scan->table()->Name()) : scan->alias();
+      names->range_variables.insert(name);
+      for (const auto& column : scan->column_list()) {
+        names->qualifier[column.column_id()] = name;
+      }
+      break;
+    }
+    case googlesql::RESOLVED_WITH_REF_SCAN: {
+      const auto* scan = node->GetAs<googlesql::ResolvedWithRefScan>();
+      names->range_variables.insert(scan->with_query_name());
+      for (const auto& column : scan->column_list()) {
+        names->qualifier[column.column_id()] = scan->with_query_name();
+      }
+      break;
+    }
+    case googlesql::RESOLVED_ARRAY_SCAN: {
+      // `UNNEST(x) AS i` makes `i` a name of its own rather than a column.
+      for (const auto& column :
+           node->GetAs<googlesql::ResolvedArrayScan>()->element_column_list()) {
+        names->range_variables.insert(column.name());
+        names->elements.insert(column.column_id());
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  if (node->IsExpression()) return;
+  std::vector<const ResolvedNode*> children;
+  node->GetChildNodes(&children);
+  for (const ResolvedNode* child : children) CollectNames(child, names);
+}
+
+// Every scan above the cursor, innermost first: what the scan reads is what an
+// expression in it can name, and a subquery can name what its outer query
+// reads as well.
+json Scopes(const ResolvedNode* statement) {
+  std::vector<const ResolvedNode*> path;
+  json scopes = json::array();
+  if (!FindPath(statement, path)) return scopes;
+  std::set<int> seen;
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    if (!(*it)->IsScan()) continue;
+    std::vector<const ResolvedNode*> children;
+    (*it)->GetChildNodes(&children);
+    Names names;
+    json columns = json::array();
+    for (const ResolvedNode* child : children) {
+      if (child->IsScan()) CollectNames(child, &names);
+    }
+    for (const ResolvedNode* child : children) {
+      if (!child->IsScan()) continue;
+      for (const auto& column : child->GetAs<googlesql::ResolvedScan>()->column_list()) {
+        // `$col1` and its like are the analyzer's names, not the reader's.
+        if (absl::StartsWith(column.name(), "$")) continue;
+        if (names.elements.contains(column.column_id())) continue;
+        if (!seen.insert(column.column_id()).second) continue;
+        json entry = {{"name", column.name()}, {"type", TypeName(column.type())}};
+        auto qualifier = names.qualifier.find(column.column_id());
+        if (qualifier != names.qualifier.end()) {
+          entry["qualifier"] = qualifier->second;
+        }
+        columns.push_back(std::move(entry));
+      }
+    }
+    if (columns.empty() && names.range_variables.empty()) continue;
+    scopes.push_back({{"columns", std::move(columns)},
+                      {"range_variables", names.range_variables}});
+  }
+  return scopes;
+}
+
+TablePath ReadPath(const json& value) {
+  if (!value.is_array() || value.size() != 3) {
+    throw InvalidParams("a table path is [project, dataset, table]");
+  }
+  return {value[0].get<std::string>(), value[1].get<std::string>(),
+          value[2].get<std::string>()};
+}
+
+json Replace(const Span& span) { return {{"start", span.start}, {"end", span.end}}; }
+
+}  // namespace
+
+Analyzer::Analyzer() : builtins_("builtins") {
+  language_.EnableMaximumLanguageFeatures();
+  language_.SetSupportsAllStatementKinds();
+  language_.set_product_mode(googlesql::PRODUCT_EXTERNAL);
+  options_ = googlesql::AnalyzerOptions(language_);
+  options_.set_allow_undeclared_parameters(true);
+  builtins_.AddBuiltinFunctions(googlesql::BuiltinFunctionOptions(language_));
+}
+
+json Analyzer::Complete(const json& params) {
+  const std::string text = params.at("text").get<std::string>();
+  const size_t cursor = params.at("cursor").get<size_t>();
+  if (cursor > text.size()) throw InvalidParams("the cursor is past the text");
+  const std::string default_project = params.value("default_project", "");
+  const json catalog = params.value("catalog", json::object());
+
+  absl::StatusOr<Place> located = Locate(text, cursor, language_);
+  if (!located.ok()) return {{"unresolved", located.status().message()}};
+  const Place& place = *located;
+  if (place.quiet) return {{"context", "none"}};
+  if (place.after_from) {
+    return {{"context", "table"}, {"replace", Replace(place.replace)},
+            {"path", place.path}};
+  }
+
+  // The statement with the word under the cursor, and the prefix before it,
+  // cut out: probes go where they were.
+  const Span cut = {place.member_of ? place.member_of->start : place.replace.start,
+                    place.replace.end};
+  const std::string head =
+      text.substr(place.statement.start, cut.start - place.statement.start);
+  const std::string tail = text.substr(cut.end, place.statement.end - cut.end);
+  const std::string finder =
+      place.member_of
+          ? absl::StrCat("IF(FALSE, ",
+                         text.substr(place.member_of->start,
+                                     place.member_of->end - place.member_of->start),
+                         ", @", kCursor, ")")
+          : absl::StrCat("@", kCursor);
+
+  // Which tables the statement names is read from it with a probe in place,
+  // since the half-typed statement does not parse.
+  std::set<TablePath> known, absent;
+  for (const json& table : catalog.value("tables", json::array())) {
+    known.insert(ReadPath(table.at("path")));
+  }
+  for (const json& path : catalog.value("absent", json::array())) {
+    absent.insert(ReadPath(path));
+  }
+  googlesql::TableNamesSet names;
+  absl::Status extracted = googlesql::ExtractTableNamesFromStatement(
+      head + kProbes[0].make(finder) + tail, options_, &names);
+  if (!extracted.ok()) return {{"unresolved", extracted.message()}};
+  std::set<TablePath> needs;
+  for (const auto& name : names) {
+    std::optional<TablePath> path = Resolve(name, default_project);
+    if (path && !known.contains(*path) && !absent.contains(*path)) {
+      needs.insert(*path);
+    }
+  }
+  if (!needs.empty()) return {{"needs", needs}};
+
+  googlesql::TypeFactory types;
+  TablesCatalog tables(default_project);
+  for (const json& table : catalog.value("tables", json::array())) {
+    const TablePath path = ReadPath(table.at("path"));
+    std::vector<googlesql::SimpleTable::NameAndType> columns;
+    for (const json& column : table.at("columns")) {
+      const std::string name = column.at("name").get<std::string>();
+      const std::string type_name = column.at("type").get<std::string>();
+      const googlesql::Type* type = nullptr;
+      absl::Status parsed =
+          googlesql::AnalyzeType(type_name, options_, &builtins_, &types, &type);
+      if (!parsed.ok()) {
+        throw InvalidParams(absl::StrCat("column ", name, " has type ", type_name,
+                                         ": ", parsed.message()));
+      }
+      columns.emplace_back(name, type);
+    }
+    tables.Add(path, std::make_unique<googlesql::SimpleTable>(
+                         absl::StrJoin(path, "."), columns));
+  }
+  std::unique_ptr<googlesql::MultiCatalog> root;
+  absl::Status created =
+      googlesql::MultiCatalog::Create("request", {&tables, &builtins_}, &root);
+  if (!created.ok()) throw std::runtime_error(std::string(created.message()));
+
+  std::unique_ptr<const googlesql::AnalyzerOutput> output;
+  absl::Status first;
+  const Probe* fitted = nullptr;
+  for (const Probe& probe : kProbes) {
+    absl::Status status = googlesql::AnalyzeStatement(
+        head + probe.make(finder) + tail, options_, root.get(), &types, &output);
+    if (status.ok()) {
+      fitted = &probe;
+      break;
+    }
+    if (first.ok()) first = status;
+  }
+  // The first probe's complaint is about the statement; later ones are about
+  // the probe not being the type the place wanted.
+  if (fitted == nullptr) return {{"unresolved", first.message()}};
+
+  json answer = {{"replace", Replace(place.replace)},
+                 {"expected_type", fitted->expected_type
+                                       ? json(fitted->expected_type)
+                                       : json(nullptr)}};
+  if (place.member_of) {
+    const googlesql::Type* type = output->undeclared_parameters().at(kCursor);
+    json fields = json::array();
+    if (type->IsStruct()) {
+      for (const auto& field : type->AsStruct()->fields()) {
+        fields.push_back({{"name", field.name}, {"type", TypeName(field.type)}});
+      }
+    }
+    answer["context"] = "member";
+    answer["fields"] = std::move(fields);
+  } else {
+    answer["context"] = "name";
+    answer["scopes"] = Scopes(output->resolved_statement());
+  }
+  return answer;
+}
+
+}  // namespace datalooker

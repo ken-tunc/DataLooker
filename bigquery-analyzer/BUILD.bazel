@@ -1,0 +1,47 @@
+cc_library(
+    name = "analyzer",
+    srcs = [
+        "catalog.cc",
+        "complete.cc",
+    ],
+    hdrs = [
+        "catalog.h",
+        "complete.h",
+    ],
+    deps = [
+        "@absl//absl/status",
+        "@absl//absl/status:statusor",
+        "@absl//absl/strings",
+        "@absl//absl/types:span",
+        "@googlesql//googlesql/public:analyzer",
+        "@googlesql//googlesql/public:analyzer_output",
+        "@googlesql//googlesql/public:catalog",
+        "@googlesql//googlesql/public:language_options",
+        "@googlesql//googlesql/public:multi_catalog",
+        "@googlesql//googlesql/public:parse_helpers",
+        "@googlesql//googlesql/public:simple_catalog",
+        "@googlesql//googlesql/public:type",
+        "@googlesql//googlesql/resolved_ast",
+        "@json",
+    ],
+)
+
+cc_binary(
+    name = "datalooker-bigquery-analyzer",
+    srcs = ["main.cc"],
+    deps = [
+        ":analyzer",
+        "@absl//absl/strings",
+        "@json",
+    ],
+)
+
+cc_test(
+    name = "complete_test",
+    srcs = ["complete_test.cc"],
+    deps = [
+        ":analyzer",
+        "@googletest//:gtest_main",
+        "@json",
+    ],
+)

@@ -1,0 +1,28 @@
+# GoogleSQL is C++20 and warns in ways clang treats as errors unless told not
+# to; these are the flags its own .bazelrc applies to itself.
+build --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
+build --cxxopt=-Wno-deprecated-declarations
+build --cxxopt=-Wno-module-import-in-extern-c
+build --cxxopt=-Wno-range-loop-analysis
+build --cxxopt=-Wno-inconsistent-missing-override
+build --cxxopt=-Wno-char-subscripts
+build --cxxopt=-Wno-enum-compare-switch
+build --cxxopt=-Wno-defaulted-function-deleted
+build --cxxopt=-Wno-unused-private-field
+build --cxxopt=-Wno-return-std-move
+build --cxxopt=-Wno-reorder-ctor
+build --cxxopt=-Wno-unused-const-variable
+build --cxxopt=-Wno-unused-function
+build --cxxopt=-Wno-macro-redefined
+build --cxxopt=-Wno-unused-command-line-argument
+
+# GoogleSQL sets its macOS floor under `build:darwin`, a config Bazel never
+# selects on a Mac, so abseil's aligned allocation fails to compile without
+# this.
+build --macos_minimum_os=11.0 --host_macos_minimum_os=11.0
+
+# No bazel-* links in the tree: they point into a cache many gigabytes deep,
+# and the formatter and linter walking the repository would follow them.
+build --symlink_prefix=/
+
+test --test_output=errors
