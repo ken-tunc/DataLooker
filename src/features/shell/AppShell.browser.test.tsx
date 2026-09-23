@@ -217,6 +217,7 @@ describe("AppShell", () => {
     await screen.getByRole("button", { name: "Local", exact: true }).click();
 
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+    await expect.element(screen.getByText("2", { exact: true })).toBeVisible();
   });
 
   it("asks before closing a tab that holds unsaved changes", async () => {
@@ -227,13 +228,14 @@ describe("AppShell", () => {
 
     await people.click();
     await userEvent.keyboard("{Delete}");
-    await screen.getByRole("dialog").getByRole("button", { name: "Keep editing" }).click();
+    const asking = screen.getByRole("dialog", { name: "Close shop.people?" });
+    await asking.getByRole("button", { name: "Keep editing" }).click();
     expect(titles()).toEqual(["Query 1", "shop.people"]);
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
 
     await people.click();
     await userEvent.keyboard("{Delete}");
-    await screen.getByRole("dialog").getByRole("button", { name: "Discard changes" }).click();
+    await asking.getByRole("button", { name: "Discard changes" }).click();
     await expect.poll(titles).toEqual(["Query 1"]);
   });
 
