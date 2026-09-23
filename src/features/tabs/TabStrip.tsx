@@ -1,6 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef } from "react";
-import type { TabsState } from "./tabs";
+import type { Tab, TabsState } from "./tabs";
 
 type Props = {
   state: TabsState;
@@ -8,6 +8,8 @@ type Props = {
   onClose: (id: string) => void;
   onOpen: () => void;
 };
+
+const unsaved = (tab: Tab) => tab.kind === "table" && tab.unsaved;
 
 /** The tabs are siblings in the strip, in the order they are rendered. */
 function focusTabAt(sibling: HTMLElement, index: number): void {
@@ -78,11 +80,15 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
           role="tab"
           tabIndex={tab.id === state.activeId ? 0 : -1}
           aria-selected={tab.id === state.activeId}
+          aria-label={unsaved(tab) ? `${tab.title}, unsaved changes` : undefined}
           className={`tab gap-2 ${tab.id === state.activeId ? "tab-active" : ""}`}
           onClick={() => onActivate(tab.id)}
           onKeyDown={(event) => onTabKeyDown(event, tab.id)}
         >
           {tab.title}
+          {unsaved(tab) && (
+            <span aria-hidden="true" title="Unsaved changes" className="status status-warning" />
+          )}
           <span
             aria-hidden="true"
             title={`Close ${tab.title} (Delete)`}

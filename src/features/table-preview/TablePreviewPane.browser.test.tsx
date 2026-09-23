@@ -15,6 +15,7 @@ const tab: TableTab = {
   sort: null,
   page: 0,
   shows: "rows",
+  unsaved: false,
 };
 
 const shape = {
@@ -63,7 +64,13 @@ async function preview(
   });
   const onView = vi.fn();
   const screen = await renderApp(
-    <TablePreviewPane connectionId="c1" tab={{ ...tab, shows }} hidden={false} onView={onView} />,
+    <TablePreviewPane
+      connectionId="c1"
+      tab={{ ...tab, shows }}
+      hidden={false}
+      onView={onView}
+      onUnsaved={() => {}}
+    />,
   );
 
   /** A cell is opened for editing by double-clicking it, as in the app. */

@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
 import { formatCell } from "../query/cell";
@@ -30,9 +30,11 @@ type Props = {
   tab: TableTab;
   hidden: boolean;
   onView: (view: Partial<TableView>) => void;
+  /** Told whenever the pane comes to hold unsaved edits, or stops holding any. */
+  onUnsaved: (unsaved: boolean) => void;
 };
 
-export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
+export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved }: Props) {
   // The rows keep their state while the structure is read — a pending edit is
   // still pending, and the page is still the page the reader was on — but
   // nothing asks the server for them: one connection serves a connection's
@@ -64,6 +66,12 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
   const editingPage =
     editable && page !== undefined && page.versions.length === page.result.rows.length;
   const pending = editCount(edits);
+  const unsaved = pending > 0;
+  // The edits stay the pane's; whoever closes the tab only has to know that
+  // there are some. Only a change is worth telling, and the callback is a new
+  // function every render.
+  // eslint-disable-next-line react/exhaustive-deps
+  useEffect(() => onUnsaved(unsaved), [unsaved]);
 
   // New rows sit above the table's own, so a row index below their count is a
   // draft and the rest are the page's, shifted by it.

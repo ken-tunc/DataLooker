@@ -178,6 +178,11 @@ reader has a transaction open there it is refused rather than run: its own COMMI
 ROLLBACK would end the reader's transaction too, and sqlx cannot see a `BEGIN` it did not
 send, so the server is asked.
 
+Pending edits are the table pane's own state, and a pane is never unmounted while its tab
+is open: a hidden tab stays mounted, and so does the workspace of a connection that is not
+in front. The tab knows only that there are unsaved edits, which is what the strip needs
+to mark it and to ask before closing it.
+
 ## A table's structure
 
 PostgreSQL has no `SHOW CREATE TABLE`. What it does offer is `pg_get_*def` for the pieces
