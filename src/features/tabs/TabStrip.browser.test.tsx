@@ -38,8 +38,7 @@ async function strip(count = 3) {
       '[role="tablist"][aria-label="Open tabs"] [role="tab"]',
     ),
   ];
-  /** A tab's title, which is its text before the ✕ the mouse is offered. */
-  const titleOf = (tab: Element | null | undefined) => tab?.textContent?.replace("✕", "").trim();
+  const titleOf = (tab: Element | null | undefined) => tab?.textContent?.trim();
   return {
     screen,
     tabs,
@@ -109,7 +108,7 @@ describe("TabStrip", () => {
     await expect.poll(focused).toBe("Query 3");
   });
 
-  it("closes a tab the mouse clicks the ✕ of without bringing it forward", async () => {
+  it("closes a tab the mouse clicks the close mark of without bringing it forward", async () => {
     const { screen, titles, selected } = await strip();
 
     await screen.getByTitle("Close Query 3 (Delete)").click();

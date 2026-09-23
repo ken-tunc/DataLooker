@@ -41,7 +41,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
       }
       footer={(matches) =>
         matches.length === MATCH_LIMIT && (
-          <p className="text-base-content/50 px-2 text-xs">
+          <p className="text-base-content/40 px-2 text-xs">
             The first {MATCH_LIMIT} matches. Type more to narrow them.
           </p>
         )
@@ -60,7 +60,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
               ),
             )}
           </span>
-          <span className="text-base-content/50 shrink-0 text-xs">{KIND_LABELS[match.kind]}</span>
+          <span className="text-base-content/40 shrink-0 text-xs">{KIND_LABELS[match.kind]}</span>
         </>
       )}
     </Palette>

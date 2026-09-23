@@ -53,12 +53,12 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
             {entry.error ? (
               <span className="text-error">failed</span>
             ) : (
-              <span className="text-base-content/50">
+              <span className="text-base-content/40">
                 {entry.row_count} {entry.row_count === 1 ? "row" : "rows"}
               </span>
             )}
           </span>
-          <span className="text-base-content/50 shrink-0 text-xs">{ranAt(entry)}</span>
+          <span className="text-base-content/40 shrink-0 text-xs">{ranAt(entry)}</span>
         </>
       )}
     </Palette>

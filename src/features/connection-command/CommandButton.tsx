@@ -1,3 +1,4 @@
+import { ArrowLeftRight, Square } from "lucide-react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
@@ -40,7 +41,13 @@ export function CommandButton({
       aria-label={`${action} the command for ${connection.label}`}
       onClick={toggle}
     >
-      {pending ? <span className="loading loading-spinner loading-xs" /> : isRunning ? "■" : "⇄"}
+      {pending ? (
+        <span className="loading loading-spinner loading-xs" />
+      ) : isRunning ? (
+        <Square className="size-3.5 fill-current" />
+      ) : (
+        <ArrowLeftRight className="size-4" />
+      )}
     </button>
   );
 }

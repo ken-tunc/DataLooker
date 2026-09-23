@@ -98,7 +98,7 @@ export function QueryTabPane({
         />
       </div>
 
-      <div className="border-base-300 h-56 shrink-0 overflow-hidden rounded-box border">
+      <div className="hairline h-56 shrink-0 overflow-hidden rounded-box border">
         <Suspense fallback={<div className="skeleton h-full w-full" />}>
           <SqlEditor
             connectionId={connectionId}
@@ -115,7 +115,7 @@ export function QueryTabPane({
         {run.isSuccess && run.data.columns.length > 0 ? (
           <ResultGrid result={run.data} />
         ) : (
-          <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
+          <div className="hairline text-base-content/40 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
             {run.isSuccess ? "The statement returned no rows." : "Run a query to see its rows."}
           </div>
         )}

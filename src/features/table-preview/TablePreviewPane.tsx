@@ -309,7 +309,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
                 editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
               />
             ) : (
-              <div className="border-base-300 text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
+              <div className="hairline text-base-content/40 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
                 {preview.isPending ? "Reading the table…" : "No rows match."}
               </div>
             )}

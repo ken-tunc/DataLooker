@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ChevronRight, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { describeError } from "../../lib/invoke";
 import { useColumnsOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
@@ -46,7 +47,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf) : [];
 
   return (
-    <section className="border-base-300 flex w-72 shrink-0 flex-col border-r">
+    <section className="hairline flex w-72 shrink-0 flex-col border-r">
       <div className="flex items-center gap-1 p-2">
         <input
           className="input input-sm grow"
@@ -56,12 +57,16 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
         />
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm btn-square"
           aria-label="Reload the schema"
           disabled={tree.isFetching}
           onClick={() => void refresh()}
         >
-          {tree.isFetching ? <span className="loading loading-spinner loading-xs" /> : "↻"}
+          {tree.isFetching ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <RotateCw className="size-4" />
+          )}
         </button>
       </div>
 
@@ -143,7 +148,7 @@ function Row({
 
   if (row.kind === "note") {
     return (
-      <span className={`text-base-content/50 truncate py-0.5 pr-2 text-xs ${indent}`}>
+      <span className={`text-base-content/40 truncate py-0.5 pr-2 text-xs ${indent}`}>
         {row.text}
       </span>
     );
@@ -153,7 +158,7 @@ function Row({
     return (
       <span className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}>
         <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 truncate text-xs">
+        <span className="text-base-content/40 truncate text-xs">
           {row.dataType}
           {row.nullable ? "" : " not null"}
         </span>
@@ -179,7 +184,7 @@ function Row({
       >
         <Chevron expanded={row.expanded} />
         <span className="truncate">{name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">{beside}</span>
+        <span className="text-base-content/40 shrink-0 text-xs">{beside}</span>
       </button>
     );
   }
@@ -192,7 +197,7 @@ function Row({
         type="button"
         aria-expanded={row.expanded}
         aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`}
-        className="cursor-pointer"
+        className="flex cursor-pointer self-center"
         onClick={() => onToggle(row.id)}
       >
         <Chevron expanded={row.expanded} />
@@ -204,14 +209,18 @@ function Row({
         onClick={() => onOpenTable(row.schema, row.name)}
       >
         <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
+        <span className="text-base-content/40 shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
       </button>
     </span>
   );
 }
 
 function Chevron({ expanded }: { expanded: boolean }) {
-  return <span className="text-base-content/40 w-3 shrink-0 text-xs">{expanded ? "▾" : "▸"}</span>;
+  return (
+    <ChevronRight
+      className={`text-base-content/40 size-3.5 shrink-0 self-center transition-transform ${expanded ? "rotate-90" : ""}`}
+    />
+  );
 }
 
 function Skeleton() {

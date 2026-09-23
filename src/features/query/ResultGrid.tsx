@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
@@ -112,7 +113,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
     // inside every cell.
     <div
       ref={setScroller}
-      className="border-base-300 h-full overflow-auto rounded-box border font-mono text-sm outline-none"
+      className="hairline h-full overflow-auto rounded-box border font-mono text-sm outline-none"
       tabIndex={0}
       role="grid"
       onKeyDown={move}
@@ -245,7 +246,12 @@ function HeaderLabel({
   const label = (
     <>
       {column.name}
-      {sorted && <span className="ml-1">{sorted.descending ? "▾" : "▴"}</span>}
+      {sorted &&
+        (sorted.descending ? (
+          <ArrowDown className="ml-1 inline size-3.5" />
+        ) : (
+          <ArrowUp className="ml-1 inline size-3.5" />
+        ))}
       <span className="text-base-content/40 ml-2 font-normal lowercase">{column.type_name}</span>
     </>
   );

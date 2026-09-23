@@ -18,7 +18,7 @@ export function Workspace({ connectionId, tabs, onFindTable }: Props) {
 
   return (
     <>
-      <div className="border-base-300 flex border-b">
+      <div className="hairline flex border-b">
         <ConnectionName connectionId={connectionId} />
         <TabStrip
           state={state}

@@ -1,3 +1,4 @@
+import { Plus, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef } from "react";
 import type { TabsState } from "./tabs";
 
@@ -71,7 +72,7 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
       {state.tabs.map((tab) => (
         // Only the active tab is in the tab order; the arrows move between
         // them, and Delete closes the one in focus — ARIA makes whatever sits
-        // inside a tab presentational, so the ✕ is for the mouse alone.
+        // inside a tab presentational, so the close mark is for the mouse alone.
         <div
           key={tab.id}
           role="tab"
@@ -85,23 +86,23 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
           <span
             aria-hidden="true"
             title={`Close ${tab.title} (Delete)`}
-            className="cursor-pointer opacity-40 hover:opacity-100"
+            className="cursor-pointer rounded opacity-40 hover:opacity-100"
             onClick={(event) => {
               event.stopPropagation();
               onClose(tab.id);
             }}
           >
-            ✕
+            <X className="size-3.5" />
           </span>
         </div>
       ))}
       <button
         type="button"
-        className="btn btn-ghost btn-xs ml-1 self-center"
+        className="btn btn-ghost btn-xs btn-square ml-1 self-center"
         aria-label="New query tab"
         onClick={onOpen}
       >
-        +
+        <Plus className="size-4" />
       </button>
     </div>
   );

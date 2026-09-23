@@ -1,3 +1,4 @@
+import { Ellipsis } from "lucide-react";
 import { useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
@@ -53,7 +54,7 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
   // Wide enough for a label beside the buttons the row carries: a name
   // truncated to make room for them says less than the room is worth.
   return (
-    <aside className="border-base-300 bg-base-200 flex w-72 shrink-0 flex-col border-r">
+    <aside className="hairline bg-base-200 flex w-72 shrink-0 flex-col border-r">
       <header className="flex items-center justify-between p-3">
         <h1 className="font-semibold">Connections</h1>
         <button
@@ -113,10 +114,10 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
                 )}
                 <details className="dropdown dropdown-end shrink-0">
                   <summary
-                    className="btn btn-ghost btn-xs"
+                    className="btn btn-ghost btn-xs btn-square"
                     aria-label={`${connection.label} actions`}
                   >
-                    ⋯
+                    <Ellipsis className="size-4" />
                   </summary>
                   <ul className="dropdown-content menu bg-base-100 rounded-box z-10 w-40 p-2 shadow-sm">
                     <li>
@@ -163,7 +164,7 @@ export function ConnectionSidebar({ selectedId, onSelect, onRemoved }: Props) {
         </ul>
       </div>
 
-      <footer className="border-base-300 flex items-center justify-end border-t p-2">
+      <footer className="hairline flex items-center justify-end border-t p-2">
         <AgentAccess />
       </footer>
 

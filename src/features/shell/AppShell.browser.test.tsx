@@ -60,13 +60,12 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
   const strip = '[role="tablist"][aria-label="Open tabs"]';
   const titles = () =>
     [...document.querySelectorAll<HTMLElement>(`${strip} [role="tab"]`)].map((tab) =>
-      tab.textContent?.replace("✕", "").trim(),
+      tab.textContent?.trim(),
     );
   const selected = () =>
     document
       .querySelector<HTMLElement>(`${strip} [role="tab"][aria-selected="true"]`)
-      ?.textContent?.replace("✕", "")
-      .trim();
+      ?.textContent.trim();
   const open = async (label: string) => {
     await screen.getByText(label, { exact: true }).click();
     await expect.poll(titles).toEqual(["Query 1"]);

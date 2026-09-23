@@ -42,7 +42,7 @@ function List({ title, items, empty }: { title: string; items: NamedDefinition[]
     <section className="flex flex-col gap-2">
       <h2 className="text-base-content/60 text-xs font-medium tracking-wide uppercase">{title}</h2>
       {items.length === 0 ? (
-        <p className="text-base-content/50 text-sm">{empty}</p>
+        <p className="text-base-content/40 text-sm">{empty}</p>
       ) : (
         items.map((item) => <SqlText key={item.name}>{`${item.definition};`}</SqlText>)
       )}
