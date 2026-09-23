@@ -49,7 +49,12 @@ function AgentAccessDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <dialog ref={dialog} className="modal" aria-labelledby="agents-title" onClose={onClose}>
+    <dialog
+      ref={dialog}
+      className="modal backdrop-blur-sm"
+      aria-labelledby="agents-title"
+      onClose={onClose}
+    >
       <div className="modal-box">
         <h3 id="agents-title" className="text-lg font-semibold">
           Agents

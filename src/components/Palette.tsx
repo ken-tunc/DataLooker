@@ -99,12 +99,19 @@ export function Palette<T>({
   }
 
   return (
-    <dialog ref={dialog} className="modal items-start" aria-label={label} onClose={onClose}>
+    <dialog
+      ref={dialog}
+      className="modal items-start backdrop-blur-sm"
+      aria-label={label}
+      onClose={onClose}
+    >
       <div className="modal-box mt-24 flex max-h-96 w-full max-w-xl flex-col gap-2 p-2">
         <input
           // `showModal` moves the focus here on its own: this is the first
-          // focusable element in the dialog.
-          className="input input-sm w-full"
+          // focusable element in the dialog. It never loses the focus either,
+          // so its ring is kept faint rather than the full-strength one a
+          // form draws to say which field is in use.
+          className="input input-ghost focus-within:outline-base-content/20 w-full text-base"
           role="combobox"
           aria-expanded
           aria-controls={listId}
@@ -156,6 +163,18 @@ export function Palette<T>({
         </ul>
 
         {footer?.(items)}
+
+        <p className="text-base-content/60 hairline flex items-center gap-3 border-t px-2 pt-2 text-xs">
+          <span>
+            <kbd className="kbd kbd-xs">↑</kbd> <kbd className="kbd kbd-xs">↓</kbd> move
+          </span>
+          <span>
+            <kbd className="kbd kbd-xs">↵</kbd> open
+          </span>
+          <span>
+            <kbd className="kbd kbd-xs">esc</kbd> close
+          </span>
+        </p>
       </div>
       <form method="dialog" className="modal-backdrop">
         {/* The backdrop is there to be clicked. Tabbing to it would move the

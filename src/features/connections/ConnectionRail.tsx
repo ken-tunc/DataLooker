@@ -26,11 +26,12 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
   // rail is the one part of the window that is always there to hear it.
   useCommandExits();
 
-  // Wide enough for the window's own buttons, which sit over its top.
+  // Wide enough for the window's own buttons, which sit over its top, with
+  // room to spare beside them.
   return (
     <nav
       aria-label="Connections"
-      className="hairline bg-base-200/60 flex w-20 shrink-0 flex-col items-center border-r"
+      className="hairline bg-base-200/60 flex w-24 shrink-0 flex-col items-center border-r"
     >
       <div data-tauri-drag-region className="h-12 w-full shrink-0" />
 
@@ -118,7 +119,7 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       onClick={onSelect}
     >
       <div className={`avatar avatar-placeholder ${running ? "avatar-online" : ""}`}>
-        <div className="bg-neutral text-neutral-content rounded-field w-9">
+        <div className="bg-base-content/10 rounded-field w-9">
           <span className="text-xs font-semibold">{initials(connection.label)}</span>
         </div>
       </div>

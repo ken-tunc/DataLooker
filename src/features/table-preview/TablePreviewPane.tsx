@@ -184,7 +184,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
           {tab.schema}.{tab.table}
         </span>
 
-        <div role="tablist" className="tabs tabs-box tabs-xs">
+        <div role="tablist" className="tabs tabs-box tabs-xs shrink-0">
           {(["rows", "structure"] as const).map((shows) => (
             <button
               key={shows}
@@ -210,7 +210,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
             />
-            <button type="submit" className="btn btn-sm">
+            <button type="submit" className="btn btn-sm btn-soft">
               Filter
             </button>
           </form>
@@ -219,7 +219,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
           <>
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn btn-sm btn-soft"
               disabled={commit.isPending}
               onClick={() => setEdits((current) => withNewRow(current, crypto.randomUUID()))}
             >
@@ -227,7 +227,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
             </button>
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn btn-sm btn-soft"
               disabled={commit.isPending || !stillShown()}
               onClick={toggleDelete}
             >
@@ -241,7 +241,10 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       </div>
 
       {pending > 0 && (
-        <div className="bg-warning/15 flex items-center gap-2 rounded-box px-3 py-2 text-sm">
+        <div
+          role="status"
+          className="alert alert-soft alert-warning flex items-center gap-2 py-2 text-sm"
+        >
           <span className="grow">
             {pending} unsaved {pending === 1 ? "change" : "changes"}
           </span>
@@ -266,7 +269,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       )}
 
       {commit.isError && (
-        <div role="alert" className="alert alert-error">
+        <div role="alert" className="alert alert-soft alert-error">
           <span className="text-sm">
             {describeError(commit.error, {
               Conflict:
@@ -279,7 +282,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       )}
 
       {!structure && shape.isError && (
-        <div role="alert" className="alert alert-error">
+        <div role="alert" className="alert alert-soft alert-error">
           <span className="text-sm">
             {describeError(shape.error)} — the rows can still be read, but nothing here knows how to
             name one, so they cannot be edited.
@@ -288,7 +291,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView }: Props) {
       )}
 
       {!structure && preview.isError && (
-        <div role="alert" className="alert alert-error">
+        <div role="alert" className="alert alert-soft alert-error">
           <span className="font-mono text-sm">{describeError(preview.error)}</span>
         </div>
       )}
