@@ -108,9 +108,10 @@ export function Palette<T>({
       <div className="modal-box mt-24 flex max-h-96 w-full max-w-xl flex-col gap-2 p-2">
         <input
           // `showModal` moves the focus here on its own: this is the first
-          // focusable element in the dialog. It never loses it either, so a
-          // ring round it would say nothing.
-          className="input input-ghost w-full text-base focus-within:outline-none"
+          // focusable element in the dialog. It never loses the focus either,
+          // so its ring is kept faint rather than the full-strength one a
+          // form draws to say which field is in use.
+          className="input input-ghost focus-within:outline-base-content/20 w-full text-base"
           role="combobox"
           aria-expanded
           aria-controls={listId}
