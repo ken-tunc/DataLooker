@@ -30,13 +30,22 @@ const FETCHING: Duration = Duration::from_secs(300);
 const MOST_PACKED: usize = 64 * 1024 * 1024;
 const MOST_UNPACKED: u64 = 256 * 1024 * 1024;
 
+/// Whether there is a build to fetch for this machine. There is one for Apple
+/// silicon, which is what the Release is built on.
+pub const FETCHABLE: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+/// What a machine with nothing to fetch is told to do instead.
+pub fn build_it_yourself() -> AppError {
+    AppError::Unsupported(format!(
+        "{BINARY} is published for Apple silicon only. Build it from bigquery-analyzer/ and \
+         name it in DATALOOKER_BQ_ANALYZER_BIN."
+    ))
+}
+
 /// Fetch the analyzer into `into`, answering with the binary it left there.
 pub async fn fetch(into: &Path) -> Result<PathBuf, AppError> {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        return Err(AppError::Unsupported(format!(
-            "{BINARY} is built for Apple silicon only. Build it from bigquery-analyzer/ and \
-             name it in DATALOOKER_BQ_ANALYZER_BIN."
-        )));
+    if !FETCHABLE {
+        return Err(build_it_yourself());
     }
     let packed = download(RELEASE).await?;
     install(&packed, SHA256, into)
@@ -89,7 +98,13 @@ fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppErr
 
     let written = |e: std::io::Error| AppError::Shell(format!("{}: {e}", into.display()));
     std::fs::create_dir_all(into).map_err(written)?;
-    let partial = into.join(format!("{BINARY}.partial"));
+    // Its own name for each install: two at once would otherwise write the
+    // same file, and one could empty it after the other finished writing and
+    // before it moved it into place.
+    let partial = into.join(format!(
+        "{BINARY}.{}.partial",
+        uuid::Uuid::new_v4().simple()
+    ));
     let mut file = std::fs::File::create(&partial).map_err(written)?;
     file.write_all(&unpacked).map_err(written)?;
     file.sync_all().map_err(written)?;
@@ -140,7 +155,15 @@ mod tests {
             let mode = std::fs::metadata(&binary).unwrap().permissions().mode();
             assert_eq!(mode & 0o111, 0o111, "not executable: {mode:o}");
         }
-        assert!(!into.join(format!("{BINARY}.partial")).exists());
+        let left: Vec<_> = std::fs::read_dir(&into)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            left,
+            [BINARY],
+            "something beside the binary was left behind"
+        );
         std::fs::remove_dir_all(&into).ok();
     }
 

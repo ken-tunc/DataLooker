@@ -112,6 +112,15 @@ impl App {
         };
         Ok(match found {
             Ok(()) => LanguageServerState::Ready,
+            // An analyzer this machine has no build to fetch for is the
+            // reader's to build, which the offer to install would not do.
+            Err(AppError::NotFound(_))
+                if binary == analyzer::BINARY && !analyzer::fetch::FETCHABLE =>
+            {
+                LanguageServerState::Named {
+                    message: analyzer::fetch::build_it_yourself().to_string(),
+                }
+            }
             Err(AppError::NotFound(_)) => LanguageServerState::Missing {
                 server: binary.to_string(),
                 downloaded: binary == analyzer::BINARY,
