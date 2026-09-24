@@ -101,26 +101,7 @@ fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppErr
         // Nothing will look for it again.
         let _ = std::fs::remove_file(&partial);
     }
-    let placed = placed.map_err(written)?;
-    forget_other_versions(into, &binary);
-    Ok(placed)
-}
-
-/// What another build of the app fetched is tens of megabytes nothing will
-/// run again. Failing to remove it costs only the space.
-fn forget_other_versions(into: &Path, kept: &Path) {
-    let Ok(entries) = std::fs::read_dir(into) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let helper = name == BINARY || name.starts_with(&format!("{BINARY}-"));
-        if helper && path != kept && path.is_file() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
+    placed.map_err(written)
 }
 
 fn place(content: &[u8], partial: &Path, binary: &Path) -> std::io::Result<PathBuf> {
@@ -199,24 +180,6 @@ mod tests {
 
         assert!(install(&packed, &hash, &into).is_err());
         assert_eq!(left(&into), [fetched(&into).file_name().unwrap()]);
-        std::fs::remove_dir_all(&into).ok();
-    }
-
-    #[test]
-    fn installing_removes_what_other_versions_fetched() {
-        let packed = packed(b"#!/bin/sh\n");
-        let hash = format!("{:x}", Sha256::digest(&packed));
-        let into = into();
-        std::fs::create_dir_all(&into).unwrap();
-        std::fs::write(into.join(BINARY), b"old").unwrap();
-        std::fs::write(into.join(format!("{BINARY}-0.0.1")), b"old").unwrap();
-        std::fs::write(into.join("sqls"), b"another server").unwrap();
-
-        let binary = install(&packed, &hash, &into).expect("installed");
-
-        let mut expected = vec![binary.file_name().unwrap().to_owned(), "sqls".into()];
-        expected.sort();
-        assert_eq!(left(&into), expected);
         std::fs::remove_dir_all(&into).ok();
     }
 

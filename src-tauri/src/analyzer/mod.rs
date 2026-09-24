@@ -25,6 +25,8 @@ const VERSION: &str = "0.2.0";
 /// Where the fetched helper of this version is. The version is in the name so
 /// that one fetched for another build of the app is not found, and the reader
 /// is offered this one, rather than found and refused on every keystroke.
+/// Another version's is left alone: the build it belongs to may still be
+/// running, and shares this directory.
 pub fn fetched(ours: &Path) -> PathBuf {
     ours.join(format!("{BINARY}-{VERSION}"))
 }
