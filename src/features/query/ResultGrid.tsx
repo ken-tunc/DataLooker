@@ -118,7 +118,8 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   }
 
   function move(event: KeyboardEvent<HTMLDivElement>) {
-    if (!selected) return;
+    // A cell being edited keeps its keys: spaces, the caret and copying text.
+    if (!selected || event.target !== event.currentTarget) return;
     const keys: Record<string, Cell> = {
       ArrowUp: { ...selected, row: selected.row - 1 },
       ArrowDown: { ...selected, row: selected.row + 1 },
@@ -137,7 +138,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
     if (event.key === " ") {
       event.preventDefault();
       const cell = scroller?.querySelector('[role="gridcell"][aria-selected="true"]');
-      if (peeked) closePeek();
+      if (peeked?.cell.row === selected.row && peeked.cell.column === selected.column) closePeek();
       else if (cell) showPeek(selected, cell.getBoundingClientRect());
       return;
     }

@@ -44,6 +44,7 @@ describe("ResultGrid", () => {
     const cell = screen.getByText(/^\{"customer"/);
 
     await cell.click();
+    await expect.element(screen.getByRole("grid")).toHaveFocus();
     await userEvent.keyboard(" ");
 
     const peek = screen.getByRole("tooltip");
@@ -52,6 +53,20 @@ describe("ResultGrid", () => {
 
     await userEvent.keyboard(" ");
     await expect.element(peek).not.toBeInTheDocument();
+  });
+
+  it("leaves Space to a cell being edited", async () => {
+    const screen = await renderApp(
+      <div style={{ height: 200, width: 400 }}>
+        <ResultGrid result={result} editing={{ pendingValue: () => undefined, onEdit: () => {} }} />
+      </div>,
+    );
+
+    await screen.getByText("1", { exact: true }).dblClick();
+    await userEvent.keyboard(" 2");
+
+    await expect.element(screen.getByRole("textbox", { name: "id" })).toHaveValue("1 2");
+    expect(screen.getByRole("tooltip").query()).toBeNull();
   });
 
   it("leaves a value the cell shows whole alone", async () => {
