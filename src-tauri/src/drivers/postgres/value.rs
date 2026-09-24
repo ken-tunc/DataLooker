@@ -5,6 +5,37 @@ use sqlx::{Column, Row, TypeInfo, ValueRef};
 /// Beyond this, JavaScript rounds a number, so it is sent as a string.
 const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
+/// The built-in types `cell_to_json` reads, by the name sqlx gives them, which
+/// is also their upper-cased `pg_type.typname`.
+const DECODED: &[&str] = &[
+    "BOOL",
+    "INT2",
+    "INT4",
+    "INT8",
+    "FLOAT4",
+    "FLOAT8",
+    "NUMERIC",
+    "TEXT",
+    "VARCHAR",
+    "BPCHAR",
+    "NAME",
+    "CHAR",
+    "UUID",
+    "JSON",
+    "JSONB",
+    "DATE",
+    "TIME",
+    "TIMESTAMP",
+    "TIMESTAMPTZ",
+    "BYTEA",
+];
+
+/// Whether a value of a built-in type, or an array of one, reaches the
+/// frontend as itself rather than as `<type>`.
+pub fn decodes_builtin(typname: &str) -> bool {
+    DECODED.contains(&typname.to_ascii_uppercase().as_str())
+}
+
 pub fn row_to_json(row: &PgRow) -> Vec<Value> {
     row.columns()
         .iter()
@@ -42,15 +73,22 @@ fn cell_to_json(row: &PgRow, index: usize, type_info: &PgTypeInfo) -> Value {
     };
 
     // A user-defined enum's type name is the enum's own, so it cannot be
-    // matched below. PostgreSQL sends the label as UTF-8 in both wire formats.
+    // matched below. PostgreSQL sends the label as UTF-8 in both wire formats,
+    // though sqlx declines to read an enum it was not told of as a `String`.
     if matches!(element.kind(), PgTypeKind::Enum(_)) && !is_array {
-        return match row.try_get::<String, _>(index) {
+        return match row.try_get_unchecked::<String, _>(index) {
             Ok(label) => Value::String(label),
             Err(_) => unsupported(element.name()),
         };
     }
 
-    match element.name() {
+    // The list, not the arms, says what is decoded, so that `decodes_builtin`
+    // cannot promise a type the arms have lost.
+    let name = element.name();
+    if !DECODED.contains(&name) {
+        return unsupported(name);
+    }
+    match name {
         "BOOL" => decode!(row, index, is_array, bool, Value::Bool),
         "INT2" => decode!(row, index, is_array, i16, |v| Value::Number(v.into())),
         "INT4" => decode!(row, index, is_array, i32, |v| Value::Number(v.into())),
@@ -80,7 +118,7 @@ fn cell_to_json(row: &PgRow, index: usize, type_info: &PgTypeInfo) -> Value {
             Value::String(v.to_string())
         }),
         "BYTEA" => decode!(row, index, is_array, Vec<u8>, |v| Value::String(hex(&v))),
-        name => unsupported(name),
+        _ => unsupported(name),
     }
 }
 

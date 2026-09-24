@@ -6,6 +6,16 @@ export function formatCell(value: unknown): string {
   return JSON.stringify(value) ?? "";
 }
 
+/**
+ * A cell as its full view shows it: a document or an array indented, since
+ * that is where one runs long. A string is left alone even if it reads as
+ * JSON, because parsing it would round the numbers it spells out.
+ */
+export function formatCellInFull(value: unknown): string {
+  if (value !== null && typeof value === "object") return JSON.stringify(value, null, 2);
+  return formatCell(value);
+}
+
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
@@ -28,6 +38,16 @@ if (import.meta.vitest) {
       expect(formatCell(42)).toBe("42");
       expect(formatCell(1.5)).toBe("1.5");
       expect(formatCell(true)).toBe("true");
+    });
+  });
+
+  describe("formatCellInFull", () => {
+    it("indents a document so that its nesting shows", () => {
+      expect(formatCellInFull({ a: [1] })).toBe('{\n  "a": [\n    1\n  ]\n}');
+    });
+
+    it("leaves a string that reads as JSON as it came", () => {
+      expect(formatCellInFull('{"id": 12345678901234567890}')).toBe('{"id": 12345678901234567890}');
     });
   });
 }
