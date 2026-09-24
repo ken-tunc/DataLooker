@@ -39,6 +39,21 @@ describe("ResultGrid", () => {
     await expect.element(peek).not.toBeInTheDocument();
   });
 
+  it("opens the selected cell in full on Space, and ties the view to the cell", async () => {
+    const screen = await grid();
+    const cell = screen.getByText(/^\{"customer"/);
+
+    await cell.click();
+    await userEvent.keyboard(" ");
+
+    const peek = screen.getByRole("tooltip");
+    await expect.element(peek).toBeVisible();
+    await expect.element(cell).toHaveAttribute("aria-describedby", peek.element().id);
+
+    await userEvent.keyboard(" ");
+    await expect.element(peek).not.toBeInTheDocument();
+  });
+
   it("leaves a value the cell shows whole alone", async () => {
     const screen = await grid();
 

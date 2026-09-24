@@ -368,17 +368,19 @@ mod live {
             "CREATE TYPE preview_types.address AS (city text, zip int4)",
             "CREATE TYPE preview_types.mood AS ENUM ('ok', 'sad')",
             "CREATE DOMAIN preview_types.positive AS int4 CHECK (VALUE > 0)",
+            "CREATE DOMAIN preview_types.feeling AS preview_types.mood",
             "CREATE TABLE preview_types.things (
                  id int4 PRIMARY KEY,
                  home preview_types.address,
                  mood preview_types.mood,
                  moods preview_types.mood[],
                  amount preview_types.positive,
+                 feeling preview_types.feeling,
                  span int4range,
                  host inet
              )",
             "INSERT INTO preview_types.things VALUES
-                 (1, ROW('Tokyo', 100), 'ok', '{ok,sad}', 7, '[1,5)', '10.0.0.1')",
+                 (1, ROW('Tokyo', 100), 'ok', '{ok,sad}', 7, 'sad', '[1,5)', '10.0.0.1')",
         ] {
             run(&session, statement).await.unwrap();
         }
@@ -407,6 +409,7 @@ mod live {
                 json!("ok"),
                 json!("{ok,sad}"),
                 json!(7),
+                json!("sad"),
                 json!("[1,5)"),
                 // Its cast to text keeps the mask psql leaves out.
                 json!("10.0.0.1/32"),
@@ -426,6 +429,7 @@ mod live {
                 "preview_types.mood",
                 "preview_types.mood[]",
                 "INT4",
+                "preview_types.mood",
                 "int4range",
                 "inet"
             ]

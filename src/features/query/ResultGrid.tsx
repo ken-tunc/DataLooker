@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
 import { formatCell, formatCellInFull } from "./cell";
@@ -14,8 +14,12 @@ const PEEK_GRACE_MS = 150;
 
 type Cell = { row: number; column: number };
 
-/** A cell's value in full, and the cell's place on the screen. */
-type Peek = { text: string; anchor: DOMRect };
+/**
+ * The cell shown in full and its place on the screen. The text is read from
+ * the cell at each render, so an edit shows in the view; the result it was
+ * opened on retires it when the rows are replaced.
+ */
+type Peek = { cell: Cell; anchor: DOMRect; result: QueryResult };
 
 /** Widths the reader dragged, and the columns they were dragged for. */
 type Dragged = { columns: string; widths: Record<number, number> };
@@ -47,10 +51,17 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
   const [peek, setPeek] = useState<Peek | null>(null);
   const closing = useRef<number | undefined>(undefined);
+  const peekId = useId();
+  const peeked = peek?.result === result ? peek : null;
 
-  function showPeek(next: Peek) {
+  function showPeek(cell: Cell, anchor: DOMRect) {
     window.clearTimeout(closing.current);
-    setPeek(next);
+    setPeek({ cell, anchor, result });
+  }
+
+  function valueAt({ row, column }: Cell): unknown {
+    const pending = editing?.pendingValue(row, result.columns[column]?.name ?? "");
+    return pending === undefined ? result.rows[row]?.[column] : pending;
   }
 
   // Delayed, so that the pointer can move from the cell onto the full view.
@@ -122,6 +133,14 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
       select(next);
       return;
     }
+    // Space, as Quick Look opens a file: the full view without the pointer.
+    if (event.key === " ") {
+      event.preventDefault();
+      const cell = scroller?.querySelector('[role="gridcell"][aria-selected="true"]');
+      if (peeked) closePeek();
+      else if (cell) showPeek(selected, cell.getBoundingClientRect());
+      return;
+    }
     if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       const cell = result.rows[selected.row]?.[selected.column];
@@ -142,7 +161,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
         role="grid"
         onKeyDown={move}
         // The full view is placed against a cell that scrolling moves.
-        onScroll={() => peek && closePeek()}
+        onScroll={() => peeked && closePeek()}
       >
         {/* The rows are as wide as their columns; the header keeps its background
           across the rest of the pane. */}
@@ -190,14 +209,18 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
             selected={selected}
             onSelect={select}
             editing={editing}
+            peeked={peeked?.cell ?? null}
+            peekId={peekId}
             onPeek={showPeek}
             onLeavePeek={leavePeek}
           />
         </div>
       </div>
-      {peek && (
+      {peeked && (
         <CellPeek
-          peek={peek}
+          id={peekId}
+          text={formatCellInFull(valueAt(peeked.cell))}
+          anchor={peeked.anchor}
           onEnter={() => window.clearTimeout(closing.current)}
           onLeave={leavePeek}
           onClose={closePeek}
@@ -213,12 +236,16 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
  * It sits in the top layer, above the grid's clipping and the panes' stacking.
  */
 function CellPeek({
-  peek,
+  id,
+  text,
+  anchor,
   onEnter,
   onLeave,
   onClose,
 }: {
-  peek: Peek;
+  id: string;
+  text: string;
+  anchor: DOMRect;
   onEnter: () => void;
   onLeave: () => void;
   onClose: () => void;
@@ -232,12 +259,11 @@ function CellPeek({
     if (!node) return;
     if (!node.matches(":popover-open")) node.showPopover();
     const margin = 8;
-    const { anchor } = peek;
     const box = node.getBoundingClientRect();
     const below = anchor.bottom + box.height + margin <= window.innerHeight;
     node.style.left = `${Math.max(margin, Math.min(anchor.left, window.innerWidth - box.width - margin))}px`;
     node.style.top = `${below ? anchor.bottom : Math.max(margin, anchor.top - box.height)}px`;
-  }, [peek]);
+  }, [anchor, text]);
 
   useEffect(() => {
     const close = (event: globalThis.KeyboardEvent) => {
@@ -250,14 +276,15 @@ function CellPeek({
   return (
     <div
       ref={popover}
+      id={id}
       popover="manual"
       role="tooltip"
       className="hairline bg-base-200 m-0 max-h-[60vh] max-w-[min(40rem,calc(100vw-1rem))] overflow-auto rounded-box border p-3 shadow-lg"
-      style={{ inset: "auto", left: peek.anchor.left, top: peek.anchor.bottom }}
+      style={{ inset: "auto", left: anchor.left, top: anchor.bottom }}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
     >
-      <pre className="font-mono text-xs break-words whitespace-pre-wrap">{peek.text}</pre>
+      <pre className="font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
     </div>
   );
 }
@@ -270,6 +297,7 @@ function GridCell({
   changed,
   onSelect,
   onEdit,
+  describedBy,
   onPeek,
   onLeavePeek,
 }: {
@@ -280,7 +308,9 @@ function GridCell({
   changed: boolean;
   onSelect: () => void;
   onEdit?: (value: string | null) => void;
-  onPeek: (peek: Peek) => void;
+  /** The full view's id, while it shows this cell. */
+  describedBy: string | undefined;
+  onPeek: (anchor: DOMRect) => void;
   onLeavePeek: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -292,10 +322,10 @@ function GridCell({
 
   function enter(cell: HTMLDivElement) {
     opening.current = window.setTimeout(() => {
-      const full = formatCellInFull(value);
-      // Only what the cell cuts short: its width, or the lines it runs together.
-      if (cell.scrollWidth <= cell.clientWidth && !full.includes("\n")) return;
-      onPeek({ text: full, anchor: cell.getBoundingClientRect() });
+      // Only what the cell cuts short, by its width or by the lines it runs
+      // together. Read off the cell as it is now, not as it was entered.
+      const cut = cell.scrollWidth > cell.clientWidth || cell.textContent.includes("\n");
+      if (cut) onPeek(cell.getBoundingClientRect());
     }, PEEK_DELAY_MS);
   }
 
@@ -337,6 +367,7 @@ function GridCell({
     <div
       role="gridcell"
       aria-selected={selected}
+      aria-describedby={describedBy}
       onClick={onSelect}
       onDoubleClick={() => onEdit && setDraft(value === null ? "" : text)}
       onPointerEnter={(event) => enter(event.currentTarget)}
@@ -401,6 +432,8 @@ function Rows({
   selected,
   onSelect,
   editing,
+  peeked,
+  peekId,
   onPeek,
   onLeavePeek,
 }: {
@@ -411,7 +444,9 @@ function Rows({
   selected: Cell | null;
   onSelect: (cell: Cell) => void;
   editing?: GridEditing;
-  onPeek: (peek: Peek) => void;
+  peeked: Cell | null;
+  peekId: string;
+  onPeek: (cell: Cell, anchor: DOMRect) => void;
   onLeavePeek: () => void;
 }) {
   // eslint-disable-next-line react/incompatible-library
@@ -458,7 +493,10 @@ function Rows({
                   changed={pending !== undefined}
                   onSelect={() => onSelect({ row: item.index, column })}
                   onEdit={editing ? (next) => editing.onEdit(item.index, name, next) : undefined}
-                  onPeek={onPeek}
+                  describedBy={
+                    peeked?.row === item.index && peeked.column === column ? peekId : undefined
+                  }
+                  onPeek={(anchor) => onPeek({ row: item.index, column }, anchor)}
                   onLeavePeek={onLeavePeek}
                 />
               );

@@ -11,7 +11,8 @@ PostgreSQL and BigQuery.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
   keybindings.
-- **Results** — a virtualized grid with resizable columns and cell copy.
+- **Results** — a virtualized grid with resizable columns, cell copy, and the whole of a
+  value the cell cuts short on hover, with documents indented.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
@@ -34,6 +35,7 @@ PostgreSQL and BigQuery.
 | Delete, Backspace | Close the focused tab              |
 | ⌘Enter            | Run the editor's query             |
 | ⌘C                | Copy the selected cell             |
+| Space             | Show the selected cell in full     |
 | ⌘Backspace        | Set the cell being edited to NULL  |
 
 ## Installing a release
