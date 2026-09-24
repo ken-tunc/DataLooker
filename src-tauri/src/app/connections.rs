@@ -62,6 +62,8 @@ pub struct SaveConnectionInput {
     pub secret: Option<String>,
     /// A shell command to run before connecting, or nothing to run.
     pub command: Option<String>,
+    /// The IANA zone to show its points in time in, or nothing for UTC.
+    pub time_zone: Option<String>,
 }
 
 /// `stored` in the order `asked` names them, then the rest as they were.
@@ -94,15 +96,11 @@ async fn save(
     secrets: &dyn SecretStore,
 ) -> Result<String, AppError> {
     validate(&input)?;
-    let command = input
-        .command
-        .as_deref()
-        .map(str::trim)
-        .filter(|c| !c.is_empty());
     let fields = ConnectionFields {
         label: input.label.trim(),
         config: &input.config,
-        command,
+        command: given(input.command.as_deref()),
+        time_zone: given(input.time_zone.as_deref()),
     };
     let mut tx = pool.begin().await?;
 
@@ -126,6 +124,11 @@ async fn save(
     }
     tx.commit().await?;
     Ok(id)
+}
+
+/// Nothing but spaces is nothing.
+fn given(text: Option<&str>) -> Option<&str> {
+    text.map(str::trim).filter(|text| !text.is_empty())
 }
 
 fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
@@ -286,6 +289,7 @@ mod tests {
             config: postgres_config(),
             secret: secret.map(str::to_string),
             command: None,
+            time_zone: None,
         }
     }
 
@@ -322,13 +326,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_command_of_nothing_but_spaces_is_no_command() {
+    async fn a_command_or_a_zone_of_nothing_but_spaces_is_none() {
         let pool = open_in_memory().await.unwrap();
         let secrets = InMemorySecretStore::default();
 
         let id = save(
             SaveConnectionInput {
                 command: Some("   ".into()),
+                time_zone: Some(" ".into()),
                 ..input(None, "Local", Some("hunter2"))
             },
             &pool,
@@ -339,6 +344,7 @@ mod tests {
 
         let stored = connection::find_by_id(&pool, &id).await.unwrap().unwrap();
         assert_eq!(stored.command, None);
+        assert_eq!(stored.time_zone, None);
     }
 
     #[tokio::test]

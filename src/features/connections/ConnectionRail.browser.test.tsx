@@ -17,6 +17,7 @@ const local: ConnectionRecord = {
     username: "admin",
   },
   command: null,
+  time_zone: null,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -327,6 +328,7 @@ describe("a connection of another kind", () => {
         config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
         secret: '{"type":"service_account"}',
         command: null,
+        time_zone: null,
       });
   });
 

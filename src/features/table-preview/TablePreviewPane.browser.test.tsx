@@ -26,9 +26,9 @@ const shape = {
 const page = {
   result: {
     columns: [
-      { name: "id", type_name: "INT8" },
-      { name: "name", type_name: "TEXT" },
-      { name: "note", type_name: "TEXT" },
+      { name: "id", type_name: "INT8", instant: false },
+      { name: "name", type_name: "TEXT", instant: false },
+      { name: "note", type_name: "TEXT", instant: false },
     ],
     rows: [
       [1, "Ada", "first"],
@@ -119,6 +119,54 @@ describe("TablePreviewPane", () => {
       inserts: [],
       updates: [{ key: { id: "1" }, set: { name: "Katherine" }, version: "900" }],
       deletes: [],
+    });
+  });
+
+  it("shows a point in time in the connection's zone, and edits it there", async () => {
+    const { screen, saved } = await preview({
+      list_connections: [
+        {
+          id: "c1",
+          label: "Local",
+          config: {
+            kind: "postgres",
+            host: "localhost",
+            port: 5432,
+            database: "shop",
+            username: "admin",
+          },
+          command: null,
+          time_zone: "Asia/Tokyo",
+          created_at: "2026-09-20T00:00:00Z",
+        },
+      ],
+      table_shape: { types: { at: "timestamp with time zone" }, primary_key: ["at"] },
+      preview_table: {
+        result: {
+          columns: [{ name: "at", type_name: "timestamp with time zone", instant: true }],
+          rows: [["2025-01-02 10:00:00.0 +00:00:00"]],
+          truncated: false,
+          elapsed_ms: 1,
+        },
+        versions: ["900"],
+      },
+    });
+
+    await screen.getByText("2025-01-02 19:00:00+09", { exact: true }).dblClick();
+    await expect
+      .element(screen.getByRole("textbox", { name: "at" }))
+      .toHaveValue("2025-01-02 19:00:00+09");
+    await userEvent.keyboard("{Enter}");
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    // The key names the row as it was read; only what is shown is moved.
+    await expect.poll(saved).toMatchObject({
+      updates: [
+        {
+          key: { at: "2025-01-02 10:00:00.0 +00:00:00" },
+          set: { at: "2025-01-02 19:00:00+09" },
+        },
+      ],
     });
   });
 

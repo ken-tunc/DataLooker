@@ -14,6 +14,10 @@ use ts_rs::TS;
 pub struct QueryColumn {
     pub name: String,
     pub type_name: String,
+    /// Its values, or its array's elements, are points in time, which cross in
+    /// UTC and may be shown in another zone. A type name cannot say so on its
+    /// own: BigQuery's `TIMESTAMP` is one, PostgreSQL's is not.
+    pub instant: bool,
 }
 
 #[derive(Debug, Serialize, TS)]

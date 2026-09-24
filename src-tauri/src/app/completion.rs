@@ -458,6 +458,7 @@ mod tests {
                 },
                 secret: Some(std::fs::read_to_string(key).expect("the key")),
                 command: None,
+                time_zone: None,
             })
             .await
             .expect("a connection");

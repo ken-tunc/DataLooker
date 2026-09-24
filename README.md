@@ -12,7 +12,9 @@ PostgreSQL and BigQuery.
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
   keybindings.
 - **Results** — a virtualized grid with resizable columns, cell copy, and the whole of a
-  value the cell cuts short on hover, with documents indented.
+  value the cell cuts short on hover, with documents indented. Points in time
+  (`timestamptz`, BigQuery's `TIMESTAMP`) are shown in the connection's time zone, UTC
+  unless it names another.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its

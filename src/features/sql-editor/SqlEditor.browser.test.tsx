@@ -370,6 +370,7 @@ function bigquery(connectionId: string): ConnectionRecord[] {
       label: "BigQuery",
       config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
       command: null,
+      time_zone: null,
       created_at: "2026-09-23 00:00:00",
     },
   ];

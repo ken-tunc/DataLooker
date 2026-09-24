@@ -221,6 +221,7 @@ mod tests {
             },
             secret: Some("opensesame".into()),
             command: None,
+            time_zone: None,
         })
         .await
         .expect("a connection to tell an agent about");

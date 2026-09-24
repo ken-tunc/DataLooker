@@ -126,6 +126,7 @@ pub mod tests {
                 config,
                 secret: Some(password),
                 command: None,
+                time_zone: None,
             })
             .await
             .expect("a connection to run against");
