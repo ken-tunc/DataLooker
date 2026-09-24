@@ -36,6 +36,15 @@ pub fn decodes_builtin(typname: &str) -> bool {
     DECODED.contains(&typname.to_ascii_uppercase().as_str())
 }
 
+/// Whether a column's values, or its array's elements, are `timestamptz`.
+pub fn holds_instants(type_info: &PgTypeInfo) -> bool {
+    let element = match type_info.kind() {
+        PgTypeKind::Array(element) => element,
+        _ => type_info,
+    };
+    element.name() == "TIMESTAMPTZ"
+}
+
 pub fn row_to_json(row: &PgRow) -> Vec<Value> {
     row.columns()
         .iter()

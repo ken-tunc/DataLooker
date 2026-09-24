@@ -63,7 +63,8 @@ arm returning `AppError::Unsupported`.
 
 A cell crosses IPC as JSON. An integer beyond JavaScript's safe range, and a number with
 more digits than a JSON number keeps, is sent as a string, because a JSON number would
-arrive rounded.
+arrive rounded. A point in time is sent in UTC and moved into the connection's
+zone by the grid, so a result need not be read again to be seen in another.
 
 ## Storage
 
@@ -76,8 +77,8 @@ and asks again after every build that changes the signature. The keychain write 
 inside the SQLite transaction so a keychain failure rolls the row back.
 
 A connection's driver settings are one JSON `config` column, so a new driver needs no
-migration. Its shell command is a column of its own: it belongs to the reader, not the
-driver.
+migration. Its shell command and its time zone are columns of their own: they belong to
+the reader, not the driver.
 
 ## Sessions
 

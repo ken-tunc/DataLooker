@@ -7,7 +7,7 @@ use gcp_bigquery_client::model::table_row::TableRow;
 use gcp_bigquery_client::Client;
 use tokio_util::sync::CancellationToken;
 
-use super::value::{decode, type_name};
+use super::value::{decode, holds_instants, type_name};
 use crate::drivers::{QueryColumn, QueryResult};
 use crate::error::AppError;
 
@@ -57,6 +57,7 @@ pub async fn execute(
         .map(|field| QueryColumn {
             name: field.name.clone(),
             type_name: type_name(field),
+            instant: holds_instants(field),
         })
         .collect();
     let rows = page

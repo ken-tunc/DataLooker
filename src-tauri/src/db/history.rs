@@ -134,6 +134,7 @@ mod tests {
             label,
             config,
             command: None,
+            time_zone: None,
         }
     }
 
