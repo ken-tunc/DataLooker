@@ -207,6 +207,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
         {!structure && (
           <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
             <SqlInput
+              label="Filter"
               className="input-sm grow"
               placeholder="WHERE …"
               value={draft}

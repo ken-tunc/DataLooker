@@ -25,6 +25,8 @@ function loadColorizer(): Promise<Colorizer> {
 }
 
 type Props = {
+  /** The input's accessible name: the coloured copy is hidden from readers. */
+  label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -35,7 +37,7 @@ type Props = {
  * A one-line input whose SQL is coloured: the input's own text is transparent
  * over a coloured copy, so the caret, selection and editing stay the browser's.
  */
-export function SqlInput({ value, onChange, placeholder, className }: Props) {
+export function SqlInput({ label, value, onChange, placeholder, className }: Props) {
   const [colorize, setColorize] = useState<Colorizer | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const overlay = useRef<HTMLSpanElement>(null);
@@ -78,6 +80,7 @@ export function SqlInput({ value, onChange, placeholder, className }: Props) {
         )}
         <input
           ref={input}
+          aria-label={label}
           className={html === null ? "" : "caret-base-content text-transparent"}
           placeholder={placeholder}
           spellCheck={false}

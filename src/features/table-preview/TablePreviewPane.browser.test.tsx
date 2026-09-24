@@ -197,8 +197,7 @@ describe("TablePreviewPane", () => {
   it("colours the filter as SQL and applies it on submit", async () => {
     const { screen, onView } = await preview();
 
-    const filter = screen.getByPlaceholder("WHERE …");
-    await filter.fill("note IS NULL");
+    await screen.getByRole("textbox", { name: "Filter" }).fill("note IS NULL");
 
     // The class Monaco gave each word, which names its colour.
     const colours = () =>
