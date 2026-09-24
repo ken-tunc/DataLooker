@@ -7,14 +7,16 @@ type Props = {
   connectionId: string;
   schema: string;
   table: string;
+  /** Off screen, the definition is neither read nor read again. */
+  hidden: boolean;
 };
 
 /**
  * What the table is, rather than what is in it: the statement that would make
  * it again, and the indexes and triggers that stand beside it.
  */
-export function TableStructure({ connectionId, schema, table }: Props) {
-  const definition = useTableDefinition(connectionId, schema, table);
+export function TableStructure({ connectionId, schema, table, hidden }: Props) {
+  const definition = useTableDefinition(connectionId, schema, table, !hidden);
 
   if (definition.isPending) {
     return <p className="text-base-content/60 p-2 text-sm">Reading the definition…</p>;

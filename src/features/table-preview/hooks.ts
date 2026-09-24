@@ -24,8 +24,14 @@ export function useTableShape(connectionId: string, schema: string, table: strin
   });
 }
 
-export function useTableDefinition(connectionId: string, schema: string, table: string) {
+export function useTableDefinition(
+  connectionId: string,
+  schema: string,
+  table: string,
+  ready: boolean,
+) {
   return useQuery({
+    enabled: ready,
     queryKey: previewKeys.definition(connectionId, schema, table),
     queryFn: () => tableDefinition(connectionId, schema, table),
     staleTime: SHAPE_STALE_TIME,
