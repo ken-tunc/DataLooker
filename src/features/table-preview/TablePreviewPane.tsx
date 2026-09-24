@@ -255,11 +255,15 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
           onClick={() => void refresh()}
         >
           {refreshing ? (
-            <span className="loading loading-spinner loading-xs" />
+            <span className="loading loading-spinner loading-xs" aria-hidden />
           ) : (
             <RotateCw className="size-4" />
           )}
         </button>
+        {/* Rendered throughout: a live region that appears with its text is not announced. */}
+        <span role="status" className="sr-only">
+          {refreshing ? "Refreshing table…" : ""}
+        </span>
       </div>
 
       {pending > 0 && (
