@@ -230,6 +230,10 @@ TEST(Complete, OffersWhatAGroupByCanGroup) {
   EXPECT_THAT(Columns(Ask("SELECT order_id, COUNT(*) FROM sales.orders o "
                           "GROUP BY COALESCE(|, 0)")),
               IsSupersetOf({"o.order_id"}));
+  // What the GROUP BY already names by alias or position still resolves.
+  EXPECT_THAT(Columns(Ask("SELECT o.order_id AS id, o.customer_id c, COUNT(*) "
+                          "FROM sales.orders o GROUP BY id, c, 3, |")),
+              IsSupersetOf({"o.ordered_at"}));
   // Only the query the cursor is in has its select list set aside.
   EXPECT_THAT(Columns(Ask("SELECT * FROM (SELECT customer_id, COUNT(*) "
                           "FROM sales.customers c GROUP BY |)")),

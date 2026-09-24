@@ -75,6 +75,12 @@ std::string TypeName(const googlesql::Type* type) {
 }
 
 // Where the cursor is, read from the tokens around it.
+// Text that replaces a span of the statement.
+struct StandIn {
+  Span span;
+  std::string text;
+};
+
 struct Place {
   Span statement;
   // The word being typed, which a candidate replaces; empty at a word's start.
@@ -88,7 +94,7 @@ struct Place {
   bool quiet = false;
   // The select list of the query whose `GROUP BY` the cursor is in, set
   // aside: grouping by the probe leaves it naming columns no longer grouped.
-  std::optional<Span> select_list;
+  std::optional<StandIn> select_list;
   // Where what follows the cursor can be cut, the statement's end last.
   std::vector<Cut> cuts;
 };
@@ -128,10 +134,25 @@ int Back(const std::vector<const ParseToken*>& tokens, int from, Stop stop) {
   return -1;
 }
 
+// The name a select list item is given, if it has one a `GROUP BY` can use:
+// `AS a`, `x a`, or the last part of a path.
+std::optional<std::string> AliasOf(const std::vector<const ParseToken*>& item) {
+  if (item.empty() || !item.back()->IsIdentifier()) return std::nullopt;
+  if (item.size() == 1) return item.back()->GetIdentifier();
+  const ParseToken& previous = *item[item.size() - 2];
+  if (Is(previous, "AS") || Is(previous, ".") || Is(previous, ")") ||
+      Is(previous, "END") || previous.IsIdentifier() || previous.IsValue()) {
+    return item.back()->GetIdentifier();
+  }
+  return std::nullopt;
+}
+
 // The select list of the query whose `GROUP BY` the token after `before` is
-// in, if it is in one.
-std::optional<Span> GroupedSelectList(const std::vector<const ParseToken*>& tokens,
-                                      int before) {
+// in, if it is in one, and what stands in for it: a `NULL` for each item, under
+// the item's name, so that the names and positions the `GROUP BY` already
+// uses still mean something.
+std::optional<StandIn> GroupedSelectList(const std::vector<const ParseToken*>& tokens,
+                                         int before) {
   const int by = Back(tokens, before, [&](int i) {
     return Is(*tokens[i], "BY") || EndsClause(*tokens[i]);
   });
@@ -145,7 +166,31 @@ std::optional<Span> GroupedSelectList(const std::vector<const ParseToken*>& toke
   const int select =
       Back(tokens, from - 1, [&](int i) { return Is(*tokens[i], "SELECT"); });
   if (select < 0) return std::nullopt;
-  return Span{End(*tokens[select]), Start(*tokens[from])};
+
+  std::vector<std::vector<const ParseToken*>> items(1);
+  int depth = 0;
+  int first = select + 1;
+  while (first < from && (Is(*tokens[first], "DISTINCT") || Is(*tokens[first], "ALL"))) {
+    ++first;
+  }
+  for (int i = first; i < from; ++i) {
+    if (Is(*tokens[i], "(")) ++depth;
+    if (Is(*tokens[i], ")")) --depth;
+    if (depth == 0 && Is(*tokens[i], ",")) {
+      items.emplace_back();
+      continue;
+    }
+    items.back().push_back(tokens[i]);
+  }
+  // BigQuery allows a comma after the last item.
+  if (items.size() > 1 && items.back().empty()) items.pop_back();
+  std::vector<std::string> stand_ins;
+  for (const auto& item : items) {
+    std::optional<std::string> alias = AliasOf(item);
+    stand_ins.push_back(alias ? absl::StrCat("NULL AS `", *alias, "`") : "NULL");
+  }
+  return StandIn{{End(*tokens[select]), Start(*tokens[from])},
+                 absl::StrCat(" ", absl::StrJoin(stand_ins, ", "), " ")};
 }
 
 absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
@@ -483,9 +528,9 @@ json Analyzer::Complete(const json& params) {
   const size_t cut = place.member_of ? place.member_of->start : place.replace.start;
   std::string head;
   if (place.select_list) {
-    head = absl::StrCat(
-        text.substr(place.statement.start, place.select_list->start - place.statement.start),
-        " 1 ", text.substr(place.select_list->end, cut - place.select_list->end));
+    const Span& list = place.select_list->span;
+    head = absl::StrCat(text.substr(place.statement.start, list.start - place.statement.start),
+                        place.select_list->text, text.substr(list.end, cut - list.end));
   } else {
     head = text.substr(place.statement.start, cut - place.statement.start);
   }

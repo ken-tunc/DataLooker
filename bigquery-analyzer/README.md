@@ -129,5 +129,7 @@ longest that the analyzer accepts is the answer. A cut never falls inside a
 dotted name, which would leave a shorter name naming another table, and only a
 few cuts are analyzed, since each costs an analysis per probe.
 
-In a `GROUP BY`, the query's select list is set aside: grouping by the probe
-would leave it naming columns that are no longer grouped.
+In a `GROUP BY`, each item of the query's select list becomes a `NULL` under
+the item's name: grouping by the probe would leave the items naming columns
+that are no longer grouped, while the names and positions the `GROUP BY`
+already uses have to stay.
