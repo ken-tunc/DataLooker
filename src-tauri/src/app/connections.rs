@@ -26,6 +26,19 @@ impl App {
         saved
     }
 
+    /// `ids` is the order the reader wants. A connection it leaves out keeps
+    /// its place relative to the others, after those it names, so an order
+    /// read before another connection was added loses nothing.
+    pub async fn reorder_connections(&self, ids: &[String]) -> Result<(), AppError> {
+        let mut tx = self.pool.begin().await?;
+        let stored = connection::ids(&mut *tx).await?;
+        for (position, id) in (0..).zip(arranged(&stored, ids)) {
+            connection::set_position(&mut *tx, id, position).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn delete_connection(&self, id: &str) -> Result<(), AppError> {
         let deleted = delete(id, &self.pool, self.secrets.as_ref()).await;
         self.sessions.close(id);
@@ -49,6 +62,20 @@ pub struct SaveConnectionInput {
     pub secret: Option<String>,
     /// A shell command to run before connecting, or nothing to run.
     pub command: Option<String>,
+}
+
+/// `stored` in the order `asked` names them, then the rest as they were.
+/// An id that is not stored is dropped, and one named twice counts once.
+fn arranged<'a>(stored: &'a [String], asked: &[String]) -> Vec<&'a String> {
+    let mut order: Vec<&String> = Vec::with_capacity(stored.len());
+    for id in asked.iter().chain(stored) {
+        if let Some(id) = stored.iter().find(|stored| *stored == id) {
+            if !order.contains(&id) {
+                order.push(id);
+            }
+        }
+    }
+    order
 }
 
 /// The keychain write sits inside the transaction, so its failure rolls the
@@ -186,6 +213,61 @@ mod tests {
 
         app.delete_connection(&id).await.unwrap();
         assert!(app.list_connections().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn connections_are_listed_in_the_order_they_were_put_in() {
+        let app = app().await;
+        let mut saved = Vec::new();
+        for label in ["One", "Two", "Three"] {
+            saved.push(
+                app.save_connection(input(None, label, Some("hunter2")))
+                    .await
+                    .unwrap(),
+            );
+        }
+        let labels = || async {
+            app.list_connections()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|record| record.label)
+                .collect::<Vec<_>>()
+        };
+
+        app.reorder_connections(&[saved[2].clone(), saved[0].clone(), saved[1].clone()])
+            .await
+            .unwrap();
+        assert_eq!(labels().await, ["Three", "One", "Two"]);
+
+        // A save does not move it, and a new one goes last.
+        app.save_connection(input(Some(&saved[2]), "Renamed", None))
+            .await
+            .unwrap();
+        app.save_connection(input(None, "Four", Some("hunter2")))
+            .await
+            .unwrap();
+        assert_eq!(labels().await, ["Renamed", "One", "Two", "Four"]);
+    }
+
+    #[test]
+    fn an_order_puts_what_it_names_first_and_keeps_the_rest() {
+        let stored: Vec<String> = ["a", "b", "c", "d"].map(String::from).into();
+        let arrange = |asked: &[&str]| {
+            let asked: Vec<String> = asked.iter().map(|id| id.to_string()).collect();
+            arranged(&stored, &asked)
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(arrange(&["d", "c", "b", "a"]), ["d", "c", "b", "a"]);
+        // Read before `d` was added.
+        assert_eq!(arrange(&["c", "a", "b"]), ["c", "a", "b", "d"]);
+        // Read before `x` was deleted.
+        assert_eq!(arrange(&["x", "b", "a", "c", "d"]), ["b", "a", "c", "d"]);
+        assert_eq!(arrange(&["b", "b", "a"]), ["b", "a", "c", "d"]);
+        assert_eq!(arrange(&[]), ["a", "b", "c", "d"]);
     }
 
     fn postgres_config() -> DriverConfig {

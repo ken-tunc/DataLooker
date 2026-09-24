@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::app::connections::SaveConnectionInput;
 use crate::app::App;
-use crate::commands::ConnectionArgs;
+use crate::commands::{ConnectionArgs, ReorderConnectionsArgs};
 use crate::db::connection::ConnectionRecord;
 use crate::error::AppError;
 
@@ -19,6 +19,14 @@ pub async fn save_connection(
     app: State<'_, Arc<App>>,
 ) -> Result<String, AppError> {
     app.save_connection(args).await
+}
+
+#[tauri::command]
+pub async fn reorder_connections(
+    args: ReorderConnectionsArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<(), AppError> {
+    app.reorder_connections(&args.connection_ids).await
 }
 
 #[tauri::command]

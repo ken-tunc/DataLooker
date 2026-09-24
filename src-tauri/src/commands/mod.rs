@@ -91,6 +91,7 @@ macro_rules! commands {
 commands! {
     connection::list_connections() -> Vec<ConnectionRecord>;
     connection::save_connection(SaveConnectionInput) -> String;
+    connection::reorder_connections(ReorderConnectionsArgs) -> ();
     connection::delete_connection(ConnectionArgs) -> ();
     query::test_connection(ConnectionArgs) -> u32;
     query::execute_query(ExecuteQueryArgs) -> QueryResult;
@@ -121,6 +122,13 @@ commands! {
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct ConnectionArgs {
     pub connection_id: String,
+}
+
+/// Every connection, in the order the rail is to show them.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct ReorderConnectionsArgs {
+    pub connection_ids: Vec<String>,
 }
 
 /// A command that is about one table of a connection.

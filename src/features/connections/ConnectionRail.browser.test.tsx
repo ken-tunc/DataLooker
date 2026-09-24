@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { userEvent } from "vite-plus/test/browser";
 import { describe, expect, it } from "vite-plus/test";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { renderApp, stubIpc } from "../../test/harness";
@@ -139,6 +140,110 @@ describe("the connection rail", () => {
     expect(ipc.sent("delete_connection")).toEqual({ connection_id: "id-1" });
     // Nothing is in front any more, so there is no header to act on.
     expect(screen.getByRole("heading", { name: "Local" }).elements()).toEqual([]);
+  });
+});
+
+describe("the order of the rail", () => {
+  const labels = ["One", "Two", "Three"];
+
+  /** A backend that keeps the order it is sent, or refuses to when told to. */
+  async function reorderable(refuse = false) {
+    let order = labels.map((label, index) => ({ ...local, id: `id-${index + 1}`, label }));
+    const rail = await sidebar({
+      list_connections: () => order,
+      reorder_connections: ({ connection_ids }) => {
+        if (refuse) throw { kind: "Database", message: "meta.db is locked" };
+        order = connection_ids.flatMap((id) => order.find((record) => record.id === id) ?? []);
+        return null;
+      },
+    });
+    const tile = (label: string) => rail.screen.getByRole("button", { name: label, exact: true });
+    const shown = () =>
+      rail.screen
+        .getByRole("navigation")
+        .getByRole("listitem")
+        .elements()
+        .map((item) => item.querySelector("button")?.getAttribute("aria-label"))
+        .filter((label) => label && labels.includes(label));
+    await expect.element(tile("Three")).toBeVisible();
+    return { ...rail, tile, shown };
+  }
+
+  it("puts a tile where it is dropped, and keeps it there", async () => {
+    const { ipc, tile, shown } = await reorderable();
+
+    await userEvent.dragAndDrop(tile("One"), tile("Three"));
+
+    await expect.poll(shown).toEqual(["Two", "Three", "One"]);
+    expect(ipc.sent("reorder_connections")).toEqual({ connection_ids: ["id-2", "id-3", "id-1"] });
+    // Read again from the backend after the write, and still in that order.
+    await expect
+      .poll(() => ipc.calls.filter((c) => c.command === "list_connections").length)
+      .toBe(2);
+    expect(shown()).toEqual(["Two", "Three", "One"]);
+  });
+
+  it("moves the focused tile with ⌥↑ and ⌥↓, and keeps the focus on it", async () => {
+    const { ipc, tile, shown } = await reorderable();
+
+    await tile("Three").click();
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await expect.poll(shown).toEqual(["One", "Three", "Two"]);
+    await expect.element(tile("Three")).toHaveFocus();
+
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await expect.poll(shown).toEqual(["Three", "One", "Two"]);
+    expect(ipc.sent("reorder_connections")).toEqual({ connection_ids: ["id-3", "id-1", "id-2"] });
+
+    // Nowhere further up to go.
+    const writes = ipc.calls.length;
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await userEvent.keyboard("{ArrowDown}");
+    expect(ipc.calls.slice(writes).map((c) => c.command)).not.toContain("reorder_connections");
+  });
+
+  it("sends one move only after the one before it is written", async () => {
+    let order = labels.map((label, index) => ({ ...local, id: `id-${index + 1}`, label }));
+    const sent: string[][] = [];
+    let release = () => {};
+    const { screen, ipc } = await sidebar({
+      list_connections: () => order,
+      reorder_connections: async ({ connection_ids }) => {
+        sent.push(connection_ids);
+        // The first write is slow, so a second sent alongside it would land first.
+        if (sent.length === 1) await new Promise<void>((resolve) => (release = resolve));
+        order = connection_ids.flatMap((id) => order.find((record) => record.id === id) ?? []);
+        return null;
+      },
+    });
+    const three = screen.getByRole("button", { name: "Three", exact: true });
+
+    await three.click();
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await expect.poll(() => sent.length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toHaveLength(1);
+
+    release();
+    await expect
+      .poll(() => sent)
+      .toEqual([
+        ["id-1", "id-3", "id-2"],
+        ["id-3", "id-1", "id-2"],
+      ]);
+    await expect.poll(() => order.map((record) => record.label)).toEqual(["Three", "One", "Two"]);
+    expect(ipc.sent("reorder_connections")).toEqual({ connection_ids: ["id-3", "id-1", "id-2"] });
+  });
+
+  it("puts the tiles back, and says why, when the order cannot be kept", async () => {
+    const { screen, tile, shown } = await reorderable(true);
+
+    await tile("One").click();
+    await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
+
+    await expect.element(screen.getByText("meta.db is locked")).toBeVisible();
+    expect(shown()).toEqual(["One", "Two", "Three"]);
   });
 });
 
