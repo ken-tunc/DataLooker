@@ -8,13 +8,10 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, id: &str) -> Result<(), AppError>;
 }
 
-/// The keychain, holding every secret in one item. macOS asks the reader
-/// whether an app may read an item, and it asks per item: one item per
-/// connection was one question per connection, every time a build changed the
-/// app's signature. One item is one question, and the secrets are kept in
-/// memory once read so that it is asked at most once per run — a session and
-/// a language server both want a connection's password, and "Allow" rather
-/// than "Always Allow" would otherwise be asked again for each.
+/// The keychain, holding every secret in one item. macOS asks per item whether
+/// the app may read it, so one item is one question, and the secrets are kept
+/// in memory once read so that a reader who chose "Allow" rather than "Always
+/// Allow" is asked once per run.
 pub type KeyringStore = Bundled<Keychain>;
 
 impl KeyringStore {
@@ -67,8 +64,7 @@ impl Items for Keychain {
     }
 }
 
-/// The name of the one item every secret is kept in. A connection's id is a
-/// uuid, so no connection's own item was ever called this.
+/// Connection ids are uuids, so no connection's own item has this name.
 const BUNDLE: &str = "secrets";
 
 type Secrets = std::collections::HashMap<String, String>;
@@ -76,9 +72,8 @@ type Secrets = std::collections::HashMap<String, String>;
 /// Every secret in one item, written whole on each change and read once.
 pub struct Bundled<I> {
     items: I,
-    /// What the item holds, once it has been read. The lock is held across a
-    /// read and the write that follows it, so two changes at once cannot each
-    /// write the bundle without the other's.
+    /// Held across a read and the write that follows it, so two changes at
+    /// once cannot lose one another.
     read: std::sync::Mutex<Option<Secrets>>,
 }
 
@@ -90,7 +85,6 @@ impl<I: Items> Bundled<I> {
         }
     }
 
-    /// The secrets, read from the item the first time they are asked for.
     fn with<T>(
         &self,
         act: impl FnOnce(&mut Secrets) -> Result<T, AppError>,
@@ -111,8 +105,7 @@ impl<I: Items> Bundled<I> {
         act(secrets)
     }
 
-    /// The bundle with one change made, written before it is kept: a change
-    /// the item refused is not one this run should go on believing.
+    /// Written before it is kept, so a refused write is not believed.
     fn change(
         &self,
         secrets: &mut Secrets,
@@ -134,16 +127,15 @@ impl<I: Items> SecretStore for Bundled<I> {
             if let Some(secret) = secrets.get(id) {
                 return Ok(Some(secret.clone()));
             }
-            // A secret saved before they were bundled is in an item of its
-            // own. It is moved in the first time it is read, which is the one
-            // question it costs.
+            // A secret saved before bundling is in an item of its own, and is
+            // moved in the first time it is read.
             let Some(secret) = self.items.read(id)? else {
                 return Ok(None);
             };
             self.change(secrets, |secrets| {
                 secrets.insert(id.to_string(), secret.clone());
             })?;
-            // Left behind, it is only a copy; the bundle is what is read.
+            // A leftover copy would be harmless; the bundle is what is read.
             let _ = self.items.remove(id);
             Ok(Some(secret))
         })

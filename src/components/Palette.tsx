@@ -1,10 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
-/**
- * How far a key moves through the list, or 0 if it does not move at all. ⌃N and
- * ⌃P are here beside the arrows because macOS reads them as down and up in any
- * text field, and they keep a reader's hands where the query is.
- */
+/** ⌃N and ⌃P, as in any macOS text field, besides the arrows. */
 function stepFor(event: KeyboardEvent): number {
   if (event.ctrlKey && (event.key === "n" || event.key === "p")) return event.key === "n" ? 1 : -1;
   if (event.ctrlKey || event.metaKey || event.altKey) return 0;
@@ -33,11 +29,7 @@ type Props<T> = {
   footer?: (items: readonly T[]) => ReactNode;
 };
 
-/**
- * A modal list driven from its query field: what is typed narrows it, the
- * arrows walk it, Enter takes what is under them. Everything else — where the
- * items come from and what an option looks like — belongs to the caller.
- */
+/** Where the items come from and how an option looks belong to the caller. */
 export function Palette<T>({
   label,
   placeholder,
@@ -64,8 +56,7 @@ export function Palette<T>({
   }, []);
 
   const items = search(query);
-  // The items can arrive after a query has been typed, so the selection is
-  // clamped on the way out rather than trusted to have been kept in range.
+  // Items can arrive after the query was typed.
   const selected = Math.min(active, Math.max(items.length - 1, 0));
 
   useEffect(() => {
@@ -83,7 +74,7 @@ export function Palette<T>({
     const step = stepFor(event);
     if (step !== 0) {
       event.preventDefault();
-      // Wraps, because a list this short is faster to reach from either end.
+      // Wraps around.
       setActive((items.length + selected + step) % Math.max(items.length, 1));
       return;
     }
@@ -92,9 +83,7 @@ export function Palette<T>({
       choose(selected);
       return;
     }
-    // Nothing else in the palette takes the keyboard, and Chromium answers a
-    // Tab it cannot place by dropping the focus on the body, where the query
-    // would stop hearing what is typed.
+    // Chromium drops the focus on the body for a Tab with nowhere to go.
     if (event.key === "Tab") event.preventDefault();
   }
 
@@ -107,10 +96,7 @@ export function Palette<T>({
     >
       <div className="modal-box mt-24 flex max-h-96 w-full max-w-xl flex-col gap-2 p-2">
         <input
-          // `showModal` moves the focus here on its own: this is the first
-          // focusable element in the dialog. It never loses the focus either,
-          // so its ring is kept faint rather than the full-strength one a
-          // form draws to say which field is in use.
+          // Always focused (`showModal` puts it there), so the ring is faint.
           className="input input-ghost focus-within:outline-base-content/20 w-full text-base"
           role="combobox"
           aria-expanded
@@ -145,13 +131,11 @@ export function Palette<T>({
                 type="button"
                 id={optionId(index)}
                 role="option"
-                // Out of the Tab order: the input owns the keyboard, and a
-                // focused option would take the arrows and Enter away from it.
+                // The input owns the keyboard.
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={`flex w-full items-baseline gap-2 ${index === selected ? "menu-active" : ""}`}
-                // The input keeps the focus, so the list stays keyboard-driven
-                // whether the reader is typing or pointing.
+                // Keep the focus in the input.
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => choose(index)}

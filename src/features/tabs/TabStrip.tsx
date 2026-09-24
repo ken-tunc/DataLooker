@@ -18,11 +18,8 @@ function focusTabAt(sibling: HTMLElement, index: number): void {
 
 export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   const strip = useRef<HTMLDivElement>(null);
-  // Closing the tab in focus takes the focused element with it, which would
-  // otherwise drop focus on the document and end the keyboard's walk here.
-  // The tab is remembered rather than the wish to close it: a tab with
-  // unsaved changes asks first, and only once it is actually gone is there
-  // anything to move focus away from.
+  // Closing the focused tab would drop focus on the document. The tab is
+  // remembered, not the wish to close it: one with unsaved changes asks first.
   const refocus = useRef<string | null>(null);
 
   useEffect(() => {
@@ -33,8 +30,7 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
   });
 
   function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>, id: string) {
-    // Space on the close button would otherwise activate the tab here instead
-    // of closing it.
+    // Space on the close button closes rather than activates.
     if (event.target !== event.currentTarget) return;
 
     const index = state.tabs.findIndex((tab) => tab.id === id);
@@ -47,8 +43,7 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
     const target = targets[event.key];
     if (target !== undefined) {
       event.preventDefault();
-      // The arrows wrap, so holding one cycles the strip; activation follows
-      // focus, which is what ⌃Tab does too.
+      // Activation follows focus, as with ⌃Tab.
       const wrapped = ((target % state.tabs.length) + state.tabs.length) % state.tabs.length;
       focusTabAt(event.currentTarget, wrapped);
       const focused = state.tabs[wrapped];
@@ -71,14 +66,13 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
     <div
       ref={strip}
       role="tablist"
-      // A table tab holds a strip of its own, for the two ways of reading it.
+      // A table tab holds a tablist of its own.
       aria-label="Open tabs"
       className="tabs tabs-lift min-w-0 flex-1 self-end pl-1"
     >
       {state.tabs.map((tab) => (
-        // Only the active tab is in the tab order; the arrows move between
-        // them, and Delete closes the one in focus — ARIA makes whatever sits
-        // inside a tab presentational, so the close mark is for the mouse alone.
+        // ARIA makes a tab's contents presentational, so the close mark is for
+        // the mouse; the keyboard closes with Delete.
         <div
           key={tab.id}
           role="tab"

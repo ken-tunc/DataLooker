@@ -6,13 +6,11 @@ use std::io;
 
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// The most a message may claim to be. Every real one is orders smaller, and a
-/// header that says otherwise is a number we would make room for.
+/// A header claiming more is not allocated for.
 const MOST: usize = 16 * 1024 * 1024;
 
-/// The next message, or `None` where the server has stopped talking. A stream
-/// that ends part-way through a message is an error rather than an ending: the
-/// message that was on its way is gone.
+/// `None` when the server stops talking; a stream that ends mid-message is an
+/// error.
 pub async fn read<R: AsyncBufRead + Unpin>(from: &mut R) -> io::Result<Option<String>> {
     let mut length = None;
     let mut line = String::new();
@@ -32,8 +30,7 @@ pub async fn read<R: AsyncBufRead + Unpin>(from: &mut R) -> io::Result<Option<St
         if header.is_empty() {
             break;
         }
-        // Content-Type is the other header the protocol has, and a server may
-        // send one; it says nothing we do not already require.
+        // Content-Type, if sent, is ignored.
         if let Some(value) = header.strip_prefix("Content-Length:") {
             length = Some(
                 value
@@ -56,8 +53,7 @@ pub async fn read<R: AsyncBufRead + Unpin>(from: &mut R) -> io::Result<Option<St
         .map_err(|e| invalid(&e.to_string()))
 }
 
-/// Send one message as it stands. The length is in bytes, which is why it is
-/// counted here rather than by whoever wrote the JSON.
+/// The length is counted in bytes.
 pub async fn write<W: AsyncWrite + Unpin>(to: &mut W, message: &str) -> io::Result<()> {
     to.write_all(format!("Content-Length: {}\r\n\r\n", message.len()).as_bytes())
         .await?;

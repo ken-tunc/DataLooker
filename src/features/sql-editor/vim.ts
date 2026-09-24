@@ -1,13 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Whether the editors use vim keybindings. Every tab holds an editor of its
- * own, so the answer lives outside them all rather than in one of them — a
- * reader who turns vim on is not turning it on for this tab.
- *
- * It is kept in `localStorage` rather than meta.db: it is how this window
- * behaves, not something DataLooker knows, and nothing else that drives the app
- * — the MCP server planned for later included — has an editor to apply it to.
+ * One answer for every tab's editor. In `localStorage` rather than meta.db:
+ * it is how this window behaves, not something DataLooker knows.
  */
 const KEY = "datalooker.vim";
 
@@ -17,8 +12,7 @@ function read(): boolean {
   try {
     return localStorage.getItem(KEY) === "on";
   } catch {
-    // Storage a browser refuses (a private window, blocked site data) means no
-    // preference, which is the same answer as never having set one.
+    // Storage the browser refuses is no preference.
     return false;
   }
 }
@@ -40,7 +34,7 @@ function setVimMode(on: boolean) {
   try {
     localStorage.setItem(KEY, on ? "on" : "off");
   } catch {
-    // The preference still holds for this run; it just will not outlive it.
+    // It still holds for this run.
   }
   for (const listener of listeners) listener();
 }

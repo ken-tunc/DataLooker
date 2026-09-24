@@ -14,28 +14,23 @@ use crate::drivers::{
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 
-/// Whichever database a connection reaches. An enum rather than a trait: the
-/// drivers are the ones this app ships, so the set is closed, the compiler can
-/// say when one of them was left out of an operation, and what a driver cannot
-/// do is an arm that says so rather than a method returning an error nobody
-/// wrote down.
-// A session is made once per open connection and held behind an `Arc`, so the
-// bigger variant costs nothing that was not already being allocated. `expect`
-// rather than `allow`: if the two ever come to the same size, this says so.
+/// An enum rather than a trait: the set of drivers is closed, and the compiler
+/// says when one was left out of an operation.
+// One per open connection, behind an `Arc`, so the size difference costs
+// nothing. `expect` says so if the variants ever match in size.
 #[expect(clippy::large_enum_variant)]
 pub enum Session {
     Postgres(PostgresSession),
     BigQuery(BigQuerySession),
 }
 
-/// What BigQuery will answer once that part is built. The connection can be
-/// made and tested today.
+/// What BigQuery does not do yet.
 fn not_yet(what: &str) -> AppError {
     AppError::Unsupported(format!("BigQuery cannot {what} yet."))
 }
 
-/// What BigQuery will not answer. A row is written here by naming it, and a
-/// key to name one by is what BigQuery has no notion of.
+/// What BigQuery will not do: a row is written by naming it with a key, and
+/// BigQuery has none.
 fn read_only(what: &str) -> AppError {
     AppError::Unsupported(format!("A BigQuery table cannot {what}."))
 }
@@ -60,11 +55,9 @@ impl Session {
         }
     }
 
-    /// Run a statement for a caller that may only read, and refuse it
-    /// otherwise. What refuses is the database in both cases: PostgreSQL runs
-    /// it in a read-only transaction, and BigQuery — which has no such thing
-    /// and a dialect this app cannot parse — is asked what the statement is
-    /// before it is run.
+    /// For a caller that may only read. The database refuses, not this app:
+    /// PostgreSQL through a read-only transaction, BigQuery through a dry run
+    /// that says what the statement is.
     pub async fn execute_reading(
         &self,
         sql: &str,
@@ -99,10 +92,8 @@ impl Session {
         }
     }
 
-    /// What a table a statement names holds, with every type spelled out to
-    /// its innermost field, or nothing where there is no such table. It is
-    /// what completion reads a statement against, and a PostgreSQL connection
-    /// is completed by its language server instead.
+    /// A table's columns with every type spelled out, for BigQuery completion;
+    /// PostgreSQL is completed by its language server.
     pub async fn described(
         &self,
         project: &str,
@@ -167,27 +158,23 @@ impl Session {
     }
 }
 
-/// Who a session belongs to. A reader and an agent do not share one: a `BEGIN`
-/// or a `SET` of the agent's would otherwise be waiting in the reader's next
-/// statement, and the agent's is opened to read and nothing else.
+/// A reader and an agent never share a session: neither should find the
+/// other's `BEGIN` or `SET` waiting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Whose {
     Reader,
     Agent,
 }
 
-/// The open session per stored connection and caller. Opening one reads the
-/// keychain, so keeping them here also keeps the password prompt off the query
-/// path.
+/// The open session per connection and caller.
 #[derive(Default)]
 pub struct SessionRegistry(Mutex<Registry>);
 
 #[derive(Default)]
 struct Registry {
     open: HashMap<(String, Whose), Arc<Session>>,
-    /// How often each connection has been closed. Opening a session reads the
-    /// stored record outside the lock, so this is what tells the reader that a
-    /// `close` overtook it and the credentials it read are already stale.
+    /// How often each connection has been closed. Opening happens outside the
+    /// lock, and this says a `close` overtook it with new credentials.
     closes: HashMap<String, u64>,
 }
 
@@ -214,8 +201,7 @@ impl SessionRegistry {
             if registry.closes(id) != closes {
                 continue;
             }
-            // Whichever concurrent caller landed first is the session
-            // everyone gets.
+            // The first concurrent caller to land wins.
             return Ok(registry
                 .open
                 .entry((id.to_string(), whose))
@@ -245,10 +231,7 @@ impl SessionRegistry {
                 username,
             } => {
                 let session = PostgresSession::new(&host, port, &database, &username, &secret);
-                // The server is what holds an agent to reading, rather than
-                // anything here reading the statement: a function called from
-                // a `SELECT` can write, and PostgreSQL knows that and we do
-                // not.
+                // A default only; `execute_reading` is what enforces it.
                 Ok(Session::Postgres(match whose {
                     Whose::Reader => session,
                     Whose::Agent => session.reading_only(),
@@ -265,16 +248,12 @@ impl SessionRegistry {
         }
     }
 
-    /// Drop the session so the next query opens a new one. Editing or deleting
-    /// a connection leaves the session pointing at credentials that are gone.
-    /// Drop one caller's session, leaving the other's alone. A query that was
-    /// given up on leaves its connection mid-answer, and the next one through
-    /// it would read what the last one did not.
+    /// For a query given up on, which leaves its connection mid-answer.
     pub fn drop_one(&self, id: &str, whose: Whose) {
         self.0.lock().unwrap().open.remove(&(id.to_string(), whose));
     }
 
-    /// Drop every session of this connection, whoever they belong to.
+    /// For a connection edited or deleted, whose credentials are gone.
     pub fn close(&self, id: &str) {
         let mut registry = self.0.lock().unwrap();
         registry.open.retain(|(open, _), _| open != id);

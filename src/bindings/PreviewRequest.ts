@@ -7,12 +7,10 @@ export type PreviewRequest = { connection_id: string, schema: string, table: str
  */
 filter: string, sort: Sort | null, 
 /**
- * Read each row's version too, which a caller asks for when it means to
- * offer editing.
+ * Read each row's `xmin`, for editing.
  */
 versioned: boolean, page: number, 
 /**
- * Registers the preview where a running query would be, so `cancel_query`
- * stops either of them.
+ * So `cancel_query` stops a preview too.
  */
 query_id: string, };

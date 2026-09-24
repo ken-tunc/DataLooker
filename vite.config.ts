@@ -15,9 +15,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "node",
-          // Every source file, `.tsx` included: a test written in a component's
-          // own file would otherwise be collected by nothing and pass by never
-          // having run.
+          // `.tsx` too, or a test in a component's file would silently never run.
           includeSource: ["src/**/*.{ts,tsx}"],
           exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/*.browser.test.tsx"],
         },
@@ -32,55 +30,38 @@ export default defineConfig({
             enabled: true,
             provider: playwright(),
             headless: true,
-            // The window `tauri.conf.json` opens. The default viewport is a
-            // phone's, which is not a shape this app is ever asked to be:
-            // the grid's virtualized rows and the sidebar beside them both
-            // depend on how much room there is.
+            // The window `tauri.conf.json` opens, rather than a phone's.
             instances: [{ browser: "chromium", viewport: { width: 1280, height: 800 } }],
           },
         },
       },
     ],
     coverage: {
-      // Every source file, not only the ones a test happened to import: a file
-      // nothing covers is the point of measuring.
+      // Every source file: one no test imports is the point of measuring.
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/bindings/**", "src/main.tsx", "src/**/*.test.*"],
-      // The same table twice: on the terminal, and in a file for CI to put in
-      // the run's summary.
+      // `coverage.txt` is what CI puts on the run's summary page.
       reporter: ["text", ["text", { file: "coverage.txt", maxCols: 160 }], "lcov"],
-      // A file that is fully covered still belongs in the table: leaving it
-      // out makes a reader wonder whether it was measured at all.
       skipFull: false,
     },
   },
-  // Monaco is reached through 21 separate feature entry points, which Vite
-  // otherwise discovers one crawl too late: it re-optimizes mid-run and reloads
-  // the page under whichever test mounted the editor first.
   resolve: {
     alias: {
-      // The package entry a browser is offered is a UMD bundle that calls
-      // `require`, which nothing in a browser answers. This is the ESM build,
-      // named by its path because an alias replaces a prefix and the package's
-      // own name is the prefix. It imports the same Monaco module the editor
-      // already holds, so there is one of it.
+      // The package's browser entry is a UMD bundle that calls `require`. An
+      // absolute path, because an alias matches a prefix and would match itself.
       "monaco-vim": join(import.meta.dirname, "node_modules/monaco-vim/dist/index.mjs"),
-      // That build reaches into Monaco by a path its package does not publish
-      // (`./*` maps to `./esm/vs/*.js`, so the prefix is applied twice). Taking
-      // the prefix off lands on the same module the editor imports, which is
-      // what keeps one Monaco in the page rather than two.
+      // monaco-vim imports a path Monaco's exports do not publish (`./*` already
+      // maps to `./esm/vs/*.js`). This lands on the module the editor imports,
+      // so there is one Monaco in the page rather than two.
       "monaco-editor/esm/vs/": "monaco-editor/",
     },
   },
 
   optimizeDeps: {
-    // Entries nothing imports until something happens — an editor is opened,
-    // an event is listened for. Found mid-run, they are optimized mid-run, and
-    // the page reloads under whatever was already on it.
+    // Imported lazily. Discovered mid-run, they are optimized mid-run and the
+    // page reloads under a browser test.
     include: ["monaco-editor/**", "@tauri-apps/api/event"],
-    // monaco-vim's package entry for a browser is a UMD bundle that calls
-    // `require`, which the optimizer cannot pre-bundle — it sits there instead
-    // of failing. Left out of it, the ESM build is served as it is.
+    // The optimizer hangs on its UMD entry rather than failing.
     exclude: ["monaco-vim"],
   },
 

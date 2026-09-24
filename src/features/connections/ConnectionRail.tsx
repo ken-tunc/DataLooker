@@ -13,21 +13,15 @@ type Props = {
   onSelect: (id: string) => void;
 };
 
-/**
- * Every connection, as a narrow column beside the one in front: the rail is
- * for moving between them, and what can be done to one is in the
- * header of the column beside it, once it is the one in front.
- */
+/** For moving between connections; what can be done to one is in its header. */
 export function ConnectionRail({ selectedId, onSelect }: Props) {
   const connections = useConnections();
   const [adding, setAdding] = useState(false);
 
-  // A command can end on a connection that is not the one in front, and the
-  // rail is the one part of the window that is always there to hear it.
+  // The rail is always mounted, whichever connection is in front.
   useCommandExits();
 
-  // Wide enough for the window's own buttons, which sit over its top, with
-  // room to spare beside them.
+  // Wide enough for the window's traffic-light buttons over its top.
   return (
     <nav
       aria-label="Connections"
@@ -89,8 +83,7 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
 
 type EntryProps = { connection: ConnectionRecord; selected: boolean; onSelect: () => void };
 
-// Most connections carry no command, and asking what is running on their
-// behalf would be asking for nothing.
+// Most connections have no command to ask about.
 function Entry(props: EntryProps) {
   return props.connection.command ? (
     <WatchedEntry {...props} />
@@ -99,10 +92,7 @@ function Entry(props: EntryProps) {
   );
 }
 
-/**
- * A command left running is marked on its connection here, since a tunnel
- * that is up is worth seeing from whichever connection is in front.
- */
+/** A tunnel left up is worth seeing from whichever connection is in front. */
 function WatchedEntry(props: EntryProps) {
   const running = useRunningCommands().data?.includes(props.connection.id) ?? false;
   return <Avatar {...props} running={running} />;
@@ -143,7 +133,7 @@ function initials(label: string): string {
   return picked.join("").toUpperCase();
 }
 
-// A letter as a reader counts one, so an accent or an emoji is not cut in half.
+// So an accent or an emoji is not cut in half.
 const segmenter = new Intl.Segmenter();
 function letters(word: string): string[] {
   return Array.from(segmenter.segment(word), ({ segment }) => segment);

@@ -38,11 +38,7 @@ export const schemaRowId = (schema: string) => rowId("schema", schema);
 export const tableRowId = (schema: string, table: string) => rowId("table", schema, table);
 export const shardsRowId = (schema: string, prefix: string) => rowId("shards", schema, prefix);
 
-/**
- * The tables whose columns are wanted, read back out of the rows that are
- * open. The ids were written here, so what comes back out of one is what went
- * into it.
- */
+/** The tables whose columns are wanted, read back out of the open rows' ids. */
 export function openTables(expanded: ReadonlySet<string>): NamedTable[] {
   return [...expanded].flatMap((id) => {
     const [kind, schema, table] = JSON.parse(id) as string[];
@@ -55,12 +51,9 @@ const columnRowId = (schema: string, table: string, column: string) =>
   rowId("column", schema, table, column);
 
 /**
- * A name ending in a date is one day of a table written a day at a time, and a
- * project can hold years of them — `events_20250101`, `events_20250102`, and
- * tens of thousands more. They are one table to the reader, so the tree shows
- * them as one row. Only a table is folded this way: a view named like a day is
- * not one of a set, and neither is a year before 1000, which is a number that
- * happens to have four digits rather than a year anything was written in.
+ * A table named after a day (`events_20250101`) is one shard of a table written
+ * a day at a time, and a project can hold years of them. Views are never
+ * shards, and a year before 1000 is a number that happens to have four digits.
  */
 const SHARD = /^(.+)_([1-9]\d{3})(\d{2})(\d{2})$/;
 
@@ -71,8 +64,7 @@ export function shardPrefix(name: string): string | null {
   if (prefix === undefined || year === undefined || month === undefined || day === undefined) {
     return null;
   }
-  // A day that no calendar has is not one a table was written on, so the date
-  // is read rather than range-checked: February has 28 days in 2025.
+  // Read as a date rather than range-checked: February 2025 has 28 days.
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
   const written =
     date.getUTCFullYear() === Number(year) &&
@@ -86,9 +78,8 @@ type ShardGroup =
   | { kind: "shards"; prefix: string; shards: Table[] };
 
 /**
- * The tables of one schema, with each set of shards folded into a group where
- * it first appears. A prefix only one table carries is left as that table: a
- * row that opens onto a single table hides it rather than summing it up.
+ * Each set of shards is folded into a group where it first appears. A prefix
+ * only one table carries stays that table: a group of one hides it.
  */
 export function shardGroups(tables: readonly Table[]): ShardGroup[] {
   const prefixOf = (table: Table) => (table.kind === "table" ? shardPrefix(table.name) : null);
@@ -117,8 +108,7 @@ export function shardGroups(tables: readonly Table[]): ShardGroup[] {
     groups.push({ kind: "shards", prefix, shards: first });
   }
 
-  // Newest first, which is the day a reader is most often after. The names are
-  // the same but for the date, so they sort as the dates do.
+  // Newest first. The names differ only in the date, so they sort as dates.
   for (const group of groups) {
     if (group.kind === "shards") group.shards.sort((a, b) => b.name.localeCompare(a.name));
   }
@@ -171,13 +161,10 @@ function tableRows(
 }
 
 /**
- * The tree as the list renders it: one flat array, because the rows are
- * virtualized and a virtualizer counts rows, not nesting.
+ * Flat, because a virtualizer counts rows, not nesting.
  *
- * A filter matches table names. Schemas without a match drop out, and the ones
- * left open up whether or not they were expanded — hunting for a table should
- * not mean clicking through the schemas that hold it. A group of shards opens
- * with them, since a filter is aimed at names rather than at groups.
+ * A filter matches table names. Schemas and shard groups with a match open
+ * whether or not they were expanded, and the rest drop out.
  */
 export function treeRows(
   tree: SchemaTree,
@@ -191,10 +178,7 @@ export function treeRows(
   const matches = (table: Table) => needle === "" || table.name.toLowerCase().includes(needle);
 
   for (const schema of tree.schemas) {
-    // What the schema holds decides what a set of shards is; the filter only
-    // decides which of them are shown. Grouping what survived a filter would
-    // make a set of a thousand days look like one table whenever the reader
-    // narrowed it down to one.
+    // Grouped before filtering: a set narrowed to one day is still a set.
     const groups = shardGroups(schema.tables).flatMap((group): ShardGroup[] => {
       if (group.kind === "table") return matches(group.table) ? [group] : [];
       const shards = group.shards.filter(matches);

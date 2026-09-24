@@ -2,15 +2,10 @@ import { listen } from "@tauri-apps/api/event";
 import type { Events } from "../bindings/Events";
 
 /**
- * An event is the other direction from a command: something the app learned
- * without being asked. `Events` is generated from the Rust declaration of what
- * it announces and what each carries, and as with `commands.ts`, this is the
- * only module that names one.
- *
- * Listen until the returned function is called. Subscribing is asynchronous
- * and unsubscribing is not, so a caller that has already given up by the time
- * the listener is in place is remembered and torn down at once — which is what
- * an effect that runs twice in development looks like.
+ * The only module that names an event. Listens until the returned function is
+ * called. Subscribing is asynchronous and unsubscribing is not, so a caller
+ * that gave up before the listener was in place (an effect run twice in
+ * development) has it torn down as soon as it arrives.
  */
 export function subscribe<E extends keyof Events>(
   event: E,

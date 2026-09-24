@@ -57,18 +57,16 @@ export default function SqlEditor({
   const status = useRef<HTMLSpanElement>(null);
   const [vim, setVim] = useVimMode();
   const editor = useRef<monaco.IStandaloneCodeEditor | null>(null);
-  // Monaco keeps the callback it was handed at mount, so the handlers reach it
-  // through a ref. Writing that ref while rendering would publish handlers from
-  // a render React can still throw away, and a passive effect would leave the
-  // previous ones live until after the browser could dispatch to Monaco.
+  // Monaco keeps the callbacks it was handed at mount, so they go through a
+  // ref, updated in a layout effect: writing it during render could publish a
+  // discarded render's handlers, and a passive effect would run too late.
   const handlers = useRef({ onChange, onSubmit, onJump });
   useLayoutEffect(() => {
     handlers.current = { onChange, onSubmit, onJump };
   });
 
-  // Who answers for this tab: a BigQuery connection is completed by the
-  // analyzer, and anything else — a PostgreSQL one, or one not yet read — by
-  // its language server. Held in a ref for the same reason as the handlers.
+  // BigQuery is completed by the analyzer, anything else by its language
+  // server. A ref for the same reason as the handlers.
   const queryClient = useQueryClient();
   const config = useConnections().data?.find((c) => c.id === connectionId)?.config;
   const completer = useRef<Completer | null>(null);
@@ -84,9 +82,7 @@ export default function SqlEditor({
   useEffect(() => {
     registerCompletion();
     const client = languageClientFor(connectionId);
-    // A model of its own, named after the connection and the tab: what a
-    // language server is told about is documents, and the name is what says
-    // whose server to ask about this one.
+    // The URI says which connection's server to ask.
     const uri = Uri.parse(documentUri(connectionId, tabId));
     const model = monaco.getModel(uri) ?? monaco.createModel(value, SQL_LANGUAGE, uri);
     client.wrote(uri.toString(), value);
@@ -102,14 +98,10 @@ export default function SqlEditor({
       fontSize: 13,
       tabSize: 2,
       renderLineHighlight: "none",
-      // What a language server says is the only thing offered. Monaco's own
-      // suggestions are the words already in the document, which in a
-      // statement are the words the reader just typed.
+      // Monaco's own suggestions are just the words already in the document.
       wordBasedSuggestions: "off",
       padding: { top: 8, bottom: 8 },
-      // A hover or a suggestion is drawn inside the editor by default, so the
-      // one belonging to the first line is cut off by its top edge. This hands
-      // them to a layer over the window instead.
+      // Otherwise a hover on the first line is cut off by the editor's edge.
       fixedOverflowWidgets: true,
     });
     editor.current = instance;
@@ -123,8 +115,7 @@ export default function SqlEditor({
     function jumpAt(position: { lineNumber: number; column: number } | null) {
       const line = position && instance.getModel()?.getLineContent(position.lineNumber);
       if (!position || line === undefined || line === null) return;
-      // Monaco counts columns from one, and a column is the place before the
-      // character of that number — which is the index of that character.
+      // Monaco's columns count from one.
       const name = identifierAt(line, position.column - 1);
       if (name) handlers.current.onJump(name);
     }
@@ -132,8 +123,7 @@ export default function SqlEditor({
     instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyD, () =>
       jumpAt(instance.getPosition()),
     );
-    // The other half of the same gesture. Monaco puts a second cursor on an
-    // ⌥-click rather than a ⌘-click, so this takes nothing that was in use.
+    // Free: Monaco's multi-cursor click is ⌥, not ⌘.
     const clicked = instance.onMouseUp((event) => {
       if (event.event.metaKey || event.event.ctrlKey) jumpAt(event.target.position);
     });
@@ -160,8 +150,7 @@ export default function SqlEditor({
   useEffect(() => {
     let live = true;
     const timer = setTimeout(async () => {
-      // The parser is the backend's, so what comes back describes the text as
-      // it was when this ran — a later keystroke starts this over.
+      // A later keystroke starts this over.
       const found = await checkSyntax(value).catch(() => []);
       const model = editor.current?.getModel();
       if (live && model) monaco.setModelMarkers(model, SYNTAX, found.map(toMarker));

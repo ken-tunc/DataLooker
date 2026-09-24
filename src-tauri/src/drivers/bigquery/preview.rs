@@ -10,11 +10,9 @@ use super::value::type_name;
 use crate::drivers::{Preview, QueryColumn, QueryResult, TablePage};
 use crate::error::AppError;
 
-/// A page of a table. A table read in the order it is stored is listed rather
-/// than queried: listing reads no more than the page and is not billed, where
-/// a query is billed for every column of every row it scans, `LIMIT` or not.
-/// A filter or a sort needs a query, and so does a view, which has no rows of
-/// its own to list.
+/// An unfiltered, unsorted page is listed rather than queried: listing is not
+/// billed, and a query is billed for every row it scans, `LIMIT` or not. A
+/// view has no rows of its own to list.
 pub async fn preview(
     client: &Client,
     project_id: &str,
@@ -33,7 +31,7 @@ pub async fn preview(
         }
     }
 
-    // One row past the page is what says there is another one.
+    // One row past the page says there is another.
     let sql = preview_sql(
         project_id,
         &Preview {
@@ -54,7 +52,7 @@ pub async fn preview(
     Ok(unversioned(result))
 }
 
-/// A BigQuery row has no version, since nothing here can write one.
+/// No versions: nothing here writes a BigQuery row.
 fn unversioned(result: QueryResult) -> TablePage {
     TablePage {
         result,
@@ -62,8 +60,7 @@ fn unversioned(result: QueryResult) -> TablePage {
     }
 }
 
-/// The page as the table stores it, or nothing when the relation is not one
-/// that can be listed.
+/// `None` when the relation cannot be listed.
 async fn list(
     client: &Client,
     project_id: &str,
@@ -124,8 +121,7 @@ fn columns(fields: &[TableFieldSchema]) -> Vec<QueryColumn> {
         .collect()
 }
 
-/// The `SELECT` a filtered or sorted page runs. The filter is the reader's
-/// own expression, as trusted as the editor beside it; the names are quoted.
+/// The filter is the reader's own expression, as trusted as the editor.
 fn preview_sql(project_id: &str, preview: &Preview) -> String {
     let mut sql = format!(
         "SELECT * FROM {}.{}.{} AS t",
@@ -147,8 +143,6 @@ fn preview_sql(project_id: &str, preview: &Preview) -> String {
     sql
 }
 
-/// A BigQuery quoted identifier, in which a backtick or a backslash is
-/// escaped with a backslash.
 fn quote(name: &str) -> String {
     let mut quoted = String::with_capacity(name.len() + 2);
     quoted.push('`');

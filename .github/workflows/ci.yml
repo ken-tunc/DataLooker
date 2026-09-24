@@ -10,8 +10,7 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# Reading the repository is all any of this needs; the one job that writes
-# says so itself.
+# The one job that writes says so itself.
 permissions:
   contents: read
 
@@ -28,8 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      # setup-vp installs Vite+, the pinned Node.js and the package manager,
-      # and caches the dependency store.
       - uses: voidzero-dev/setup-vp@v1.21.0
         with:
           cache: true
@@ -39,8 +36,7 @@ jobs:
       # `vp check` covers format, lint and type check.
       - run: vp check
 
-      # The browser tests drive the components in a real Chromium; the runner
-      # carries none, and `--with-deps` adds the libraries it needs.
+      # The runner has no Chromium; `--with-deps` adds its libraries.
       - run: vp exec playwright install --with-deps chromium
 
       - run: vp test --run --coverage
@@ -60,10 +56,8 @@ jobs:
           name: frontend-coverage
           path: coverage/
 
-  # Linux runs the tests because it is where a PostgreSQL container can run
-  # beside them: on a macOS runner every integration test skips itself, which
-  # is the whole `drivers/` suite. The release is pinned to the one carrying
-  # the webkit2gtk 4.1 packages Tauri links against.
+  # Linux, because a macOS runner has no Docker and every live test would skip.
+  # Pinned to the release carrying the webkit2gtk 4.1 Tauri links against.
   rust:
     runs-on: ubuntu-24.04
     defaults:
@@ -74,9 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      # Tauri links against the webkit2gtk stack; libclang is bindgen's, which
-      # pg_query runs over the PostgreSQL parser it builds. macOS has both in
-      # the Command Line Tools.
+      # webkit2gtk for Tauri; libclang for pg_query's bindgen.
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -107,17 +99,13 @@ jobs:
         working-directory: .
         run: docker compose up -d --wait
 
-      # Runs the tests instrumented; the report comes from the same run.
-      # `--no-report` leaves old counters where they are, and the cache brings
-      # a previous run's back, so the clean is what keeps the report to this
-      # run's own data.
+      # The cache brings back a previous run's counters, so they are cleaned.
       - run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov --no-report
 
-      # The tests just rewrote `src/bindings/`. The frontend job type-checks
-      # against the committed copy, so a copy that differs is a frontend that
-      # was checked against something other than this backend.
+      # The tests just rewrote `src/bindings/`; the frontend was checked
+      # against the committed copy.
       - name: Bindings are the ones the backend writes
         working-directory: .
         run: |
@@ -142,13 +130,10 @@ jobs:
           name: rust-coverage
           path: src-tauri/coverage/
 
-  # The tables are on each run's summary page either way; this puts them where
-  # the review happens, as one comment that later runs rewrite rather than a
-  # new one per push.
+  # One comment that later runs rewrite, rather than one per push.
   coverage:
     needs: [frontend, rust]
-    # A pull request from a fork carries a read-only token, and a comment it
-    # cannot post would only be a red mark on someone else's contribution.
+    # A fork's token is read-only.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     permissions:
@@ -164,8 +149,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-          # Nothing is checked out here, so `gh` is told which repository this
-          # is rather than reading it from a working copy.
+          # Nothing is checked out for `gh` to read the repository from.
           GH_REPO: ${{ github.repository }}
           FRONTEND: ${{ needs.frontend.outputs.report }}
           RUST: ${{ needs.rust.outputs.report }}
@@ -196,9 +180,7 @@ jobs:
           } > "$body"
           gh pr comment "$PR" --body-file "$body" --edit-last --create-if-none
 
-  # The keychain is the one thing only macOS compiles, and the app ships
-  # nowhere else, so this builds what Linux cannot rather than running a suite
-  # that has nothing platform-specific left to say.
+  # Only the keychain is macOS-specific, so this compiles what Linux cannot.
   macos:
     runs-on: macos-26
     defaults:

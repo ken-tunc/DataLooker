@@ -11,19 +11,15 @@ use crate::db::connection::{self, DriverConfig};
 use crate::drivers::Column;
 use crate::error::AppError;
 
-/// How long what a table holds is believed. A table is altered rarely next to
-/// how often a reader types, and a column added a moment ago is one the reader
-/// can wait a few minutes to be offered.
+/// How long a table's columns are believed. A table is altered far less often
+/// than a reader types.
 const BELIEVED: Duration = Duration::from_secs(5 * 60);
 
-/// How many times the helper may ask for more tables before the answer is
-/// given up on. It names every table a statement refers to at once, so a
-/// second round is a statement that changed its mind — a CTE shadowing a
-/// table, say — rather than one to keep feeding.
+/// The helper names every table a statement refers to at once, so more rounds
+/// than a few mean something has gone wrong.
 const ROUNDS: usize = 3;
 
-/// What could go where the cursor is. It says nothing about which driver it
-/// came from, so that any of them can answer in it.
+/// What could go where the cursor is, in a shape any driver could answer in.
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -34,8 +30,8 @@ pub enum Completion {
         expected_type: Option<String>,
         candidates: Vec<Candidate>,
     },
-    /// A table's name is being typed, of which `path` is written. Which tables
-    /// there are is the schema tree's to say, and the window holds that.
+    /// A table's name is being typed, of which `path` is written. The window
+    /// answers from the schema tree it already holds.
     Tables {
         replace: TextSpan,
         path: Vec<String>,
@@ -79,19 +75,17 @@ pub enum CandidateKind {
 /// `[project, dataset, table]`.
 type TablePath = [String; 3];
 
-/// What tables hold, per connection, as far as completion has needed to know.
-/// A table that is not there is remembered too, so that it is not asked about
-/// on every keystroke.
+/// What tables hold, per connection. A missing table is remembered too, so a
+/// half-typed name is not asked about on every keystroke.
 #[derive(Default)]
 pub struct Catalogs(Mutex<Catalog>);
 
 #[derive(Default)]
 struct Catalog {
     tables: HashMap<String, HashMap<TablePath, Known>>,
-    /// How often each connection has been forgotten. A completion reads it
-    /// before asking BigQuery anything, and what it learns is kept only if
-    /// the connection was not forgotten in the meantime: an answer given to
-    /// the credentials the reader has just replaced is not theirs.
+    /// How often each connection has been forgotten. What a completion learns
+    /// is kept only if this did not change meanwhile: an answer given to
+    /// replaced credentials is not the reader's.
     forgotten: HashMap<String, u64>,
 }
 
@@ -101,8 +95,6 @@ struct Known {
 }
 
 impl Catalogs {
-    /// The connection's tables that are still believed, as the helper's
-    /// `catalog`.
     fn catalog(&self, connection_id: &str) -> Value {
         let catalogs = self.0.lock().unwrap();
         let (mut tables, mut absent) = (Vec::new(), Vec::new());
@@ -124,7 +116,6 @@ impl Catalogs {
         json!({ "tables": tables, "absent": absent })
     }
 
-    /// Which forgetting of the connection this is, for `learn` to be handed.
     fn generation(&self, connection_id: &str) -> u64 {
         let catalogs = self.0.lock().unwrap();
         catalogs
@@ -134,8 +125,7 @@ impl Catalogs {
             .unwrap_or_default()
     }
 
-    /// Keep what a table holds, unless the connection was forgotten since
-    /// `generation` was read — which is what answering `false` says.
+    /// `false` when the connection was forgotten since `generation` was read.
     fn learn(
         &self,
         connection_id: &str,
@@ -167,8 +157,7 @@ impl Catalogs {
         true
     }
 
-    /// Forget a connection, whose credentials — and so whose view of which
-    /// tables there are — may have changed.
+    /// For a connection whose credentials, and so whose view, may have changed.
     pub fn forget(&self, connection_id: &str) {
         let mut catalogs = self.0.lock().unwrap();
         catalogs.tables.remove(connection_id);
@@ -197,8 +186,7 @@ impl App {
             ));
         };
         let cursor = byte_offset(text, cursor);
-        // Before the session is asked for: a save that lands after this is
-        // one whose credentials that session may not have.
+        // Before the session is asked for, so a save after this is noticed.
         let generation = self.catalogs.generation(connection_id);
 
         for _ in 0..ROUNDS {
@@ -228,8 +216,7 @@ impl App {
                     [project, dataset, table],
                     columns,
                 ) {
-                    // The connection changed under this completion, and the
-                    // next keystroke asks again of what it is now.
+                    // The connection changed under this completion.
                     return Ok(Completion::Nothing);
                 }
             }
@@ -238,8 +225,7 @@ impl App {
     }
 }
 
-/// The helper's answer, all of whose parts are optional: which of them are
-/// there says which answer it is.
+/// Which optional parts are present says which answer it is.
 #[derive(Deserialize)]
 struct Answer {
     #[serde(default)]
@@ -448,9 +434,7 @@ mod tests {
         );
     }
 
-    /// A BigQuery connection saved in an app, with a helper to read its
-    /// statements — or nothing, when there is no project named or no helper
-    /// built. Only their absence is a skip.
+    /// `None`, a skip, when no project is named or no helper is built.
     async fn app_reaching_bigquery() -> Option<(App, String)> {
         use crate::app::connections::SaveConnectionInput;
 

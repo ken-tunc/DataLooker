@@ -5,10 +5,7 @@ import { renderApp } from "../../test/harness";
 import { activateTab, closeTab, openSqlTab, type TabsState } from "./tabs";
 import { TabStrip } from "./TabStrip";
 
-/**
- * The strip against the state it is shown in the app: what a key does here is
- * what it does to the tabs themselves rather than to a stand-in for them.
- */
+/** The strip over the real `tabs.ts`, not a stand-in. */
 function Strip({ count }: { count: number }) {
   const [state, setState] = useState<TabsState | null>(() => {
     let built: TabsState | undefined;

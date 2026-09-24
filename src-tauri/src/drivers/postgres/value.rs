@@ -2,8 +2,7 @@ use serde_json::{Number, Value};
 use sqlx::postgres::{PgRow, PgTypeInfo, PgTypeKind};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 
-/// Beyond this, a JSON number no longer survives the trip through JavaScript's
-/// `number`, so the value is sent as a string rather than silently rounded.
+/// Beyond this, JavaScript rounds a number, so it is sent as a string.
 const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 pub fn row_to_json(row: &PgRow) -> Vec<Value> {
@@ -98,8 +97,7 @@ fn or_error(decoded: Result<Value, sqlx::Error>) -> Value {
     decoded.unwrap_or_else(|e| unsupported(format!("decode error: {e}")))
 }
 
-/// A cell the grid cannot show as a value still has to render as something, and
-/// failing the whole query over one unknown type would be worse.
+/// Better than failing the whole query over one unknown type.
 fn unsupported(what: impl std::fmt::Display) -> Value {
     Value::String(format!("<{what}>"))
 }

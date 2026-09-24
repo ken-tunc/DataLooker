@@ -12,9 +12,7 @@ use super::value::{repeated, scalar_name};
 use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
 use crate::error::AppError;
 
-/// Datasets and the tables in them, and nothing about their columns: a project
-/// holds tens of thousands of tables and many times that many columns, and
-/// what a table holds is asked for when the table is opened.
+/// No columns: a project can hold tens of thousands of tables.
 pub async fn tree(
     client: &Client,
     project_id: &str,
@@ -30,8 +28,7 @@ pub async fn tree(
     Ok(assemble(&rows))
 }
 
-/// What one table holds. The names are the reader's, so they are sent as
-/// parameters rather than written into the statement.
+/// The names are sent as parameters rather than written into the statement.
 pub async fn columns(
     client: &Client,
     project_id: &str,
@@ -68,11 +65,9 @@ pub async fn columns(
         .collect())
 }
 
-/// What a table holds, with each column's whole type spelled out — the fields
-/// of a STRUCT and what an ARRAY holds — for reading a statement against. It
-/// is asked of the table itself rather than of `INFORMATION_SCHEMA`, which a
-/// query is billed for, so a table in any project can be asked about, and a
-/// table this key cannot see is one that is not there.
+/// Each column's whole type spelled out, for completion. Asked with
+/// `tables.get` rather than a billed `INFORMATION_SCHEMA` query, which also
+/// reaches a table in any project. A table this key cannot see is absent.
 pub async fn described(
     client: &Client,
     project_id: &str,
@@ -101,8 +96,7 @@ pub async fn described(
     ))
 }
 
-/// A column's type as a statement would write it. A field is always quoted:
-/// a name like `at` is a word BigQuery keeps for itself.
+/// A field is always quoted: a name like `at` is reserved.
 fn spelled(field: &TableFieldSchema) -> String {
     let base = match field.r#type {
         FieldType::Record | FieldType::Struct => format!(
@@ -143,8 +137,7 @@ fn text(cell: Option<&Value>) -> Option<String> {
     cell.and_then(Value::as_str).map(str::to_string)
 }
 
-/// The rows arrive ordered by dataset and then by table, so the one being
-/// built is always the last of each.
+/// The rows arrive ordered by dataset, then table.
 fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
     let mut schemas: Vec<Schema> = Vec::new();
 
@@ -168,8 +161,7 @@ fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
     SchemaTree { schemas }
 }
 
-/// A snapshot and a clone are tables that were made from another one, and read
-/// like any other table, so they are not told apart here.
+/// A snapshot or a clone reads like any other table.
 fn kind_of(table_type: Option<&str>) -> TableKind {
     match table_type {
         Some("VIEW") => TableKind::View,

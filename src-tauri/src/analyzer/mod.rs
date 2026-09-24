@@ -17,47 +17,38 @@ use tokio::sync::Mutex;
 use crate::error::AppError;
 use crate::lsp::framing;
 
-/// What the helper is called, where the app keeps its own tools.
 pub const BINARY: &str = "datalooker-bigquery-analyzer";
 
-/// The helper this app was written against. The two change in the same commit,
-/// so anything else is a helper left behind by another build.
+/// Any other version is a helper left behind by another build of the app.
 const VERSION: &str = "0.1.0";
 
-/// Where a reader who built the helper themselves says so, and how a test
-/// hands one over.
+/// Names a helper directly, for a reader who built one and for tests.
 const NAMED_BY: &str = "DATALOOKER_BQ_ANALYZER_BIN";
 
-/// How long the helper may take to say hello. Registering every function
-/// GoogleSQL knows is most of starting, and the first start reads a binary of
-/// tens of megabytes from disk.
+/// Starting registers every GoogleSQL function and reads a large binary.
 const STARTING: Duration = Duration::from_secs(10);
 
-/// How long an answer may take. One is milliseconds of work, so a helper past
-/// this is one that is not going to answer.
+/// An answer is milliseconds of work; past this, none is coming.
 const ANSWERING: Duration = Duration::from_secs(5);
 
-/// The helper, while it runs. Requests go one at a time, which the lock is
-/// for: an answer is read as the reply to the request just written.
+/// One request at a time: an answer is read as the reply to the last request.
 pub struct Analyzer {
     ours: PathBuf,
     running: Mutex<Option<Running>>,
 }
 
 struct Running {
-    // Held for `kill_on_drop`: letting go of the process is what stops it.
+    // Held for `kill_on_drop`.
     _child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     next_id: u64,
-    /// A request was written and its answer not read. A caller that gave up
-    /// part-way leaves this set, and the next one starts a helper afresh
-    /// rather than read the answer to someone else's question.
+    /// Set by a caller that gave up part-way, so the next one starts a fresh
+    /// helper rather than read someone else's answer.
     midway: bool,
 }
 
 impl Analyzer {
-    /// `ours` is the directory the app keeps the tools it fetched in.
     pub fn new(ours: PathBuf) -> Self {
         Self {
             ours,
@@ -65,8 +56,6 @@ impl Analyzer {
         }
     }
 
-    /// Ask the helper, starting it if it is not running. A helper that fails to
-    /// answer is stopped, and the next request starts another.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, AppError> {
         let mut running = self.running.lock().await;
         if running.as_ref().is_some_and(|process| process.midway) {
@@ -90,7 +79,7 @@ impl Analyzer {
     }
 }
 
-/// The helper to run: the one a reader named, then the one the app fetched.
+/// The one a reader named, then the one the app fetched.
 pub fn find(ours: &Path) -> Result<PathBuf, AppError> {
     if let Some(named) = std::env::var_os(NAMED_BY) {
         let path = PathBuf::from(named);
@@ -113,8 +102,7 @@ async fn start(binary: &Path) -> Result<Running, AppError> {
     let mut child = Command::new(binary)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        // It has nothing to say there but a crash, and a pipe nobody reads
-        // is one that fills and stops it.
+        // An unread pipe would fill and stop it.
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
@@ -172,8 +160,7 @@ impl Running {
             return Err(lost("it answered another request"));
         }
         if let Some(error) = reply.get("error") {
-            // A request it could not read is this app's mistake, not the
-            // reader's statement: what the statement says is always an answer.
+            // An unreadable request is this app's mistake, not the reader's.
             return Ok(Err(AppError::Shell(format!(
                 "{BINARY} refused {method}: {}",
                 error["message"].as_str().unwrap_or_default()
@@ -191,8 +178,7 @@ fn lost(why: &str) -> AppError {
 mod tests {
     use super::*;
 
-    /// The helper `bigquery-analyzer/` builds, named by the environment — or
-    /// nothing, when no one has built one. Only its absence is a skip.
+    /// `None`, a skip, when the environment names no helper.
     pub fn built() -> Option<PathBuf> {
         let named = std::env::var_os(NAMED_BY).map(PathBuf::from);
         if named.is_none() {

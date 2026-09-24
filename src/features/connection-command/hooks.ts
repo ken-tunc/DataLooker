@@ -11,11 +11,7 @@ import { subscribe } from "../../lib/events";
 import { connectionKeys } from "../connections/keys";
 import { commandKeys } from "./keys";
 
-/**
- * Which connections have a command up. Asked rather than assumed: a run the
- * window did not start is still a run — one a second window started, or one
- * left over from before this list was mounted.
- */
+/** Asked rather than assumed: a run may predate this list. */
 export function useRunningCommands() {
   return useQuery({ queryKey: commandKeys.running(), queryFn: runningConnectionCommands });
 }
@@ -41,9 +37,8 @@ export function useStopCommand() {
 }
 
 /**
- * Watch for commands ending. A command that was stopped ended because someone
- * said so; anything else is news — the tunnel the reader is querying through
- * has gone, and the last thing it wrote is usually why. Mount this once.
+ * An ending nobody asked for is news, and the last thing the command wrote is
+ * usually why. Mount this once.
  */
 export function useCommandExits() {
   const queryClient = useQueryClient();

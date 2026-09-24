@@ -40,9 +40,8 @@ pub struct Schema {
     pub tables: Vec<Table>,
 }
 
-/// What a table holds is not here: a project can hold tens of thousands of
-/// tables and many times that many columns, so the tree says what there is and
-/// a table's columns are asked for when it is opened.
+/// No columns: a project can hold tens of thousands of tables, so a table's
+/// columns are asked for when it is opened.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct Table {
@@ -79,8 +78,7 @@ pub struct Sort {
 
 #[derive(Clone, Copy)]
 pub struct Preview<'a> {
-    /// Read each row's version as well, which only a table has. A view has no
-    /// primary key either, so nothing asks for one.
+    /// Read each row's `xmin`, which only a table has.
     pub versioned: bool,
     pub schema: &'a str,
     pub table: &'a str,
@@ -91,10 +89,8 @@ pub struct Preview<'a> {
     pub offset: usize,
 }
 
-/// One row the reader changed. Values travel as the text they typed, or null
-/// for SQL NULL. `key` is the row's primary key, and `version` is the `xmin`
-/// the row was read with: PostgreSQL writes the transaction that last touched
-/// a row there, so a row someone else has changed no longer matches.
+/// Values are the text the reader typed, or null for SQL NULL. `version` is
+/// the `xmin` the row was read with, so a row changed since no longer matches.
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct RowUpdate {
@@ -119,8 +115,7 @@ pub struct RowDelete {
     pub version: String,
 }
 
-/// A page of a table, with the version of each row beside the rows themselves
-/// rather than in a column the reader would have to look at.
+/// Versions sit beside the rows rather than in a column the reader would see.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct TablePage {
@@ -128,16 +123,14 @@ pub struct TablePage {
     pub versions: Vec<String>,
 }
 
-/// What a driver can fail with. `Refused` is the driver declining to do
-/// something the database never heard about, which — unlike a protocol failure
-/// — leaves the session as healthy as it found it.
+/// `Refused` is the driver declining, before a statement or by rolling back
+/// what it ran, so unlike a protocol failure it leaves the session healthy.
 #[derive(Debug)]
 pub enum DriverError {
     Sql(sqlx::Error),
     Refused(String),
-    /// The connection cannot be reasoned about any more, whatever the server
-    /// said last — a transaction that would not end, say. What is left open on
-    /// it is not something the next caller should inherit.
+    /// A connection in an unknown state, such as a transaction that would not
+    /// end, which the next caller must not inherit.
     Broken(String),
 }
 
@@ -157,9 +150,7 @@ impl From<DriverError> for AppError {
     }
 }
 
-/// What a table's columns are called, what type each one has as PostgreSQL
-/// prints it, and which of them the primary key is made of. A table with no
-/// primary key cannot name a row, so it cannot be edited.
+/// A table with no primary key cannot name a row, so it cannot be edited.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct TableShape {
@@ -167,9 +158,7 @@ pub struct TableShape {
     pub primary_key: Vec<String>,
 }
 
-/// What a table is, as PostgreSQL's own catalogs describe it: the `CREATE`
-/// statement rebuilt from them, and the indexes and triggers that are not part
-/// of it.
+/// The `CREATE` statement, and the indexes and triggers it does not include.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct TableDefinition {

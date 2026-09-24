@@ -26,11 +26,7 @@ export type LanguageClient = {
   completions: (uri: string, at: Position) => Promise<CompletionItem[]>;
 };
 
-/**
- * How long to wait for an answer before doing without it. A suggestion that
- * arrives after the reader has typed on is about text that has changed, and a
- * request with no answer at all would leave the editor waiting for one.
- */
+/** Past this, a suggestion would be about text the reader has since changed. */
 const ANSWER_MS = 5_000;
 
 /** What the protocol calls a request for a method the receiver does not have. */
@@ -41,11 +37,7 @@ type Message = Record<string, unknown>;
 
 const clients = new Map<string, LanguageClient>();
 
-/**
- * The client for a connection, made when it is first asked for. One per
- * connection, because one server per connection is what the backend runs, and
- * every SQL tab of that connection is a document the server is told about.
- */
+/** One per connection, as the backend runs one server per connection. */
 export function languageClientFor(connectionId: string): LanguageClient {
   const known = clients.get(connectionId);
   if (known) return known;
@@ -55,29 +47,22 @@ export function languageClientFor(connectionId: string): LanguageClient {
 }
 
 function create(connectionId: string): LanguageClient {
-  /** Every document of this connection as it now stands, with the version the
-   * server that is up has been told about — zero for one it has never heard
-   * of. Kept whether or not there is a server: it is what a server is told
-   * when one starts. */
+  /** Every document of this connection, with the version the current server
+   * was told (zero: never). Kept across servers, so the next one can be told. */
   const documents = new Map<string, { text: string; version: number; told: number }>();
   const waiting = new Map<number, (result: unknown) => void>();
   let nextId = 1;
-  /** The one attempt to start a server, or nothing before the first ask and
-   * after a server has ended. A machine with none installed answers this once
-   * and is then left alone: there is no completion, and asking again on every
-   * keystroke would only be slower about it. */
+  /** The one attempt to start a server; null before the first ask and after a
+   * server ends. A failure is not retried on every keystroke. */
   let starting: Promise<boolean> | null = null;
-  /** One message at a time. Each is a separate call, and two in flight could
-   * reach the server in either order — a change before the open that made the
-   * document, or two changes the wrong way round. */
+  /** One message at a time: two calls in flight could reach the server in
+   * either order, such as a change before the open that made the document. */
   let queue: Promise<unknown> = Promise.resolve();
 
-  /** Which server is being talked to, so that a message built for the one
-   * before it can be dropped rather than sent to its replacement. */
+  /** So that a message meant for one server is not sent to its replacement. */
   let generation = 0;
 
-  // Nothing unsubscribes: a client lives as long as the window it was made in,
-  // and the connection it belongs to outlives any one server.
+  // Never unsubscribed: a client lives as long as the window.
   subscribe("lsp:message", (message) => {
     if (message.connection_id === connectionId) received(message);
   });
@@ -92,18 +77,15 @@ function create(connectionId: string): LanguageClient {
     } catch {
       return;
     }
-    // Valid JSON that is not a message: `null` is what a server that has lost
-    // its place sends, and reading a field off it would throw where nobody is
-    // listening for one.
+    // Valid JSON need not be a message; a lost server sends `null`.
     if (said === null || typeof said !== "object" || Array.isArray(said)) return;
     const message = said as Message;
 
-    // A server asking the editor something. Nothing here answers one, and a
-    // request nobody answers is a server waiting, so it is refused.
+    // Nothing here answers a server's request, so refuse it rather than leave
+    // the server waiting.
     const { method, id } = message;
     if (typeof method === "string" && id !== undefined) {
-      // Whoever asked is the only one the answer means anything to: an id is
-      // the asking server's, and the next one may be using it for its own.
+      // The id belongs to the server that asked; its replacement may reuse it.
       const its = generation;
       void send(() =>
         its === generation
@@ -120,15 +102,13 @@ function create(connectionId: string): LanguageClient {
 
     const answer = waiting.get(message.id);
     waiting.delete(message.id);
-    // An error is an answer: there is nothing to show for it, and the reader
-    // asked for a suggestion rather than for news about the server.
+    // An error just means there is nothing to suggest.
     answer?.(message.error === undefined ? message.result : null);
   }
 
   /**
-   * A server that is gone. The client stays — the editors of this connection
-   * are holding it — and what it holds is the documents, so the next thing
-   * asked of it starts a server and tells that one about them.
+   * The editors keep holding this client, so it stays; the next request starts
+   * a server and tells it about the documents.
    */
   function ended() {
     if (starting === null) return;
@@ -143,8 +123,7 @@ function create(connectionId: string): LanguageClient {
   function ready(): Promise<boolean> {
     starting ??= startLanguageServer(connectionId).then(
       () => true,
-      // No server installed, or none for this driver. There is no completion
-      // then, which is the whole of what it means here.
+      // No server installed: no completion.
       () => false,
     );
     return starting;
@@ -153,9 +132,7 @@ function create(connectionId: string): LanguageClient {
   function deliver(message: Message): Promise<boolean> {
     return sendToLanguageServer(connectionId, JSON.stringify(message)).then(
       () => true,
-      // The server this was for is not there. Its ending may be on its way as
-      // an event or may have been missed, and either way what is true now is
-      // that the next thing asked for starts a server.
+      // The server is gone, whether or not its exit event arrived.
       () => {
         ended();
         return false;
@@ -164,11 +141,9 @@ function create(connectionId: string): LanguageClient {
   }
 
   /**
-   * One message, once there is a server and once every message before it has
-   * gone. What to send is decided when its turn comes rather than when it is
-   * asked for: a server can end while a message is waiting, and what was true
-   * of the document then is not what the next server needs to hear. `null` is
-   * a message there is no longer anything to say.
+   * What to send is built when its turn comes, not when it is queued: a server
+   * can end while a message waits, and the next one needs to hear something
+   * else. `null` means there is nothing left to say.
    */
   function send(build: () => Message | null): Promise<boolean> {
     const sent = queue.then(async () => {
@@ -184,8 +159,7 @@ function create(connectionId: string): LanguageClient {
   function tell(uri: string): Promise<boolean> {
     return send(() => {
       const document = documents.get(uri);
-      // Closed while it waited, or already told to this server in the state it
-      // is in — a second message would say the same thing twice.
+      // Closed while it waited, or this server already knows this version.
       if (!document || document.told === document.version) return null;
 
       const { text, version, told } = document;
@@ -199,9 +173,7 @@ function create(connectionId: string): LanguageClient {
         : {
             jsonrpc: "2.0",
             method: "textDocument/didChange",
-            // The whole text every time: what the server said it wanted is
-            // full synchronization, which is also the only kind that cannot
-            // drift from what the editor holds.
+            // Full synchronization: what sqls asks for, and it cannot drift.
             params: { textDocument: { uri, version }, contentChanges: [{ text }] },
           };
     });
@@ -217,10 +189,8 @@ function create(connectionId: string): LanguageClient {
         version: (known?.version ?? 0) + 1,
         told: known?.told ?? 0,
       });
-      // Nothing is listening yet, and opening a tab is no reason to start a
-      // server: sqls reads the whole schema on its way up, and a reader who
-      // asks nothing of it never needed that read. The text is kept, and the
-      // server that does start is told about it.
+      // Opening a tab does not start a server: sqls reads the whole schema on
+      // start. The server that does start is told about the text.
       if (starting !== null) void tell(uri);
     },
 
@@ -229,8 +199,7 @@ function create(connectionId: string): LanguageClient {
       if (!document) return;
       documents.delete(uri);
       if (document.told === 0) return;
-      // Only the server that was told about it has anything to forget, and
-      // only while it is still the server.
+      // Only the server that was told about it has anything to forget.
       const its = generation;
       void send(() =>
         its === generation
@@ -244,7 +213,7 @@ function create(connectionId: string): LanguageClient {
     },
 
     async completions(uri, at) {
-      // What a server is for, and so what starts one.
+      // Completion is what starts a server.
       if (!(await ready())) return [];
       // Every document that is not as the server last heard it, which after a
       // server has ended is all of them.
@@ -270,9 +239,8 @@ function create(connectionId: string): LanguageClient {
         return [];
       }
 
-      // Counted from the moment the question left rather than from the moment
-      // it was asked: what is being waited for is the server's answer, and a
-      // queue ahead of it is not the server being slow.
+      // Timed from when the request left: time in the queue is not the server
+      // being slow.
       const late = setTimeout(() => {
         if (waiting.delete(id)) answer(null);
       }, ANSWER_MS);
@@ -285,20 +253,12 @@ function create(connectionId: string): LanguageClient {
   return client;
 }
 
-/**
- * Say that a server has been installed for a connection whose one attempt to
- * start one failed. Nothing else would: a client asks once, so that a machine
- * with no server is not asked again on every keystroke, and what changes that
- * is a server appearing.
- */
+/** After a server is installed, allow a client whose one start failed to try again. */
 export function startServerAgain(connectionId: string) {
   clients.get(connectionId)?.startAgain();
 }
 
-/**
- * The items out of a completion answer. The protocol allows either a list of
- * them or an object holding one, and says nothing about which a server sends.
- */
+/** The protocol allows either a list of items or an object holding one. */
 export function itemsOf(result: unknown): CompletionItem[] {
   if (Array.isArray(result)) return result as CompletionItem[];
   if (result !== null && typeof result === "object") {

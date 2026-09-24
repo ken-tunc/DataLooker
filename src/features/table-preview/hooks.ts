@@ -18,7 +18,6 @@ export function useTableShape(connectionId: string, schema: string, table: strin
   });
 }
 
-/** What a table is made of changes as rarely as its shape does. */
 export function useTableDefinition(connectionId: string, schema: string, table: string) {
   return useQuery({
     queryKey: previewKeys.definition(connectionId, schema, table),
@@ -28,9 +27,8 @@ export function useTableDefinition(connectionId: string, schema: string, table: 
 }
 
 /**
- * `ready` waits for the shape, which decides whether the page is read with row
- * versions. Reading it before then would read the page twice: once without
- * versions and again once the shape arrived.
+ * `ready` waits for the shape, which decides whether rows are read with their
+ * versions; otherwise the page would be read twice.
  */
 export function useTablePreview(
   connectionId: string,
@@ -49,8 +47,7 @@ export function useTablePreview(
       tab.page,
       editable,
     ),
-    // Filtering, sorting and paging keep the rows on screen until the next
-    // ones arrive, rather than blanking the grid between them.
+    // Keep the rows on screen until the next ones arrive.
     placeholderData: keepPreviousData,
     queryFn: () =>
       previewTable({
@@ -60,13 +57,10 @@ export function useTablePreview(
         filter: tab.filter,
         sort: tab.sort,
         page: tab.page,
-        // Row versions are what an edit is checked against, and only a table
-        // that can name its rows has anything to edit.
         versioned: editable,
-        // The id registers the statement so that a cancel can reach it. Nothing
-        // cancels a preview yet: React Query aborts a query whenever its key
-        // changes or its component remounts, and turning those into a backend
-        // cancel made the reader's own request fail.
+        // React Query's abort signal is not wired to a backend cancel: it fires
+        // on every key change and remount, which would cancel the reader's own
+        // request.
         query_id: crypto.randomUUID(),
       }),
   });

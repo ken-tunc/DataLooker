@@ -18,8 +18,6 @@ impl App {
         .await
     }
 
-    /// What one table holds. The tree says what there is rather than what is
-    /// in it, so this is what an opened table asks for.
     pub async fn table_columns(
         &self,
         connection_id: &str,
@@ -36,8 +34,6 @@ impl App {
         .await
     }
 
-    /// What a relation is, as the `CREATE` statement that would make it again,
-    /// with the indexes and triggers that stand beside it.
     pub async fn table_definition(
         &self,
         connection_id: &str,
@@ -65,8 +61,7 @@ mod tests {
             .map(|_| ())
     }
 
-    /// A table of this test's own, so that tests running side by side do not
-    /// read each other's.
+    /// Per test: they run side by side.
     async fn table(app: &App, id: &str) -> String {
         let name = format!("catalog_{}", uuid::Uuid::new_v4().simple());
         run(

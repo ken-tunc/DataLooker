@@ -1,18 +1,12 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * A pane the reader can resize, and the bounds a size is held to. The bounds
- * are what keep a size stored on a bigger screen from hiding everything beside
- * the pane on a smaller one.
- */
+/** The bounds keep a size stored on a bigger screen usable on a smaller one. */
 export type Pane = { key: string; initial: number; min: number; max: number };
 
 /**
- * How big each pane was dragged to. Every tab has an editor and there is one
- * sidebar, and the reader who drags one editor taller means the next one too,
- * so a size belongs to the window rather than to a tab. It is kept in
- * `localStorage` for the reason the vim toggle is: it is how this window is
- * laid out, not something DataLooker knows.
+ * Per window rather than per tab: dragging one editor taller means the next
+ * one too. In `localStorage`, because it is how this window is laid out, not
+ * something DataLooker knows.
  */
 const sizes = new Map<string, number>();
 const listeners = new Set<() => void>();
@@ -22,7 +16,7 @@ function stored(key: string): number | undefined {
     const value = Number(localStorage.getItem(key));
     return value > 0 ? value : undefined;
   } catch {
-    // Storage the browser refuses is no preference, as is never having set one.
+    // Storage the browser refuses is no preference.
     return undefined;
   }
 }
@@ -49,7 +43,7 @@ function resize(pane: Pane, size: number | null) {
     if (size === null) localStorage.removeItem(pane.key);
     else localStorage.setItem(pane.key, String(next));
   } catch {
-    // The size still holds for this run; it just will not outlive it.
+    // It still holds for this run.
   }
   for (const listener of listeners) listener();
 }

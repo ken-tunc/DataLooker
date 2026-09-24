@@ -8,15 +8,13 @@ import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
 import { ResultGrid } from "./ResultGrid";
 import { useQueryRunner } from "./hooks";
 
-// Monaco is the heaviest thing here by far, so it arrives in its own chunk when
-// a connection is opened rather than at startup.
+// Monaco is by far the heaviest thing here, so it loads on first use.
 const SqlEditor = lazy(() => import("../sql-editor/SqlEditor"));
 
 const EDITOR: Pane = { key: "datalooker.editor-height", initial: 224, min: 80, max: 2000 };
 
 type Props = {
   connectionId: string;
-  /** Which document this tab is, where a language server can see it. */
   tabId: string;
   sql: string;
   onSqlChange: (sql: string) => void;
@@ -39,8 +37,6 @@ export function QueryTabPane({
   const { run, cancel } = useQueryRunner(connectionId);
   const [editorHeight] = usePaneSize(EDITOR);
   const { show } = useToast();
-  // The tree the sidebar is already showing, which is what a name is looked up
-  // in — one cache, so asking here costs no request.
   const tree = useSchemaTree(connectionId);
   const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
 
@@ -48,15 +44,9 @@ export function QueryTabPane({
     if (sql.trim() !== "" && !run.isPending) run.mutate(sql);
   }
 
-  /**
-   * An unqualified name can mean a table in any schema the search path
-   * reaches, and which one is the server's answer rather than this tree's, so
-   * more than one is handed to the palette rather than guessed at.
-   */
+  /** Several matches go to the palette: the search path decides, not the tree. */
   function jump(name: QualifiedName) {
-    // Nothing is missing while the tree is still on its way, and nothing is
-    // known once reading it failed. Either way, saying the name is not there
-    // would be saying more than is known.
+    // Without a tree, "not found" would claim more than is known.
     if (tree.isPending) {
       show("The schema is still being read.", "info");
       return;
@@ -73,8 +63,7 @@ export function QueryTabPane({
   }
 
   return (
-    // Hidden rather than unmounted: a tab keeps its editor and its results
-    // while another one is in front.
+    // Hidden rather than unmounted, so the editor and results survive.
     <div className={`flex min-h-0 flex-1 flex-col gap-2 p-3 ${hidden ? "hidden" : ""}`}>
       <div className="flex items-center gap-2">
         {run.isPending ? (

@@ -19,7 +19,7 @@ is the app's.
 
 Bazel builds it, pinned by `.bazelversion`; [bazelisk](https://github.com/bazelbuild/bazelisk)
 reads that file and fetches the version. The first build compiles GoogleSQL and
-takes a quarter of an hour or more; the app does not need it to be built, and
+takes a long time; the app does not need it to be built, and
 fetches the build CI publishes.
 
 ```bash
@@ -32,14 +32,9 @@ The last line prints where the binary is: `.bazelrc` keeps Bazel's `bazel-*`
 links out of the tree. `DATALOOKER_BQ_ANALYZER_BIN` hands a build of your own to
 the app.
 
-`.github/workflows/analyzer.yml` runs the tests on Linux wherever the helper's
-code changes, and publishes it, built for Apple silicon, as the Release
-`analyzer-v<version>` — the version `main.cc` answers `hello` with — when a
-change to it reaches `main` with a version that has not been published. A
-change to the helper is therefore a change to `kVersion`: one version is one
-binary, and a change without one fails there. The app fetches the build from
-the address and at the hash `src-tauri/src/analyzer/fetch.rs` writes down,
-which is changed once the Release exists.
+`.github/workflows/analyzer.yml` tests it and publishes the Apple silicon build
+as `analyzer-v<version>`. Any change to the helper other than Markdown is
+therefore a change to `kVersion` in `main.cc`: one version is one binary.
 
 ## Protocol
 
@@ -54,9 +49,8 @@ its dots, as BigQuery does.
 
 ### `hello`
 
-Returns `{"version": "0.1.0", "googlesql": "2026.9.2"}`. The app and the helper
-change in the same commit, so the app expects exactly the version it was built
-with.
+Returns an object with `version` (the helper's) and `googlesql` fields. The app
+expects exactly the version it was built with.
 
 ### `complete`
 
@@ -123,7 +117,7 @@ A parameter takes its type from an operand beside it, but not from the clause
 it is in or the function it is passed to. The probe is therefore tried as
 something that adapts, then as a `BOOL`, a `TIMESTAMP`, a `DATE`, a `STRING` and
 a `FLOAT64`, and the first the statement accepts is the answer — and says which
-type the place wanted. An analysis takes about a millisecond.
+type the place wanted.
 
 A `GROUP BY` is not answered: grouping by the probe leaves the select list
 naming columns that are no longer grouped.

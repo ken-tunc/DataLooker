@@ -1,8 +1,6 @@
-//! The window's way into `App`. Every command is declared once, in `commands!`
-//! below, and that one declaration is what Tauri is handed, what each
-//! function's signature is checked against, and what `src/bindings/Commands.ts`
-//! is generated from — so a command renamed, or an argument added, here fails
-//! the frontend's type check rather than a click in the running app.
+//! The window's way into `App`. `commands!` is the one declaration Tauri is
+//! handed, each signature is checked against, and `src/bindings/Commands.ts` is
+//! generated from, so a changed command fails the frontend's type check.
 
 pub mod agents;
 pub mod completion;
@@ -45,9 +43,7 @@ struct Call<A, R> {
     returns: R,
 }
 
-/// A command's signature, checked when this file compiles: the list below is
-/// what the bindings are written from, and a function that took or answered
-/// with something else would make them lie.
+/// Checked at compile time, so the bindings cannot disagree with the function.
 fn takes<A, R, F, Fut>(_: F)
 where
     F: Fn(A, State<'static, Arc<App>>) -> Fut,
@@ -273,7 +269,7 @@ mod tests {
             Ok(json!([]))
         );
 
-        // What the frontend sent before arguments had a type of their own.
+        // Arguments outside `args` are refused.
         assert!(send(&window, "query_history", json!({ "connectionId": "ghost" })).is_err());
         assert!(send(
             &window,

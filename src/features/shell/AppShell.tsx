@@ -15,10 +15,7 @@ const SIDEBAR: Pane = { key: "datalooker.sidebar-width", initial: 288, min: 200,
 /** Which palette is in front, if any. Only one can be: each is modal. */
 type Palette = { kind: "tables"; query?: string } | { kind: "history" } | null;
 
-/**
- * Holds what the rail and the workspace both need — which connection is in
- * front, and the tabs each one has open — and leaves the rest to them.
- */
+/** Holds only what the rail and the workspace share. */
 export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [palette, setPalette] = useState<Palette>(null);
@@ -33,11 +30,9 @@ export function AppShell() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!selectedId) return;
-      // A palette is modal on screen, so the shortcuts behind it stay quiet
-      // until it closes — a tab opened under it would go unnoticed.
+      // A tab opened under a modal palette would go unnoticed.
       if (palette) return;
-      // Opening a tab is what gets a connection out of having none, so it comes
-      // before the shortcuts that need one.
+      // Before the shortcuts that need a connection: this is how one gets a tab.
       if (event.key === "t" && event.metaKey) {
         event.preventDefault();
         tabs.open(selectedId);

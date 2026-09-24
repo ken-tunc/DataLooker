@@ -17,27 +17,20 @@ use ts_rs::TS;
 use super::{framing, LspRegistry};
 use crate::error::AppError;
 
-/// How long a server may take to answer `initialize`. It reads the database it
-/// will complete against first, so this is a schema being read rather than a
-/// process starting.
+/// A server reads the whole schema before answering `initialize`.
 const HANDSHAKE: Duration = Duration::from_secs(20);
 
-/// How many messages may be waiting to be written before the window is made to
-/// wait. A keystroke is a message, so a server that has stopped reading is one
-/// the reader should hear about rather than queue behind.
+/// A keystroke is a message, so a server that stops reading is reported
+/// rather than queued behind.
 const QUEUED: usize = 64;
 
-/// The id `initialize` is asked under. It is a string because the window's own
-/// ids are numbers: the one message that carries the connection's password is
-/// sent from here, and nothing out there can answer to its id by accident.
+/// A string, so it cannot collide with the window's numeric ids.
 const HANDSHAKE_ID: &str = "datalooker:initialize";
 
-/// How much of a server's complaining to keep. It is worth having only to say
-/// why one died.
+/// Enough of stderr to say why a server died.
 const KEPT_LINES: usize = 20;
 
-/// What a server said, as it said it. The window parses it: what a message
-/// means is the client's business, and this is the pipe it arrives through.
+/// Unparsed: what a message means is the window's business.
 #[derive(Clone, Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct LspMessage {
@@ -45,14 +38,12 @@ pub struct LspMessage {
     pub payload: String,
 }
 
-/// A server that is no longer there. Whoever was talking to it should stop.
 #[derive(Clone, Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct LspExit {
     pub connection_id: String,
 }
 
-/// Either of the two things that reach the window from a server.
 #[derive(Clone, Debug)]
 pub enum LspNotice {
     Said(LspMessage),
@@ -61,23 +52,19 @@ pub enum LspNotice {
 
 pub struct LspSession {
     pub connection_id: String,
-    /// New for every start, so that a server dying can take its own entry out
-    /// of the registry without evicting the one that replaced it.
+    /// New for every start, so a dying server does not evict its replacement.
     pub id: String,
-    /// What the server said it can do, kept for whoever asks for a server that
-    /// is already running.
+    /// For whoever asks for a server that is already running.
     pub capabilities: Value,
     outbound: mpsc::Sender<String>,
     child: Mutex<Option<Child>>,
-    /// Taken by `listen`, which is what the session is for. Held here so that
-    /// the registry can have the session before anything is read from it.
+    /// Taken by `listen`, once the registry holds the session.
     reading: Mutex<Option<BufReader<ChildStdout>>>,
 }
 
 impl LspSession {
-    /// Start the server and get through `initialize`, answering with what it
-    /// says it can do. `options` is the server's own `initializationOptions`,
-    /// which is where the connection — password and all — is handed over.
+    /// `options` becomes `initializationOptions`, which is how the connection,
+    /// password and all, is handed over without a file.
     pub async fn start(
         connection_id: &str,
         binary: &std::path::Path,
@@ -123,9 +110,8 @@ impl LspSession {
         }))
     }
 
-    /// Read what the server says until it stops saying anything. Call this once
-    /// the registry holds the session: the reader takes it out again at the
-    /// end, which must not happen before it was ever put in.
+    /// Call once the registry holds the session: the reader takes it out again
+    /// at the end.
     pub fn listen(
         self: &Arc<Self>,
         registry: Arc<LspRegistry>,
@@ -142,32 +128,26 @@ impl LspSession {
                     payload,
                 }));
             }
-            // Out of the registry before the word goes out, so that whoever
-            // hears it and starts a server gets a new one rather than this.
-            // A server that was already replaced says nothing: the ending is
-            // about the connection, and the connection has a server.
+            // Out of the registry before announcing, so a listener starts a new
+            // one. A server already replaced says nothing: the connection still
+            // has a server.
             if registry.remove_session(&connection_id, &id) {
                 let _ = notices.send(LspNotice::Ended(LspExit { connection_id }));
             }
         });
     }
 
-    /// Hand a message to the server. A full queue is a server that has stopped
-    /// reading, which is worth saying rather than waiting on.
     pub fn send(&self, message: String) -> Result<(), AppError> {
         self.outbound
             .try_send(message)
             .map_err(|e| AppError::Shell(format!("the language server is not listening: {e}")))
     }
 
-    /// Kill it. A language server holds nothing that outlives it — no
-    /// transaction of the reader's, nothing written down — so the protocol's
-    /// parting words would buy a wait and nothing else.
+    /// Killed rather than shut down: a language server holds nothing that
+    /// outlives it, so `shutdown` would only buy a wait.
     pub fn stop(&self) {
-        // Letting go of the child is what kills it — it was spawned to be
-        // killed on drop, and reaped in the background from there. Stopping
-        // stays synchronous because the app on its way out stops every server
-        // from outside any runtime, where spawning anything would panic.
+        // `kill_on_drop`. Synchronous, because quitting calls this outside any
+        // runtime, where spawning would panic.
         drop(self.child.lock().unwrap().take());
     }
 
@@ -184,8 +164,6 @@ impl LspSession {
     }
 }
 
-/// `initialize`, then `initialized`, which is what the protocol asks for
-/// before anything else may be sent.
 async fn handshake<W, R>(to: &mut W, from: &mut R, options: Value) -> Result<Value, AppError>
 where
     W: tokio::io::AsyncWrite + Unpin,
@@ -206,9 +184,7 @@ where
 
     let spoken = async {
         framing::write(to, &hello).await?;
-        // A server may say something of its own before it answers — a log
-        // line, a progress report. There is no one to hear it yet: the window
-        // learns nothing until it knows what the server can do.
+        // A server may log before it answers; nobody is listening yet.
         loop {
             let Some(payload) = framing::read(from).await? else {
                 return Err(std::io::Error::new(
@@ -248,9 +224,7 @@ where
         .unwrap_or(Value::Null))
 }
 
-/// Keep the last lines a server writes to its stderr. It is read rather than
-/// ignored because a pipe nobody empties fills, and a server writing into a
-/// full one stops.
+/// Read rather than ignored: a server writing into a full pipe stops.
 fn complaints_of<R>(stderr: Option<R>) -> Arc<Mutex<VecDeque<String>>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -271,8 +245,6 @@ where
     kept
 }
 
-/// A server that would not start is one the reader has to do something about,
-/// and what it wrote on its way out is the only thing that says what.
 fn with_complaints(e: AppError, complaints: &Mutex<VecDeque<String>>) -> AppError {
     let said = complaints
         .lock()

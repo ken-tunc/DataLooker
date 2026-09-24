@@ -6,8 +6,7 @@ use crate::app::App;
 use crate::drivers::{Preview, Sort, TablePage};
 use crate::error::AppError;
 
-/// A page of a table. Small enough that paging through one is quick, large
-/// enough that the first page fills the grid.
+/// Quick to page through, and enough to fill the grid.
 const PAGE: usize = 500;
 
 #[derive(Debug, Deserialize, TS)]
@@ -19,12 +18,10 @@ pub struct PreviewRequest {
     /// A WHERE expression the reader wrote, or empty for none.
     pub filter: String,
     pub sort: Option<Sort>,
-    /// Read each row's version too, which a caller asks for when it means to
-    /// offer editing.
+    /// Read each row's `xmin`, for editing.
     pub versioned: bool,
     pub page: u32,
-    /// Registers the preview where a running query would be, so `cancel_query`
-    /// stops either of them.
+    /// So `cancel_query` stops a preview too.
     pub query_id: String,
 }
 

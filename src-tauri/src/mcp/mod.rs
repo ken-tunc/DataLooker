@@ -27,31 +27,23 @@ use crate::app::App;
 use crate::error::AppError;
 use tools::Agent;
 
-/// The one path this server answers on, which is what a reader hands to an
-/// agent along with the port.
 const PATH: &str = "/mcp";
 
-/// How many agents may be talking at once. Anything on this machine can open a
-/// socket here and say nothing, and a socket that is never spoken on is one
-/// nobody is served through — so there is a number of them, and no more.
+/// Anything on this machine can open a socket and say nothing, so connections
+/// are capped.
 const AT_ONCE: usize = 32;
 
-/// How long either half of a request may take to arrive. Opening a connection
-/// and holding it silent is the cheapest way to take one of the places above,
-/// and a body that arrives a byte at a time is the same thing said more
-/// slowly — so the headers are on a clock and so is the body. It is half
-/// because hyper reads the one and this code reads the other, and neither can
-/// see the other's clock; a request is therefore at most twice this in the
-/// saying. The clock is on the saying alone: what the app takes to answer is
-/// not on it, since reading a schema can be slow and still be work.
+/// How long the headers, and then the body, may take to arrive, so a silent or
+/// trickling client cannot hold a connection. hyper times the headers and this
+/// code the body, so a request may take twice this. Answering is not timed:
+/// reading a schema can be slow and still be work.
 #[cfg(not(test))]
 const HALF_A_REQUEST: Duration = Duration::from_secs(5);
-/// Shorter where it is being watched: a test of a deadline should not spend
-/// the deadline. What is being tested is that it arrives, not how long it is.
+/// A test checks that the deadline arrives, not how long it is.
 #[cfg(test)]
 const HALF_A_REQUEST: Duration = Duration::from_millis(150);
 
-/// The most an agent may say in one request. A tool call is a line of JSON.
+/// A tool call is a line of JSON.
 const MOST: usize = 1024 * 1024;
 
 /// A server that is up. Dropping this does not stop it; `stop` does, and so
@@ -59,28 +51,23 @@ const MOST: usize = 1024 * 1024;
 pub struct Listening {
     pub port: u16,
     stop: CancellationToken,
-    /// The task holding the socket. It is awaited when the port is wanted
-    /// again: cancelling only says to stop, and until the task has let go the
-    /// port is still taken.
+    /// Awaited on `stop`: until the task lets go, the port is still taken.
     serving: tokio::task::JoinHandle<()>,
 }
 
 impl Listening {
-    /// Stop, and wait until the port is free.
     pub async fn stop(self) {
         self.stop.cancel();
         let _ = self.serving.await;
     }
 
-    /// Stop without waiting, for an app on its way out: nothing is going to
-    /// ask for the port after this.
+    /// Without waiting, for an app on its way out.
     pub fn cancel(&self) {
         self.stop.cancel();
     }
 }
 
-/// Start answering agents on the loopback address. `port` of zero asks the
-/// system for one, which is how a reader gets a port to keep.
+/// `port` zero asks the system for one, which is then kept.
 pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening, AppError> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
         .await
@@ -91,9 +78,9 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
         .port();
 
     let stop = CancellationToken::new();
-    // One request, one answer: nothing here streams, and a session to resume
-    // would be a session to keep. The struct is built rather than written out
-    // because the crate reserves the right to add fields to it.
+    // One request, one answer: nothing streams, and a resumable session is a
+    // session to keep. Assigned field by field because the struct is
+    // non-exhaustive.
     let mut config = StreamableHttpServerConfig::default();
     config.json_response = true;
     config.legacy_session_mode = false;
@@ -109,8 +96,8 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
     let room = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
     let accepting = tokio::spawn(async move {
         loop {
-            // Room first, then a socket: a connection that is not accepted
-            // waits in the system's own queue rather than in a task of ours.
+            // Before accepting, so a waiting connection queues in the OS rather
+            // than in a task of ours.
             let Ok(taking) = Arc::clone(&room).acquire_owned().await else {
                 break;
             };
@@ -126,8 +113,7 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
             tokio::spawn(async move {
                 let _taking = taking;
                 let mut http = Builder::new(TokioExecutor::new());
-                // A deadline needs something to measure with, and hyper takes
-                // no clock of its own.
+                // hyper panics on a deadline without a timer.
                 http.http1()
                     .timer(TokioTimer::new())
                     .header_read_timeout(HALF_A_REQUEST);
@@ -164,8 +150,6 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
 
 type Refusal = Response<http_body_util::combinators::BoxBody<Bytes, Infallible>>;
 
-/// Whether to answer this request at all. An agent that does not present the
-/// token is not one the reader handed it to.
 fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
     if request.uri().path() != PATH {
         return Some(refusal(StatusCode::NOT_FOUND, "There is nothing here."));
@@ -175,9 +159,8 @@ fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
         .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    // Constant time is not the point here: the token is only reachable from
-    // this machine, and a reader who is being timed on loopback has already
-    // lost. What matters is that an empty one never matches.
+    // Not constant time: anything that can time loopback is already inside.
+    // An empty token must never match.
     if token.is_empty() || presented != Some(token) {
         return Some(refusal(
             StatusCode::UNAUTHORIZED,
@@ -187,11 +170,8 @@ fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
     None
 }
 
-/// The whole of what the agent said, or what to answer instead. It is read
-/// here rather than left to the service so that the deadline covers a body
-/// that never finishes arriving.
-// The refusal is boxed because it is the larger half by far, and this is
-// the half that is not taken.
+/// Read here rather than by the service, so that the deadline covers the body.
+// Boxed: the refusal is by far the larger variant and the rarer one.
 async fn said(request: Request<Incoming>) -> Result<Request<Full<Bytes>>, Box<Refusal>> {
     let (head, body) = request.into_parts();
     match tokio::time::timeout(HALF_A_REQUEST, Limited::new(body, MOST).collect()).await {
@@ -250,8 +230,7 @@ mod tests {
             .expect("a port to answer on")
     }
 
-    /// One request, written out by hand: what is being tested is what this
-    /// server answers to an agent that is not this app.
+    /// Written by hand, as an agent that is not this app would.
     async fn asked(port: u16, token: &str, body: Value) -> (u16, String) {
         let body = body.to_string();
         let request = format!(
@@ -315,8 +294,7 @@ mod tests {
     #[tokio::test]
     async fn answers_an_agent_that_speaks_an_older_protocol() {
         let server = answering().await;
-        // What a client of today sends. The version it asks for is the one it
-        // is answered in, which is the whole of what negotiating means here.
+        // An older protocol version is answered in that version.
         let hello = greeted_as(server.port, "2025-06-18").await;
 
         assert_eq!(hello["result"]["protocolVersion"], "2025-06-18");
@@ -328,8 +306,7 @@ mod tests {
     async fn lets_go_of_a_connection_that_says_nothing() {
         let server = answering().await;
 
-        // Opened and then left silent, which is how the room above would be
-        // taken by something that never means to ask anything.
+        // Opened and left silent.
         let mut quiet = Vec::new();
         for _ in 0..4 {
             quiet.push(
@@ -350,8 +327,7 @@ mod tests {
     async fn lets_go_of_a_request_that_stops_half_way() {
         let server = answering().await;
 
-        // Headers that promise a body, and then a body that never comes: the
-        // slowest way to hold one of the connections there is room for.
+        // Headers that promise a body that never comes.
         let mut trailing = TcpStream::connect(("127.0.0.1", server.port))
             .await
             .unwrap();
@@ -373,8 +349,7 @@ mod tests {
         // Ours rather than the server's own idea of a timeout.
         assert!(answered.contains("Say what you want"), "{answered}");
 
-        // And the connection it was holding is there for an agent that means
-        // to ask something.
+        // The connection it held is free again.
         let hello = greeted(server.port).await;
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
 

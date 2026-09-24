@@ -9,15 +9,12 @@ const required = (field: string) => z.string().trim().min(1, `${field} is requir
 
 const PORT_RANGE = "Port must be between 1 and 65535";
 
-// Every field holds what the input element holds — a string — and the form
-// holds every driver's fields at once, so that picking the other driver and
-// coming back finds what was typed.
+// Every driver's fields at once, so switching drivers and back keeps what was
+// typed.
 const shared = {
   label: required("Label"),
   secret: z.string(),
-  // What the reader runs before connecting, if anything: a port forward, an
-  // SSH tunnel. Nothing checks what it says — it is a shell command, and the
-  // shell is what reads it.
+  // Unchecked: the shell is what reads it.
   command: z.string().trim(),
 };
 
@@ -65,14 +62,12 @@ export const EMPTY_FORM: ConnectionFormValues = {
   database: "",
   username: "",
   project: "",
-  // Where a project is read from when nobody says otherwise, and the one
-  // multi-region a new project is likeliest to be in.
+  // BigQuery's default.
   location: "US",
   secret: "",
   command: "",
 };
 
-/** What the secret is called, which is not the same thing for every driver. */
 export const SECRET_LABELS: Record<DriverKind, string> = {
   postgres: "Password",
   bigquery: "Service account key",
@@ -83,12 +78,9 @@ export type ParseResult =
   | { ok: false; errors: FieldErrors };
 
 /**
- * An edit may leave the secret blank, which means "keep the stored one"; a new
- * or duplicated connection has nothing stored yet, so it must carry one. So
- * does an edit that changes the driver: what is stored is a password where a
- * service account key is now wanted, or the other way round. Only the fields
- * of the driver that was picked are read: the others hold whatever the reader
- * typed before changing their mind.
+ * An edit may leave the secret blank to keep the stored one, unless it changes
+ * the driver: a password is not a service account key. A new or duplicated
+ * connection must carry one. Only the picked driver's fields are read.
  */
 export function parseConnectionForm(
   values: ConnectionFormValues,

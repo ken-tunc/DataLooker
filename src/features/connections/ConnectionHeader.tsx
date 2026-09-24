@@ -17,10 +17,7 @@ type Props = {
   onRemoved: (id: string) => void;
 };
 
-/**
- * The name of the connection in front, and everything that can be done to it.
- * It is also where the window is dragged from, beside the rail.
- */
+/** Also where the window is dragged from. */
 export function ConnectionHeader({ connectionId, onRemoved }: Props) {
   const { show } = useToast();
   const connection = useConnections().data?.find(({ id }) => id === connectionId);

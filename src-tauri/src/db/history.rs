@@ -4,9 +4,7 @@ use ts_rs::TS;
 
 use crate::error::AppError;
 
-/// How many runs of one connection are kept. Enough that what a reader is
-/// looking for is still there, and bounded, so that a long-lived database file
-/// does not grow for ever.
+/// Runs kept per connection, so meta.db does not grow for ever.
 pub const KEEP: u32 = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -24,9 +22,7 @@ pub struct HistoryEntry {
     pub source: Source,
 }
 
-/// Who ran it. A statement an agent was asked for is still a statement that
-/// ran against the reader's database, and which of them it was is what makes
-/// the log worth keeping.
+/// An agent's statement still ran against the reader's database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -51,7 +47,6 @@ impl Source {
     }
 }
 
-/// What a finished run leaves behind, whatever became of it.
 pub struct QueryRun<'a> {
     pub connection_id: &'a str,
     pub sql: &'a str,
@@ -99,7 +94,7 @@ async fn prune<'e>(
     Ok(())
 }
 
-/// Newest first, which is the order a reader looks for a statement in.
+/// Newest first.
 pub async fn list(
     pool: &SqlitePool,
     connection_id: &str,

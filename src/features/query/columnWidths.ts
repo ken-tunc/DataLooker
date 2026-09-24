@@ -11,10 +11,8 @@ const SAMPLE_ROWS = 100;
 export type ColumnHeader = { name: string; typeName: string };
 
 /**
- * Virtualized rows cannot be laid out by the browser's table algorithm, so the
- * columns need widths up front. They come from the widest cell in the first
- * rows, which is what the reader sees first anyway. The header carries the type
- * name after the column name, and both have to fit.
+ * Virtualized rows get no table layout from the browser, so widths come up
+ * front from the widest cell in the first rows and the header.
  */
 export function columnWidths(headers: ColumnHeader[], rows: readonly unknown[][]): number[] {
   return headers.map((header, index) => {
@@ -29,9 +27,8 @@ export function columnWidths(headers: ColumnHeader[], rows: readonly unknown[][]
 }
 
 /**
- * Bounds for a width the reader dragged. They are wider than the ones above on
- * both ends: the guess has to stay readable, but a reader narrowing a column to
- * see the one behind it, or widening one to read a document, means it.
+ * Wider bounds than the guess's: a reader who drags a column narrow or wide
+ * means it.
  */
 export function clampColumnWidth(px: number): number {
   return Math.min(Math.max(Math.round(px), 40), 1200);

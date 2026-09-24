@@ -14,10 +14,7 @@ import {
 
 export type TabsController = ReturnType<typeof useTabs>;
 
-/**
- * The open tabs of every connection. They outlive the window that shows them,
- * so that switching connections and coming back finds the same queries.
- */
+/** Every connection's tabs, kept while another connection is in front. */
 export function useTabs() {
   const [byConnection, setByConnection] = useState<Record<string, TabsState>>({});
 
@@ -31,9 +28,8 @@ export function useTabs() {
     });
   }
 
-  // Read from the state being updated rather than the one this render saw:
-  // two changes before the next render would otherwise each start from the
-  // same tabs, and the second would undo the first.
+  // From the state being updated, not this render's: otherwise two changes
+  // before the next render would each start from the same tabs.
   function change(connectionId: string, update: (state: TabsState) => TabsState | null) {
     setByConnection((current) => {
       const state = current[connectionId];

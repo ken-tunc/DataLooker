@@ -14,7 +14,7 @@ import {
 
 const ROW_HEIGHT = 26;
 
-/** How far in a row of each depth sits, since nesting is all a flat list has. */
+/** Indent per depth: a flat list has no nesting of its own. */
 const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14"];
 
 type Props = {
@@ -25,8 +25,7 @@ type Props = {
 export function SchemaTree({ connectionId, onOpenTable }: Props) {
   const tree = useSchemaTree(connectionId);
   const refresh = useRefreshSchemaTree(connectionId);
-  // In state rather than a ref: a parent's ref is attached after its children
-  // have run their effects, so the rows below would measure nothing.
+  // State, not a ref: see ResultGrid.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -39,8 +38,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
     });
   }
 
-  // Only the tables that are open are read, and only once: the cache answers
-  // the second time a table is opened.
+  // Only open tables are read, and the cache answers a second opening.
   const columns = useColumnsOf(connectionId, openTables(expanded));
   const columnsOf = (schema: string, table: string): ColumnsState =>
     columns.get(tableRowId(schema, table)) ?? { status: "reading" };
@@ -166,10 +164,8 @@ function Row({
     );
   }
 
-  // A schema's row is one control — it only expands — and so is a group of
-  // shards, which stands for tables rather than being one. A table's row is
-  // two: the chevron shows its columns, and the name (with the space after it)
-  // opens the table.
+  // A schema or a shard group only expands. A table's row is two controls: the
+  // chevron shows its columns, and the name opens the table.
   if (row.kind === "schema" || row.kind === "shards") {
     const [name, beside] =
       row.kind === "schema"

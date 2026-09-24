@@ -19,12 +19,7 @@ export function useSchemaTree(connectionId: string) {
   return useQuery(schemaTreeQuery(connectionId));
 }
 
-/**
- * The columns of every table that is open, by the row that opened it. One
- * query each rather than one for all of them: a table's columns are the same
- * answer wherever they are asked for, and the cache is what keeps a table
- * opened twice from being read twice.
- */
+/** One query per table, so the cache answers wherever else it is opened. */
 export function useColumnsOf(
   connectionId: string,
   tables: readonly NamedTable[],

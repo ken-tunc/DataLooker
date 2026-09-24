@@ -19,9 +19,7 @@ pub(crate) fn var(name: &str, fallback: &str) -> String {
     env::var(name).unwrap_or_else(|_| fallback.to_string())
 }
 
-/// Nothing listening means there is no server to test against, so the test
-/// skips. A server that answers has to work: turning a wrong password or a
-/// missing database into a skip would let the suite pass while testing nothing.
+/// Only an absent server is a skip; a wrong password or database fails.
 pub(crate) fn listening(host: &str, port: u16) -> bool {
     let Ok(addresses) = (host, port).to_socket_addrs() else {
         return false;
@@ -59,8 +57,6 @@ pub(crate) async fn run(session: &PostgresSession, sql: &str) -> Result<QueryRes
         .await
 }
 
-/// The compose PostgreSQL as a stored connection would describe it, with
-/// its password beside it.
 pub(crate) fn config() -> (DriverConfig, String) {
     (
         DriverConfig::Postgres {

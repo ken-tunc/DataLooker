@@ -8,15 +8,11 @@ type Props = {
   label: string;
 };
 
-/** How far an arrow key moves the line. */
 const STEP = 16;
 
 /**
- * The line between a pane and what follows it, dragged to resize the pane —
- * or moved with the arrow keys once it has focus. A double-click puts the
- * pane back to its starting size, as it does for a result column.
- *
- * It sits in the gap between the two rather than taking room of its own.
+ * Dragged or moved with the arrow keys; a double-click restores the starting
+ * size, as for a result column. It sits in the gap and takes no room.
  */
 export function Splitter({ pane, axis, label }: Props) {
   const [size, setSize] = usePaneSize(pane);
@@ -27,17 +23,14 @@ export function Splitter({ pane, axis, label }: Props) {
     const start = axis === "x" ? event.clientX : event.clientY;
     const startSize = size;
     handle.setPointerCapture(event.pointerId);
-    // Cancelling the press also cancels the focus it would have given, and
-    // focus is what the arrow keys need. WebKit would ring a line focused this
-    // way, which then stays lit after the drag, so the ring is left to the
-    // keyboard.
+    // Cancelling the press cancels its focus too, which the arrow keys need.
+    // Without `focusVisible: false` WebKit leaves the ring lit after a drag.
     handle.focus({ focusVisible: false });
 
     const onMove = (move: globalThis.PointerEvent) => {
       setSize(startSize + (axis === "x" ? move.clientX : move.clientY) - start);
     };
-    // A drag the system takes over ends without a pointerup, and its move
-    // handler would otherwise answer the next drag's moves as well.
+    // A drag the system takes over ends without a pointerup.
     const ends = ["pointerup", "pointercancel", "lostpointercapture"] as const;
     const onEnd = () => {
       handle.removeEventListener("pointermove", onMove);

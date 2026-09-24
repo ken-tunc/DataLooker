@@ -8,8 +8,7 @@ use crate::app::App;
 use crate::drivers::QueryResult;
 use crate::error::AppError;
 
-/// Enough rows to scroll through, few enough that a careless `SELECT *` cannot
-/// pull a whole table into the webview.
+/// A careless `SELECT *` must not pull a whole table into the webview.
 const ROW_LIMIT: usize = 5_000;
 
 impl App {
@@ -51,9 +50,7 @@ impl App {
     }
 }
 
-/// The cancellation token of every query currently running, keyed by the id its
-/// caller made up, so that a cancel can reach a query already in flight. A
-/// table preview registers here too, so one cancel reaches either of them.
+/// Keyed by the id the caller made up. Table previews register here too.
 #[derive(Default)]
 pub struct QueryRegistry(Mutex<HashMap<String, CancellationToken>>);
 

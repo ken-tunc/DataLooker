@@ -10,13 +10,10 @@ type Token = { text: string; start: number; end: number };
 const IDENTIFIER = /[\p{L}\p{N}_$]/u;
 
 /**
- * The identifiers in one line, quoted or not. Everything else — keywords are
- * identifiers too at this level, and so is a number — is left to whoever asks
- * for a name to fail to find it: telling a table from a keyword is the
- * catalog's job, not the scanner's.
+ * Keywords come out as identifiers too; the catalog lookup tells them apart.
  *
- * An unquoted identifier is folded to lower case, which is what PostgreSQL
- * does to one, so that a name read here compares to a catalog's by equality.
+ * An unquoted identifier is folded to lower case, as PostgreSQL does, so it
+ * compares to the catalog's names by equality.
  */
 function scan(line: string): Token[] {
   const tokens: Token[] = [];
@@ -29,8 +26,7 @@ function scan(line: string): Token[] {
       while (close < line.length && (line[close] !== '"' || line[close + 1] === '"')) {
         close += line[close] === '"' ? 2 : 1;
       }
-      // A quote nothing closes is a name still being typed, and the rest of
-      // the line is as much of it as there is.
+      // An unclosed quote is a name still being typed.
       const text = line.slice(at + 1, Math.min(close, line.length)).replaceAll('""', '"');
       const end = Math.min(close + 1, line.length);
       tokens.push({ text, start: at, end });
@@ -49,16 +45,11 @@ function scan(line: string): Token[] {
   return tokens;
 }
 
-/** Whether all that stands between two identifiers is the dot that joins them. */
 function joined(line: string, left: Token, right: Token): boolean {
   return /^\s*\.\s*$/.test(line.slice(left.end, right.start));
 }
 
-/**
- * The name the cursor is in, with the schema it was qualified by if it was.
- * A cursor resting just after a name counts as being in it, the way a word is
- * selected by a double-click at either of its ends.
- */
+/** A cursor just after a name counts as in it. */
 export function identifierAt(line: string, index: number): QualifiedName | null {
   const tokens = scan(line);
   const at = tokens.findIndex((token) => index >= token.start && index <= token.end);
@@ -69,8 +60,7 @@ export function identifierAt(line: string, index: number): QualifiedName | null 
   if (before && joined(line, before, token)) {
     return { schema: before.text, name: token.text };
   }
-  // On the schema of a qualified name, the table is what was meant: nothing
-  // here can show a schema, and `shop` in `shop.orders` is not a table.
+  // On `shop` in `shop.orders`, the table is what was meant.
   const after = tokens[at + 1];
   if (after && joined(line, token, after)) {
     return { schema: token.text, name: after.text };
@@ -79,9 +69,8 @@ export function identifierAt(line: string, index: number): QualifiedName | null 
 }
 
 /**
- * Every table the name could mean. More than one is not a failure: a name no
- * schema qualifies means whichever of them the search path reaches first, and
- * what that is belongs to the server rather than to this tree.
+ * More than one is not a failure: which one an unqualified name means is the
+ * server's search path to decide, not this tree's.
  */
 export function tablesNamed(tree: SchemaTree, wanted: QualifiedName): NamedTable[] {
   const found: NamedTable[] = [];
@@ -94,7 +83,6 @@ export function tablesNamed(tree: SchemaTree, wanted: QualifiedName): NamedTable
   return found;
 }
 
-/** What the reader wrote, for a message that quotes it back. */
 export function written(name: QualifiedName): string {
   return name.schema === null ? name.name : `${name.schema}.${name.name}`;
 }

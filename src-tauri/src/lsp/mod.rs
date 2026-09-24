@@ -17,36 +17,33 @@ use ts_rs::TS;
 
 pub use session::{LspExit, LspMessage, LspNotice, LspSession};
 
-/// Whether a connection can be completed against, as far as the window needs
-/// to know: one it could be, once there is a server to do it with, is the one
-/// worth offering to build.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub enum LanguageServerState {
-    /// There is a server to talk to.
     Ready,
-    /// This connection has one, and it is not installed. Named, because it is
-    /// what the offer to install one is an offer of — and said whether it is
-    /// downloaded or built with the reader's own toolchain, which is worth
-    /// knowing before waiting for it.
-    Missing { server: String, downloaded: bool },
-    /// The reader named a server themselves and it is not there. Building one
-    /// would change nothing: the name they set is what is read first.
-    Named { message: String },
+    /// Not installed. `downloaded` says whether getting it is a download or a
+    /// build, which is worth knowing before waiting for it.
+    Missing {
+        server: String,
+        downloaded: bool,
+    },
+    /// The server the reader named is not there. Building one would change
+    /// nothing, since their name is read first.
+    Named {
+        message: String,
+    },
 }
 
-/// Which connection has a server running. One connection is one server: it is
-/// started for a database, and a second one would read the same schema twice.
+/// One server per connection: a second would read the same schema twice.
 #[derive(Default)]
 pub struct LspRegistry(Mutex<Registry>);
 
 #[derive(Default)]
 struct Registry {
     running: HashMap<String, Arc<LspSession>>,
-    /// How often each connection's server has been stopped. Starting one reads
-    /// the connection and talks to the server outside the lock, and this is
-    /// what says a stop overtook it: what it was told is already stale.
+    /// How often each connection's server has been stopped. A start happens
+    /// outside the lock, and this says a stop overtook it.
     stops: HashMap<String, u64>,
 }
 
@@ -55,10 +52,8 @@ impl LspRegistry {
         self.0.lock().unwrap().running.get(connection_id).cloned()
     }
 
-    /// How often this connection's server has been stopped, which the caller
-    /// reads before starting one and hands back to `insert`. Asking makes the
-    /// connection one that stopping everything counts: a start that has not
-    /// registered yet is still a start to refuse afterwards.
+    /// Read before starting and handed back to `insert`. Asking records the
+    /// connection, so `take_all` also refuses a start not yet registered.
     pub fn before_starting(&self, connection_id: &str) -> u64 {
         *self
             .0
@@ -69,11 +64,9 @@ impl LspRegistry {
             .or_default()
     }
 
-    /// Take the session in, and answer with the server the connection has —
-    /// which is this one, unless another start got there first. `None` is a
-    /// connection that was saved or deleted while this server was starting:
-    /// what it was told about the database is no longer true, so it is not
-    /// the connection's server and never was.
+    /// The server the connection has: this one, unless another start got there
+    /// first. `None` when the connection was saved or deleted meanwhile, so
+    /// this server holds stale credentials.
     pub fn insert(&self, session: Arc<LspSession>, stops: u64) -> Option<Arc<LspSession>> {
         let mut registry = self.0.lock().unwrap();
         if registry.stops(&session.connection_id) != stops {
@@ -88,17 +81,15 @@ impl LspRegistry {
         )
     }
 
-    /// Take the connection's server out. Stopping it is the caller's to do.
+    /// Stopping the server is the caller's to do.
     pub fn remove(&self, connection_id: &str) -> Option<Arc<LspSession>> {
         let mut registry = self.0.lock().unwrap();
         *registry.stops.entry(connection_id.to_string()).or_default() += 1;
         registry.running.remove(connection_id)
     }
 
-    /// Take a session out at the end of its life, and say whether the
-    /// connection is left without a server. A server that died after being
-    /// replaced must neither evict its replacement nor be announced as its
-    /// ending.
+    /// Whether the connection is left without a server. One that died after
+    /// being replaced neither evicts nor announces anything.
     pub fn remove_session(&self, connection_id: &str, id: &str) -> bool {
         let mut registry = self.0.lock().unwrap();
         match registry.running.get(connection_id) {
@@ -111,9 +102,7 @@ impl LspRegistry {
         }
     }
 
-    /// Take every server out at once, for whoever is ending all of them. Every
-    /// start counts as stopped, registered or not: one still shaking hands has
-    /// nowhere to be registered once this has been done.
+    /// Every start counts as stopped, including one still shaking hands.
     pub fn take_all(&self) -> Vec<Arc<LspSession>> {
         let mut registry = self.0.lock().unwrap();
         let taken: Vec<_> = registry.running.drain().map(|(_, s)| s).collect();

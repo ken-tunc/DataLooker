@@ -17,11 +17,7 @@ export type Tab =
       title: string;
       schema: string;
       table: string;
-      /**
-       * Whether the pane holds edits it has not saved. The edits are the
-       * pane's own; the strip only needs to know there are some, to mark the
-       * tab and to ask before closing it.
-       */
+      /** The edits are the pane's; the strip only marks the tab and asks before closing. */
       unsaved: boolean;
     } & TableView);
 
@@ -50,10 +46,8 @@ export function openSqlTab(state: TabsState | undefined, id: string, sql = ""): 
 }
 
 /**
- * A table opens once: asking for it again brings its tab forward rather than
- * making a second one, since a tab is the table, not a view of it. What it is
- * asked to show it shows either way — a reader who asked for a definition is
- * asking for it of the tab they already had open too.
+ * A table opens once: asking again brings its tab forward, switched to what
+ * was asked for.
  */
 export function openTableTab(
   state: TabsState | undefined,
@@ -70,8 +64,7 @@ export function openTableTab(
   return opened(state, {
     kind: "table",
     id,
-    // Two schemas can hold a table of the same name, and a tab reading
-    // `people` would not say which one.
+    // Two schemas can hold a table of the same name.
     title: `${schema}.${table}`,
     schema,
     table,
@@ -83,10 +76,7 @@ export function openTableTab(
   });
 }
 
-/**
- * Closing the active tab moves to its neighbour on the right, which is where
- * the eye already is, and falls back to the left when there is none.
- */
+/** Closing the active tab moves to its right neighbour, else its left. */
 export function closeTab(state: TabsState, id: string): TabsState | null {
   const index = state.tabs.findIndex((tab) => tab.id === id);
   if (index === -1) return state;
@@ -138,11 +128,7 @@ export function setUnsaved(state: TabsState, id: string, unsaved: boolean): Tabs
   };
 }
 
-/**
- * A filter or a sort makes a different set of rows, so the table starts again
- * from its first page. Reading what the table is made of and coming back does
- * not: the rows are the ones that were there.
- */
+/** Only a filter or a sort starts again from the first page. */
 function nextPage(tab: TableView, view: Partial<TableView>): number {
   if (view.page !== undefined) return view.page;
   const rows = view.filter !== undefined || view.sort !== undefined;

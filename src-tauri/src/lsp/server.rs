@@ -11,14 +11,11 @@ use crate::error::AppError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Server {
-    /// `sqls`, which reads a PostgreSQL database to complete against it.
     Sqls,
 }
 
-/// Which server a connection needs, and what that server is told about the
-/// connection. It goes in the server's `initializationOptions`, which is why
-/// the password never reaches a file: sqls will read one, and what is written
-/// to disk outlives the process that wrote it.
+/// What goes in the server's `initializationOptions`, so the password never
+/// reaches a file that would outlive the process.
 pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Value), AppError> {
     match config {
         DriverConfig::Postgres {
@@ -45,16 +42,12 @@ pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Va
     }
 }
 
-/// A BigQuery connection is completed by `crate::analyzer`, which reads the
-/// statement itself and asks the app what the tables hold — so the
-/// connection's key never leaves it. A language server for BigQuery would
-/// read the project as whoever the reader is to Google instead.
+/// BigQuery is completed by `crate::analyzer`, so the key never leaves the app.
 fn no_server() -> AppError {
     AppError::Unsupported("A BigQuery connection is completed without a language server.".into())
 }
 
 impl Server {
-    /// Which server a connection needs, where it has one.
     pub fn of(config: &DriverConfig) -> Option<Self> {
         match config {
             DriverConfig::Postgres { .. } => Some(Server::Sqls),
@@ -68,8 +61,7 @@ impl Server {
         }
     }
 
-    /// Where a reader who keeps the binary somewhere of their own says so,
-    /// and how a test hands over one that is not a language server at all.
+    /// Names a binary directly, for a reader and for tests.
     fn named_by(self) -> &'static str {
         match self {
             Server::Sqls => "DATALOOKER_SQLS_BIN",
@@ -77,16 +69,14 @@ impl Server {
     }
 }
 
-/// The binary to run: the one a reader named, then the one they installed
-/// themselves, then the one DataLooker built for them. Theirs comes first
-/// because it is theirs — `ours` is what a machine with none falls back to.
+/// The one a reader named, then one on their `PATH`, then the one DataLooker
+/// built as a fallback.
 pub async fn find(server: Server, ours: &Path) -> Result<PathBuf, AppError> {
     let name = server.binary();
     if let Some(named) = std::env::var_os(server.named_by()) {
         let path = PathBuf::from(named);
         if !path.is_file() {
-            // Not `NotFound`: nothing is missing that could be installed, and
-            // what is wrong is what the reader set.
+            // Not `NotFound`: installing would not fix the reader's setting.
             return Err(AppError::Validation(format!(
                 "{} names {}, where there is no file",
                 server.named_by(),
@@ -109,10 +99,8 @@ pub async fn find(server: Server, ours: &Path) -> Result<PathBuf, AppError> {
     )))
 }
 
-/// Where a command is, asked of the reader's own login shell rather than of
-/// the `PATH` this process inherited: a window opened from Finder has none of
-/// the places a language server or a toolchain is installed, which is the same
-/// reason a connection's command is run through a login shell.
+/// Asked of the reader's login shell: an app opened from Finder inherits a
+/// bare `PATH`.
 pub async fn command(name: &str) -> Result<PathBuf, AppError> {
     let (shell, login) = crate::shell::shell_for(std::env::var("SHELL").ok());
     let mut asking = Command::new(&shell);

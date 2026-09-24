@@ -14,10 +14,8 @@ export class IpcError extends Error {
 }
 
 /**
- * Every kind, and whether the Rust variant carries a message — the ones that
- * do not arrive as `kind` alone. A `Record` of the whole union rather than a
- * list, so that a variant added to `AppError` fails the type check here
- * instead of quietly falling through as an error nothing can branch on.
+ * Whether each variant carries a message. A `Record` of the whole union, so a
+ * variant added to `AppError` fails the type check here.
  */
 const CARRIES_MESSAGE: Record<AppError["kind"], boolean> = {
   Validation: true,
@@ -55,11 +53,7 @@ export function toIpcError(value: unknown): Error {
 
 export type Command = keyof Commands;
 
-/**
- * What a command is sent: its arguments, or nothing for a command that takes
- * none. Both come from the Rust declaration, so a call that no longer matches
- * it fails the type check here.
- */
+/** Its arguments, or nothing for a command that takes none. */
 export type Sent<C extends Command> = Commands[C]["args"] extends null
   ? []
   : [args: Commands[C]["args"]];
@@ -68,8 +62,7 @@ export async function invoke<C extends Command>(
   command: C,
   ...sent: Sent<C>
 ): Promise<Commands[C]["returns"]> {
-  // A command takes its arguments as one value under `args`, which is what
-  // lets ts-rs write down its shape.
+  // One value under `args`, which is what lets ts-rs write down its shape.
   const payload = sent.length === 0 ? undefined : { args: sent[0] };
   try {
     return await tauriInvoke<Commands[C]["returns"]>(command, payload);

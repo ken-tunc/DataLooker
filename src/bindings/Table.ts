@@ -2,8 +2,7 @@
 import type { TableKind } from "./TableKind";
 
 /**
- * What a table holds is not here: a project can hold tens of thousands of
- * tables and many times that many columns, so the tree says what there is and
- * a table's columns are asked for when it is opened.
+ * No columns: a project can hold tens of thousands of tables, so a table's
+ * columns are asked for when it is opened.
  */
 export type Table = { name: string, kind: TableKind, };
