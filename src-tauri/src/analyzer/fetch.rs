@@ -11,13 +11,13 @@ use std::time::Duration;
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 
-use super::BINARY;
+use super::{fetched, BINARY};
 use crate::error::AppError;
 
 /// Published by `.github/workflows/analyzer.yml`; the hash is copied from the
 /// Release.
-const RELEASE: &str = "https://github.com/ken-tunc/DataLooker/releases/download/analyzer-v0.1.0/datalooker-bigquery-analyzer-darwin-arm64.gz";
-const SHA256: &str = "dad4b757c73ca1e5e546b5407c577325f8efa61dde6de3beaaec44f96af6263c";
+const RELEASE: &str = "https://github.com/ken-tunc/DataLooker/releases/download/analyzer-v0.2.0/datalooker-bigquery-analyzer-darwin-arm64.gz";
+const SHA256: &str = "4542a8600b7b45bf34b7daf239ec08890081e80f5f5b97299facd05f4653ef48";
 
 /// Tens of megabytes.
 const FETCHING: Duration = Duration::from_secs(300);
@@ -95,12 +95,32 @@ fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppErr
         "{BINARY}.{}.partial",
         uuid::Uuid::new_v4().simple()
     ));
-    let placed = place(&unpacked, &partial, &into.join(BINARY));
+    let binary = fetched(into);
+    let placed = place(&unpacked, &partial, &binary);
     if placed.is_err() {
         // Nothing will look for it again.
         let _ = std::fs::remove_file(&partial);
     }
-    placed.map_err(written)
+    let placed = placed.map_err(written)?;
+    forget_other_versions(into, &binary);
+    Ok(placed)
+}
+
+/// What another build of the app fetched is tens of megabytes nothing will
+/// run again. Failing to remove it costs only the space.
+fn forget_other_versions(into: &Path, kept: &Path) {
+    let Ok(entries) = std::fs::read_dir(into) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let helper = name == BINARY || name.starts_with(&format!("{BINARY}-"));
+        if helper && path != kept && path.is_file() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn place(content: &[u8], partial: &Path, binary: &Path) -> std::io::Result<PathBuf> {
@@ -129,6 +149,15 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    fn left(into: &Path) -> Vec<std::ffi::OsString> {
+        let mut names: Vec<_> = std::fs::read_dir(into)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    }
+
     fn into() -> PathBuf {
         std::env::temp_dir().join(format!(
             "datalooker-fetch-{}",
@@ -144,7 +173,7 @@ mod tests {
 
         let binary = install(&packed, &hash, &into).expect("installed");
 
-        assert_eq!(binary, into.join(BINARY));
+        assert_eq!(binary, fetched(&into));
         assert_eq!(std::fs::read(&binary).unwrap(), b"#!/bin/sh\n");
         #[cfg(unix)]
         {
@@ -152,13 +181,9 @@ mod tests {
             let mode = std::fs::metadata(&binary).unwrap().permissions().mode();
             assert_eq!(mode & 0o111, 0o111, "not executable: {mode:o}");
         }
-        let left: Vec<_> = std::fs::read_dir(&into)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
         assert_eq!(
-            left,
-            [BINARY],
+            left(&into),
+            [binary.file_name().unwrap()],
             "something beside the binary was left behind"
         );
         std::fs::remove_dir_all(&into).ok();
@@ -170,14 +195,28 @@ mod tests {
         let hash = format!("{:x}", Sha256::digest(&packed));
         let into = into();
         // A directory where the binary would go is one a file cannot replace.
-        std::fs::create_dir_all(into.join(BINARY).join("in the way")).unwrap();
+        std::fs::create_dir_all(fetched(&into).join("in the way")).unwrap();
 
         assert!(install(&packed, &hash, &into).is_err());
-        let left: Vec<_> = std::fs::read_dir(&into)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert_eq!(left, [BINARY]);
+        assert_eq!(left(&into), [fetched(&into).file_name().unwrap()]);
+        std::fs::remove_dir_all(&into).ok();
+    }
+
+    #[test]
+    fn installing_removes_what_other_versions_fetched() {
+        let packed = packed(b"#!/bin/sh\n");
+        let hash = format!("{:x}", Sha256::digest(&packed));
+        let into = into();
+        std::fs::create_dir_all(&into).unwrap();
+        std::fs::write(into.join(BINARY), b"old").unwrap();
+        std::fs::write(into.join(format!("{BINARY}-0.0.1")), b"old").unwrap();
+        std::fs::write(into.join("sqls"), b"another server").unwrap();
+
+        let binary = install(&packed, &hash, &into).expect("installed");
+
+        let mut expected = vec![binary.file_name().unwrap().to_owned(), "sqls".into()];
+        expected.sort();
+        assert_eq!(left(&into), expected);
         std::fs::remove_dir_all(&into).ok();
     }
 
@@ -187,14 +226,14 @@ mod tests {
         let refused = install(&packed(b"something else"), &"0".repeat(64), &into);
 
         assert!(matches!(refused, Err(AppError::Validation(_))));
-        assert!(!into.join(BINARY).exists());
+        assert!(!fetched(&into).exists());
     }
 
     #[test]
     fn no_hash_written_down_refuses_everything() {
         let into = into();
         assert!(install(&packed(b"x"), "", &into).is_err());
-        assert!(!into.join(BINARY).exists());
+        assert!(!fetched(&into).exists());
     }
 
     #[test]

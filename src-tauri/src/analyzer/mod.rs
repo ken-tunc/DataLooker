@@ -20,7 +20,14 @@ use crate::lsp::framing;
 pub const BINARY: &str = "datalooker-bigquery-analyzer";
 
 /// Any other version is a helper left behind by another build of the app.
-const VERSION: &str = "0.1.0";
+const VERSION: &str = "0.2.0";
+
+/// Where the fetched helper of this version is. The version is in the name so
+/// that one fetched for another build of the app is not found, and the reader
+/// is offered this one, rather than found and refused on every keystroke.
+pub fn fetched(ours: &Path) -> PathBuf {
+    ours.join(format!("{BINARY}-{VERSION}"))
+}
 
 /// Names a helper directly, for a reader who built one and for tests.
 const NAMED_BY: &str = "DATALOOKER_BQ_ANALYZER_BIN";
@@ -91,7 +98,7 @@ pub fn find(ours: &Path) -> Result<PathBuf, AppError> {
         }
         return Ok(path);
     }
-    let fetched = ours.join(BINARY);
+    let fetched = fetched(ours);
     if fetched.is_file() {
         return Ok(fetched);
     }
@@ -218,6 +225,25 @@ mod tests {
         assert!(matches!(refused, Err(AppError::Shell(_))));
         assert!(analyzer.running.lock().await.is_some());
         assert!(analyzer.call("hello", json!({})).await.is_ok());
+    }
+
+    #[test]
+    fn a_helper_fetched_for_another_version_is_not_installed() {
+        if std::env::var_os(NAMED_BY).is_some() {
+            return;
+        }
+        let ours = std::env::temp_dir().join(format!(
+            "datalooker-analyzer-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&ours).unwrap();
+        std::fs::write(ours.join(BINARY), b"").unwrap();
+        std::fs::write(ours.join(format!("{BINARY}-0.0.1")), b"").unwrap();
+
+        assert!(matches!(find(&ours), Err(AppError::NotFound(_))));
+        std::fs::write(fetched(&ours), b"").unwrap();
+        assert_eq!(find(&ours).unwrap(), fetched(&ours));
+        std::fs::remove_dir_all(&ours).ok();
     }
 
     #[tokio::test]
