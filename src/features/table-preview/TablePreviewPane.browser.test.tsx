@@ -156,15 +156,17 @@ describe("TablePreviewPane", () => {
     expect(ipc.sent("commit_table_edits")).toBeUndefined();
   });
 
-  it("reads the page again when refreshed, keeping what was not saved", async () => {
+  it("reads the page and the shape again when refreshed, keeping what was not saved", async () => {
     const { ipc, screen, type } = await preview();
-    const reads = () => ipc.calls.filter((call) => call.command === "preview_table");
+    const reads = (command: string) => () => ipc.calls.filter((call) => call.command === command);
 
     await type("Ada", "name", "Katherine");
-    await expect.poll(reads).toHaveLength(1);
+    await expect.poll(reads("preview_table")).toHaveLength(1);
+    expect(reads("table_shape")()).toHaveLength(1);
     await screen.getByRole("button", { name: "Refresh" }).click();
 
-    await expect.poll(reads).toHaveLength(2);
+    await expect.poll(reads("preview_table")).toHaveLength(2);
+    expect(reads("table_shape")()).toHaveLength(2);
     await expect.element(screen.getByText("Katherine")).toBeVisible();
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
   });
