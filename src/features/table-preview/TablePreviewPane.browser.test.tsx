@@ -156,6 +156,21 @@ describe("TablePreviewPane", () => {
     expect(ipc.sent("commit_table_edits")).toBeUndefined();
   });
 
+  it("reads the page and the shape again when refreshed, keeping what was not saved", async () => {
+    const { ipc, screen, type } = await preview();
+    const reads = (command: string) => () => ipc.calls.filter((call) => call.command === command);
+
+    await type("Ada", "name", "Katherine");
+    await expect.poll(reads("preview_table")).toHaveLength(1);
+    expect(reads("table_shape")()).toHaveLength(1);
+    await screen.getByRole("button", { name: "Refresh" }).click();
+
+    await expect.poll(reads("preview_table")).toHaveLength(2);
+    expect(reads("table_shape")()).toHaveLength(2);
+    await expect.element(screen.getByText("Katherine")).toBeVisible();
+    await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
+  });
+
   it("tells the reader to reload when the row moved on", async () => {
     const { screen, type } = await preview({
       commit_table_edits: () => {
@@ -254,6 +269,17 @@ describe("TablePreviewPane showing the structure", () => {
     await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     expect(screen.getByPlaceholder("WHERE …").elements()).toEqual([]);
     expect(screen.getByRole("button", { name: "New row" }).elements()).toEqual([]);
+  });
+
+  it("reads the structure again when refreshed, and nothing else", async () => {
+    const { ipc, screen } = await preview({}, "structure");
+
+    await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
+    await screen.getByRole("button", { name: "Refresh" }).click();
+
+    await expect
+      .poll(() => ipc.calls.map((call) => call.command))
+      .toEqual(["table_definition", "table_definition"]);
   });
 
   it("shows what reading the structure complained about", async () => {

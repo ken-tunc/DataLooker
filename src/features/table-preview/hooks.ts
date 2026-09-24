@@ -1,4 +1,10 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useIsFetching,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { TableEdits } from "../../bindings/TableEdits";
 import { commitTableEdits, previewTable, tableDefinition, tableShape } from "../../lib/commands";
 import type { Tab } from "../tabs/tabs";
@@ -81,4 +87,18 @@ export function useCommitEdits(connectionId: string, schema: string, table: stri
         queryKey: previewKeys.table(connectionId, schema, table),
       }),
   });
+}
+
+/**
+ * Reads again whatever of the table is on screen — the page or the definition,
+ * and the shape, which may have been what failed. What is not on screen is only
+ * marked stale.
+ */
+export function useRefreshTable(connectionId: string, schema: string, table: string) {
+  const queryClient = useQueryClient();
+  const queryKey = previewKeys.table(connectionId, schema, table);
+  return {
+    refresh: () => queryClient.invalidateQueries({ queryKey }),
+    refreshing: useIsFetching({ queryKey }) > 0,
+  };
 }
