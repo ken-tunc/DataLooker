@@ -40,7 +40,13 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   // fetched: the session runs one query at a time, and a page nobody is
   // looking at would hold up the definition that is on screen.
   const structure = tab.shows === "structure";
-  const shape = useTableShape(connectionId, tab.schema, tab.table, !structure);
+  // Nor while the tab is hidden: a hidden pane stays mounted, and its queries
+  // would otherwise be read again whenever the window regains focus — queued
+  // on the reader's session, and on BigQuery billed. Disabled rather than
+  // unsubscribed: a query nobody observes is dropped from the cache after a
+  // while, and the tab would come back empty.
+  const rowsShown = !structure && !hidden;
+  const shape = useTableShape(connectionId, tab.schema, tab.table, rowsShown);
   // A row can only be written when a primary key can name it.
   const primaryKey = shape.data?.primary_key ?? [];
   const editable = primaryKey.length > 0;
@@ -50,7 +56,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       ? shape.error.message
       : null;
 
-  const preview = useTablePreview(connectionId, tab, editable, !structure && !shape.isPending);
+  const preview = useTablePreview(connectionId, tab, editable, rowsShown && !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
@@ -301,7 +307,12 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
 
       {structure ? (
         <div className="min-h-0 flex-1">
-          <TableStructure connectionId={connectionId} schema={tab.schema} table={tab.table} />
+          <TableStructure
+            connectionId={connectionId}
+            schema={tab.schema}
+            table={tab.table}
+            hidden={hidden}
+          />
         </div>
       ) : (
         <>
