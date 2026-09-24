@@ -1,14 +1,21 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { type KeyboardEvent, type PointerEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
-import { formatCell } from "./cell";
+import { formatCell, formatCellInFull } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
 
 const ROW_HEIGHT = 28;
+/** Long enough that sweeping the pointer across the grid opens nothing. */
+const PEEK_DELAY_MS = 400;
+/** Long enough to cross the gap from a cell to its full view. */
+const PEEK_GRACE_MS = 150;
 
 type Cell = { row: number; column: number };
+
+/** A cell's value in full, and the cell's place on the screen. */
+type Peek = { text: string; anchor: DOMRect };
 
 /** Widths the reader dragged, and the columns they were dragged for. */
 type Dragged = { columns: string; widths: Record<number, number> };
@@ -38,6 +45,24 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
+  const [peek, setPeek] = useState<Peek | null>(null);
+  const closing = useRef<number | undefined>(undefined);
+
+  function showPeek(next: Peek) {
+    window.clearTimeout(closing.current);
+    setPeek(next);
+  }
+
+  // Delayed, so that the pointer can move from the cell onto the full view.
+  function leavePeek() {
+    window.clearTimeout(closing.current);
+    closing.current = window.setTimeout(() => setPeek(null), PEEK_GRACE_MS);
+  }
+
+  function closePeek() {
+    window.clearTimeout(closing.current);
+    setPeek(null);
+  }
 
   const columns = result.columns.map((column) => column.name).join("\u0000");
   // Widths dragged for other columns mean nothing here.
@@ -107,63 +132,132 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   const total = widths.reduce((sum, width) => sum + width, 0);
 
   return (
-    // The grid takes focus so that arrows and copy reach it without a control
-    // inside every cell.
-    <div
-      ref={setScroller}
-      className="hairline h-full overflow-auto rounded-box border font-mono text-sm outline-none"
-      tabIndex={0}
-      role="grid"
-      onKeyDown={move}
-    >
-      {/* The rows are as wide as their columns; the header keeps its background
+    <>
+      {/* The grid takes focus so that arrows and copy reach it without a control
+        inside every cell. */}
+      <div
+        ref={setScroller}
+        className="hairline h-full overflow-auto rounded-box border font-mono text-sm outline-none"
+        tabIndex={0}
+        role="grid"
+        onKeyDown={move}
+        // The full view is placed against a cell that scrolling moves.
+        onScroll={() => peek && closePeek()}
+      >
+        {/* The rows are as wide as their columns; the header keeps its background
           across the rest of the pane. */}
-      <div className="min-w-full" style={{ width: total }}>
-        <div className="bg-base-200 sticky top-0 z-10 flex min-w-full" role="row">
-          {result.columns.map((column, index) => (
-            // Only the name truncates: a clipped handle would be unreachable
-            // on the last column.
-            <div
-              key={`${index}-${column.name}`}
-              role="columnheader"
-              aria-sort={
-                sort?.column !== column.name
-                  ? undefined
-                  : sort.descending
-                    ? "descending"
-                    : "ascending"
-              }
-              className="relative shrink-0 px-3 py-1 font-sans font-medium"
-              style={{ width: widths[index] }}
-              title={`${column.name} · ${column.type_name}`}
-            >
-              <HeaderLabel
-                column={column}
-                sorted={sort?.column === column.name ? sort : null}
-                onSort={onSortColumn}
-              />
+        <div className="min-w-full" style={{ width: total }}>
+          <div className="bg-base-200 sticky top-0 z-10 flex min-w-full" role="row">
+            {result.columns.map((column, index) => (
+              // Only the name truncates: a clipped handle would be unreachable
+              // on the last column.
               <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={`Resize ${column.name}`}
-                className="hover:bg-primary absolute top-0 -right-1 z-20 h-full w-2 cursor-col-resize"
-                onPointerDown={(event) => resize(event, index)}
-                onDoubleClick={() => resetWidth(index)}
-              />
-            </div>
-          ))}
-        </div>
+                key={`${index}-${column.name}`}
+                role="columnheader"
+                aria-sort={
+                  sort?.column !== column.name
+                    ? undefined
+                    : sort.descending
+                      ? "descending"
+                      : "ascending"
+                }
+                className="relative shrink-0 px-3 py-1 font-sans font-medium"
+                style={{ width: widths[index] }}
+                title={`${column.name} · ${column.type_name}`}
+              >
+                <HeaderLabel
+                  column={column}
+                  sorted={sort?.column === column.name ? sort : null}
+                  onSort={onSortColumn}
+                />
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={`Resize ${column.name}`}
+                  className="hover:bg-primary absolute top-0 -right-1 z-20 h-full w-2 cursor-col-resize"
+                  onPointerDown={(event) => resize(event, index)}
+                  onDoubleClick={() => resetWidth(index)}
+                />
+              </div>
+            ))}
+          </div>
 
-        <Rows
-          rows={result.rows}
-          columns={result.columns}
-          widths={widths}
-          scroller={scroller}
-          selected={selected}
-          onSelect={select}
-          editing={editing}
-        />
+          <Rows
+            rows={result.rows}
+            columns={result.columns}
+            widths={widths}
+            scroller={scroller}
+            selected={selected}
+            onSelect={select}
+            editing={editing}
+            onPeek={showPeek}
+            onLeavePeek={leavePeek}
+          />
+        </div>
       </div>
+      {peek && (
+        <CellPeek
+          peek={peek}
+          onEnter={() => window.clearTimeout(closing.current)}
+          onLeave={leavePeek}
+          onClose={closePeek}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * A cell's whole value, for one the grid cuts short. A popover rather than a
+ * `title`, so that a document keeps its lines and the text can be selected.
+ * It sits in the top layer, above the grid's clipping and the panes' stacking.
+ */
+function CellPeek({
+  peek,
+  onEnter,
+  onLeave,
+  onClose,
+}: {
+  peek: Peek;
+  onEnter: () => void;
+  onLeave: () => void;
+  onClose: () => void;
+}) {
+  const popover = useRef<HTMLDivElement>(null);
+
+  // Placed once its size is known: below the cell if it fits, else above,
+  // and moved left rather than past the window's edge.
+  useEffect(() => {
+    const node = popover.current;
+    if (!node) return;
+    if (!node.matches(":popover-open")) node.showPopover();
+    const margin = 8;
+    const { anchor } = peek;
+    const box = node.getBoundingClientRect();
+    const below = anchor.bottom + box.height + margin <= window.innerHeight;
+    node.style.left = `${Math.max(margin, Math.min(anchor.left, window.innerWidth - box.width - margin))}px`;
+    node.style.top = `${below ? anchor.bottom : Math.max(margin, anchor.top - box.height)}px`;
+  }, [peek]);
+
+  useEffect(() => {
+    const close = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={popover}
+      popover="manual"
+      role="tooltip"
+      className="hairline bg-base-200 m-0 max-h-[60vh] max-w-[min(40rem,calc(100vw-1rem))] overflow-auto rounded-box border p-3 shadow-lg"
+      style={{ inset: "auto", left: peek.anchor.left, top: peek.anchor.bottom }}
+      onPointerEnter={onEnter}
+      onPointerLeave={onLeave}
+    >
+      <pre className="font-mono text-xs break-words whitespace-pre-wrap">{peek.text}</pre>
     </div>
   );
 }
@@ -176,6 +270,8 @@ function GridCell({
   changed,
   onSelect,
   onEdit,
+  onPeek,
+  onLeavePeek,
 }: {
   value: unknown;
   column: string;
@@ -184,9 +280,29 @@ function GridCell({
   changed: boolean;
   onSelect: () => void;
   onEdit?: (value: string | null) => void;
+  onPeek: (peek: Peek) => void;
+  onLeavePeek: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const opening = useRef<number | undefined>(undefined);
   const text = formatCell(value);
+
+  // A cell scrolled out of the virtual window must not open a view later.
+  useEffect(() => () => window.clearTimeout(opening.current), []);
+
+  function enter(cell: HTMLDivElement) {
+    opening.current = window.setTimeout(() => {
+      const full = formatCellInFull(value);
+      // Only what the cell cuts short: its width, or the lines it runs together.
+      if (cell.scrollWidth <= cell.clientWidth && !full.includes("\n")) return;
+      onPeek({ text: full, anchor: cell.getBoundingClientRect() });
+    }, PEEK_DELAY_MS);
+  }
+
+  function leave() {
+    window.clearTimeout(opening.current);
+    onLeavePeek();
+  }
 
   if (draft !== null && onEdit) {
     return (
@@ -223,6 +339,8 @@ function GridCell({
       aria-selected={selected}
       onClick={onSelect}
       onDoubleClick={() => onEdit && setDraft(value === null ? "" : text)}
+      onPointerEnter={(event) => enter(event.currentTarget)}
+      onPointerLeave={leave}
       className={[
         "shrink-0 truncate px-3 py-1",
         selected ? "bg-primary/20 ring-primary ring-1" : "",
@@ -230,7 +348,6 @@ function GridCell({
         value === null ? "text-base-content/50 italic" : "",
       ].join(" ")}
       style={{ width }}
-      title={text}
     >
       {text}
     </div>
@@ -284,6 +401,8 @@ function Rows({
   selected,
   onSelect,
   editing,
+  onPeek,
+  onLeavePeek,
 }: {
   rows: QueryResult["rows"];
   columns: QueryResult["columns"];
@@ -292,6 +411,8 @@ function Rows({
   selected: Cell | null;
   onSelect: (cell: Cell) => void;
   editing?: GridEditing;
+  onPeek: (peek: Peek) => void;
+  onLeavePeek: () => void;
 }) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
@@ -337,6 +458,8 @@ function Rows({
                   changed={pending !== undefined}
                   onSelect={() => onSelect({ row: item.index, column })}
                   onEdit={editing ? (next) => editing.onEdit(item.index, name, next) : undefined}
+                  onPeek={onPeek}
+                  onLeavePeek={onLeavePeek}
                 />
               );
             })}
