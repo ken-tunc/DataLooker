@@ -188,6 +188,29 @@ describe("AppShell", () => {
     expect(titles()).toEqual(["Query 1"]);
   });
 
+  it("lists the shortcuts on ⌘?, before any connection is chosen", async () => {
+    const { screen } = await shell();
+    const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
+
+    await userEvent.keyboard("{Meta>}{Shift>}?{/Shift}{/Meta}");
+
+    await expect.element(help).toBeVisible();
+    await expect.element(help.getByText("Find a table by name and open it")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(help).not.toBeInTheDocument();
+  });
+
+  it("lists the shortcuts from the rail too, and keeps them quiet behind it", async () => {
+    const { screen, titles, open } = await shell();
+    await open("Local");
+
+    await screen.getByRole("button", { name: "Keyboard shortcuts" }).click();
+    await expect.element(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+
+    expect(titles()).toEqual(["Query 1"]);
+  });
+
   it("gives each connection its own tabs, and finds them again on the way back", async () => {
     const { screen, titles, open } = await shell();
     await open("Local");

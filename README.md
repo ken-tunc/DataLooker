@@ -24,19 +24,23 @@ PostgreSQL and BigQuery.
 
 ## Keyboard
 
-| Keys              | What it does                       |
-| ----------------- | ---------------------------------- |
-| ⌘O                | Find a table by name and open it   |
-| ⌘⇧D, ⌘-click      | Open the table a name in SQL names |
-| ⌘Y                | Reopen a query that was run before |
-| ⌃N, ⌃P            | Next / previous item in a palette  |
-| ⌘T                | New SQL tab                        |
-| ⌃Tab, ⌃⇧Tab       | Next / previous tab                |
-| Delete, Backspace | Close the focused tab              |
-| ⌘Enter            | Run the editor's query             |
-| ⌘C                | Copy the selected cell             |
-| Space             | Show the selected cell in full     |
-| ⌘Backspace        | Set the cell being edited to NULL  |
+Press ⌘? for this list in the app.
+
+| Keys              | What it does                          |
+| ----------------- | ------------------------------------- |
+| ⌘?                | Show these shortcuts                  |
+| ⌘O                | Find a table by name and open it      |
+| ⌘Y                | Reopen a query that was run before    |
+| ⌘T                | New SQL tab                           |
+| ⌃Tab, ⌃⇧Tab       | Next / previous tab                   |
+| Delete, Backspace | Close the focused tab                 |
+| ⌘Enter            | Run the editor's query                |
+| ⌘⇧D, ⌘-click      | Open the table a name in SQL names    |
+| ⌘C                | Copy the selected cell                |
+| Space             | Show the selected cell in full        |
+| ⌘Backspace        | Set the cell being edited to NULL     |
+| ⌃N, ⌃P            | Next / previous item in a palette     |
+| ⌥↑, ⌥↓            | Move the focused connection up / down |
 
 ## Installing a release
 
