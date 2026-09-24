@@ -1,9 +1,9 @@
 name: Release
 
-# Every push to `main` builds the app. If the `v<version>` tag for
-# package.json's version exists, the build replaces the rolling draft
-# "DataLooker (unreleased)"; if not, it is published as `v<version>`. So
-# cutting a release is bumping `version` and merging it.
+# Every push to `main` that changes more than Markdown builds the app. If the
+# `v<version>` tag for package.json's version exists, the build replaces the
+# rolling draft "DataLooker (unreleased)"; if not, it is published as
+# `v<version>`. So cutting a release is bumping `version` and merging it.
 #
 # The tag, not the Release, says a version is out: it is made at the moment of
 # publishing, so a publish that died halfway does not hide the version from the

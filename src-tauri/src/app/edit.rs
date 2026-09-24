@@ -36,8 +36,9 @@ impl App {
             .await
     }
 
-    /// Resolves to how many rows changed, which is every update or none. Logged
-    /// whatever became of it: a save is a write to the reader's database.
+    /// Resolves to how many rows changed, which is every update or none. A save
+    /// that gets as far as running is logged whatever became of it: it is a
+    /// write to the reader's database.
     pub async fn commit_table_edits(&self, edits: TableEdits) -> Result<u32, AppError> {
         if edits.inserts.is_empty() && edits.updates.is_empty() && edits.deletes.is_empty() {
             return Err(AppError::Validation("there is nothing to save".into()));

@@ -20,8 +20,8 @@ impl ShellRegistry {
         self.running.lock().unwrap().contains_key(connection_id)
     }
 
-    /// `false` when the connection already has a run; the caller should drop
-    /// what it holds rather than start it.
+    /// `false` when the connection already has a run. The caller should kill
+    /// the rejected run's group: dropping it reaps only the shell.
     pub fn insert(&self, run: Arc<ShellRun>) -> bool {
         let mut running = self.running.lock().unwrap();
         if running.contains_key(&run.connection_id) {

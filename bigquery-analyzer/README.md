@@ -33,8 +33,8 @@ links out of the tree. `DATALOOKER_BQ_ANALYZER_BIN` hands a build of your own to
 the app.
 
 `.github/workflows/analyzer.yml` tests it and publishes the Apple silicon build
-as `analyzer-v<version>`. A change to the helper is therefore a change to
-`kVersion` in `main.cc`: one version is one binary.
+as `analyzer-v<version>`. Any change to the helper other than Markdown is
+therefore a change to `kVersion` in `main.cc`: one version is one binary.
 
 ## Protocol
 
@@ -49,8 +49,8 @@ its dots, as BigQuery does.
 
 ### `hello`
 
-Returns `{"version", "googlesql"}`. The app expects exactly the version it was
-built with.
+Returns an object with `version` (the helper's) and `googlesql` fields. The app
+expects exactly the version it was built with.
 
 ### `complete`
 

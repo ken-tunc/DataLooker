@@ -123,8 +123,8 @@ pub struct TablePage {
     pub versions: Vec<String>,
 }
 
-/// `Refused` never reached the database, so unlike a protocol failure it
-/// leaves the session healthy.
+/// `Refused` is the driver declining, before a statement or by rolling back
+/// what it ran, so unlike a protocol failure it leaves the session healthy.
 #[derive(Debug)]
 pub enum DriverError {
     Sql(sqlx::Error),

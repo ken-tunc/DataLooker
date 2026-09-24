@@ -185,7 +185,8 @@ async fn more(
     Ok(page)
 }
 
-/// Cancelling cancels the job too: it is billed whether or not anyone listens.
+/// Cancelling here cancels the job too, which has an id by now: it is billed
+/// whether or not anyone listens.
 async fn ask(
     client: &Client,
     project_id: &str,

@@ -166,9 +166,9 @@ impl ShellRun {
         }
     }
 
-    /// Kill the group without waiting for the watcher, for an app on its way
-    /// out. Only for a run still registered: once the leader is reaped, the
-    /// group id may have been reused.
+    /// Kill the group without waiting for the watcher: for an app on its way
+    /// out, or a run the registry refused. Only while the leader is unreaped,
+    /// since after that the group id may have been reused.
     pub fn kill_group(&self) {
         GroupKill(self.group).now();
     }

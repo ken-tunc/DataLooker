@@ -42,8 +42,10 @@ Download `DataLooker.app.tar.gz` from a Release, unpack it and move `DataLooker.
 `/Applications`. The app is self-signed, so the first launch needs **right-click → Open**
 (or **System Settings → Privacy & Security → Open Anyway**).
 
-Every merge to `main` updates a draft Release, **DataLooker (unreleased)**. Bumping
-`version` in `package.json` publishes `v<version>`; see `.github/workflows/release.yml`.
+Every merge to `main` that changes more than Markdown builds the app. If its version is
+already released, the build replaces the draft Release **DataLooker (unreleased)**;
+otherwise it is published as `v<version>`, so bumping `version` in `package.json` is how a
+release is cut. See `.github/workflows/release.yml`.
 
 ## Development
 
@@ -55,6 +57,7 @@ Requirements:
 - Rust, pinned in `rust-toolchain.toml`
 - Tauri's [system dependencies](https://tauri.app/start/prerequisites/) — on macOS, the
   Xcode Command Line Tools
+- Docker, optionally, for the demo database and the PostgreSQL-backed tests
 
 ```sh
 vp install
