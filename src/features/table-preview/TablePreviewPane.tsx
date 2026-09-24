@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { SqlInput } from "../../components/SqlInput";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
 import { formatCell } from "../query/cell";
@@ -205,12 +206,12 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
 
         {!structure && (
           <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
-            <input
-              className="input input-sm grow font-mono"
+            <SqlInput
+              label="Filter"
+              className="input-sm grow"
               placeholder="WHERE …"
-              spellCheck={false}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={setDraft}
             />
             <button type="submit" className="btn btn-sm btn-soft">
               Filter

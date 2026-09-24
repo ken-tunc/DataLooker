@@ -193,6 +193,27 @@ describe("TablePreviewPane", () => {
     await expect.element(screen.getByText(reason)).toBeVisible();
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("colours the filter as SQL and applies it on submit", async () => {
+    const { screen, onView } = await preview();
+
+    await screen.getByRole("textbox", { name: "Filter" }).fill("note IS NULL");
+
+    // The class Monaco gave each word, which names its colour.
+    const colours = () =>
+      new Map(
+        [...document.querySelectorAll("[aria-hidden] span[class^=mtk]")].map((word) => [
+          word.textContent?.trim(),
+          word.className,
+        ]),
+      );
+    // Monaco loads on first use.
+    await expect.poll(() => colours().has("IS"), { timeout: 5000 }).toBe(true);
+    expect(colours().get("IS")).not.toBe(colours().get("note"));
+
+    await userEvent.keyboard("{Enter}");
+    expect(onView).toHaveBeenCalledWith({ filter: "note IS NULL" });
+  });
 });
 
 describe("TablePreviewPane showing the structure", () => {
@@ -207,8 +228,9 @@ describe("TablePreviewPane showing the structure", () => {
   it("shows the statement that would make the table again", async () => {
     const { ipc, screen } = await preview({}, "structure");
 
-    await expect.element(screen.getByText(/CREATE TABLE "shop"\."people"/)).toBeVisible();
-    await expect.element(screen.getByText(/CREATE INDEX people_by_name/)).toBeVisible();
+    // Once Monaco has coloured it, its spaces are non-breaking.
+    await expect.element(screen.getByText(/CREATE\sTABLE\s"shop"\."people"/)).toBeVisible();
+    await expect.element(screen.getByText(/CREATE\sINDEX\speople_by_name/)).toBeVisible();
     await expect.element(screen.getByText("No trigger.")).toBeVisible();
     expect(ipc.sent("table_definition")).toEqual({
       connection_id: "c1",
@@ -220,7 +242,7 @@ describe("TablePreviewPane showing the structure", () => {
   it("asks the server for nothing but the structure", async () => {
     const { ipc, screen } = await preview({}, "structure");
 
-    await expect.element(screen.getByText(/CREATE TABLE/)).toBeVisible();
+    await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     // One connection serves a connection's queries in turn, so a page nobody
     // is looking at would hold up the definition that is on screen.
     expect(ipc.calls.map((call) => call.command)).toEqual(["table_definition"]);
@@ -229,7 +251,7 @@ describe("TablePreviewPane showing the structure", () => {
   it("leaves the filter and the row buttons behind with the rows", async () => {
     const { screen } = await preview({}, "structure");
 
-    await expect.element(screen.getByText(/CREATE TABLE/)).toBeVisible();
+    await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     expect(screen.getByPlaceholder("WHERE …").elements()).toEqual([]);
     expect(screen.getByRole("button", { name: "New row" }).elements()).toEqual([]);
   });
