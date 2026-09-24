@@ -91,7 +91,8 @@ The answer is one of these:
   app's to list.
 - `{"context": "none"}` — the cursor is in a string or a comment.
 - `{"unresolved": message}` — GoogleSQL cannot say, most often because the
-  statement has no `FROM` yet. The app decides what to offer instead.
+  statement has no `FROM` yet, so nothing says what a name is. The app decides
+  what to offer instead.
 
 `replace` is the span a candidate replaces: the word being typed, or an empty
 span where none has begun. `expected_type` is the type the place wants where
@@ -119,5 +120,14 @@ something that adapts, then as a `BOOL`, a `TIMESTAMP`, a `DATE`, a `STRING` and
 a `FLOAT64`, and the first the statement accepts is the answer — and says which
 type the place wanted.
 
-A `GROUP BY` is not answered: grouping by the probe leaves the select list
-naming columns that are no longer grouped.
+What follows the cursor is often not written yet — a `WHERE` with no
+condition, an `ON` with nothing after it — and a statement that does not parse
+says nothing. So when the statement does not parse or resolve, what follows the
+cursor is cut back a token at a time, each cut tried as it is and with a `NULL`
+where an operand was left unwritten, with any parenthesis left open closed; the
+longest that the analyzer accepts is the answer. A cut never falls inside a
+dotted name, which would leave a shorter name naming another table, and only a
+few cuts are analyzed, since each costs an analysis per probe.
+
+In a `GROUP BY`, the query's select list is set aside: grouping by the probe
+would leave it naming columns that are no longer grouped.
