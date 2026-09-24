@@ -165,6 +165,7 @@ describe("TablePreviewPane", () => {
     await screen.getByRole("button", { name: "Refresh" }).click();
 
     await expect.poll(reads).toHaveLength(2);
+    await expect.element(screen.getByText("Katherine")).toBeVisible();
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
   });
 
