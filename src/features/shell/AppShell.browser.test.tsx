@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SchemaTree } from "../../bindings/SchemaTree";
@@ -216,6 +216,38 @@ describe("AppShell", () => {
 
     await expect.element(screen.getByText("1 unsaved change")).toBeVisible();
     await expect.element(screen.getByText("2", { exact: true })).toBeVisible();
+  });
+
+  it("leaves a table nobody is looking at unread when the window comes back", async () => {
+    const { ipc, screen, open } = await shell();
+    await open("Local");
+    await userEvent.keyboard("{Meta>}o{/Meta}");
+    await screen.getByRole("option", { name: /shop\.people/ }).click();
+    await expect.element(screen.getByText("4242", { exact: true })).toBeVisible();
+    const reads = () =>
+      ipc.calls.filter(({ command }) => command === "preview_table" || command === "table_shape")
+        .length;
+    const before = reads();
+
+    // Behind another tab, and then behind another connection.
+    await screen.getByRole("tab", { name: "Query 1" }).click();
+    await screen.getByRole("button", { name: "Staging", exact: true }).click();
+    // Long enough for the rows and the shape to have gone stale.
+    const now = Date.now();
+    const later = vi.spyOn(Date, "now").mockReturnValue(now + 10 * 60_000);
+    try {
+      window.dispatchEvent(new Event("visibilitychange"));
+      // Whatever the window's return would read, it would have asked for by now.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(reads()).toBe(before);
+
+      // Shown again, a stale page is read afresh.
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+      await screen.getByRole("tab", { name: "shop.people" }).click();
+      await expect.poll(reads).toBeGreaterThan(before);
+    } finally {
+      later.mockRestore();
+    }
   });
 
   it("asks before closing a tab that holds unsaved changes", async () => {

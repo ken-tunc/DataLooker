@@ -50,7 +50,7 @@ export function Workspace({ connectionId, tabs, hidden, onFindTable }: Props) {
             connectionId={connectionId}
             tabId={tab.id}
             sql={tab.sql}
-            hidden={tab.id !== state.activeId}
+            hidden={hidden || tab.id !== state.activeId}
             onSqlChange={(sql) => tabs.writeSql(connectionId, tab.id, sql)}
             onOpenStructure={(schema, table) =>
               tabs.openTable(connectionId, schema, table, "structure")
@@ -62,7 +62,7 @@ export function Workspace({ connectionId, tabs, hidden, onFindTable }: Props) {
             key={tab.id}
             connectionId={connectionId}
             tab={tab}
-            hidden={tab.id !== state.activeId}
+            hidden={hidden || tab.id !== state.activeId}
             onView={(view) => tabs.readTable(connectionId, tab.id, view)}
             onUnsaved={(unsaved) => tabs.markUnsaved(connectionId, tab.id, unsaved)}
           />
