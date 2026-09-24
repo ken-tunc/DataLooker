@@ -46,7 +46,7 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
 
   function keyDown(event: KeyboardEvent, id: string) {
     if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
-    const step = { ArrowUp: -1, ArrowDown: 1 }[event.key];
+    const step = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
     if (!step) return;
     event.preventDefault();
     const index = ids.indexOf(id) + step;

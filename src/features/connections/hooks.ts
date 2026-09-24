@@ -32,7 +32,11 @@ export function useSaveConnection() {
 export function useReorderConnections() {
   const queryClient = useQueryClient();
   const key = connectionKeys.list();
+  const mutationKey = [...connectionKeys.all, "reorder"];
   return useMutation({
+    mutationKey,
+    // Each order is whole, so an older one landing last would undo a newer one.
+    scope: { id: "reorder-connections" },
     mutationFn: reorderConnections,
     onMutate: async (ids) => {
       await queryClient.cancelQueries({ queryKey: key });
@@ -46,7 +50,11 @@ export function useReorderConnections() {
       return { before };
     },
     onError: (_error, _ids, context) => queryClient.setQueryData(key, context?.before),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: connectionKeys.all }),
+    // Reading back while a later move is still on its way would show the tiles jump back.
+    onSettled: () =>
+      queryClient.isMutating({ mutationKey }) === 1
+        ? queryClient.invalidateQueries({ queryKey: connectionKeys.all })
+        : undefined,
   });
 }
 

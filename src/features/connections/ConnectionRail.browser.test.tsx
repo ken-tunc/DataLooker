@@ -202,6 +202,40 @@ describe("the order of the rail", () => {
     expect(ipc.calls.slice(writes).map((c) => c.command)).not.toContain("reorder_connections");
   });
 
+  it("sends one move only after the one before it is written", async () => {
+    let order = labels.map((label, index) => ({ ...local, id: `id-${index + 1}`, label }));
+    const sent: string[][] = [];
+    let release = () => {};
+    const { screen, ipc } = await sidebar({
+      list_connections: () => order,
+      reorder_connections: async ({ connection_ids }) => {
+        sent.push(connection_ids);
+        // The first write is slow, so a second sent alongside it would land first.
+        if (sent.length === 1) await new Promise<void>((resolve) => (release = resolve));
+        order = connection_ids.flatMap((id) => order.find((record) => record.id === id) ?? []);
+        return null;
+      },
+    });
+    const three = screen.getByRole("button", { name: "Three", exact: true });
+
+    await three.click();
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    await expect.poll(() => sent.length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toHaveLength(1);
+
+    release();
+    await expect
+      .poll(() => sent)
+      .toEqual([
+        ["id-1", "id-3", "id-2"],
+        ["id-3", "id-1", "id-2"],
+      ]);
+    await expect.poll(() => order.map((record) => record.label)).toEqual(["Three", "One", "Two"]);
+    expect(ipc.sent("reorder_connections")).toEqual({ connection_ids: ["id-3", "id-1", "id-2"] });
+  });
+
   it("puts the tiles back, and says why, when the order cannot be kept", async () => {
     const { screen, tile, shown } = await reorderable(true);
 
