@@ -405,8 +405,11 @@ TablePath ReadPath(const json& value) {
 
 json Replace(const Span& span) { return {{"start", span.start}, {"end", span.end}}; }
 
-// How many cuts of the statement are analyzed before giving up.
+// How many cuts of the statement are analyzed, and how many are found not to
+// parse, before giving up. A statement that does not parse before the cursor
+// fails every cut, and each costs a parse of the whole statement.
 constexpr int kAnalyses = 4;
+constexpr int kUnparsed = 16;
 
 json Answer(const Place& place, const Probe& fitted,
             const googlesql::AnalyzerOutput& output) {
@@ -490,6 +493,7 @@ json Analyzer::Complete(const json& params) {
   // The statement's own complaint, which is what is said if no cut helps.
   std::optional<std::string> complaint;
   int analyzed = 0;
+  int unparsed = 0;
   for (const std::string& tail : Tails(text, place)) {
     // Which tables the statement names is read from it with a probe in place,
     // since the half-typed statement does not parse.
@@ -498,6 +502,7 @@ json Analyzer::Complete(const json& params) {
         head + kProbes[0].make(finder) + tail, options_, &names);
     if (!extracted.ok()) {
       if (!complaint) complaint = extracted.message();
+      if (++unparsed == kUnparsed) break;
       continue;
     }
     std::set<TablePath> needs;

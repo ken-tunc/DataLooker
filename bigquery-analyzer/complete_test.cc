@@ -1,5 +1,6 @@
 #include "complete.h"
 
+#include <chrono>
 #include <set>
 #include <string>
 #include <vector>
@@ -201,6 +202,16 @@ TEST(Complete, ReadsPastWhatIsNotWrittenYet) {
   // A column misspelt after the cursor is cut away too.
   EXPECT_THAT(Fields(Ask("SELECT o.| FROM sales.orders o WHERE o.ordr_id = 1")),
               ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+}
+
+TEST(Complete, GivesUpOnAStatementThatDoesNotParseBeforeTheCursor) {
+  // No cut adds the `END`, so none parses. Trying every one takes seconds,
+  // and the helper answers nothing else meanwhile.
+  std::string statement = "SELECT CASE WHEN TRUE THEN | FROM sales.orders o WHERE";
+  for (int i = 0; i < 2000; ++i) statement += " o.order_id = 1 AND";
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_TRUE(Ask(statement).contains("unresolved"));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(1));
 }
 
 TEST(Complete, DoesNotCutATableNameIntoAnotherOne) {
