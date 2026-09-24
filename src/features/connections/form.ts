@@ -139,7 +139,8 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
     label: mode === "duplicate" ? `${record.label} copy` : record.label,
     kind: config.kind,
     command: record.command ?? "",
-    timeZone: record.time_zone ?? "",
+    // UTC is the blank choice, however it was stored.
+    timeZone: record.time_zone === "UTC" ? "" : (record.time_zone ?? ""),
     ...(config.kind === "postgres"
       ? {
           host: config.host,
@@ -294,6 +295,10 @@ if (import.meta.vitest) {
         timeZone: "Asia/Tokyo",
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");
+    });
+
+    it("shows a stored UTC as the blank choice it is", () => {
+      expect(formValuesFrom({ ...record, time_zone: "UTC" }, "edit").timeZone).toBe("");
     });
 
     it("fills the fields of whichever driver the connection is", () => {

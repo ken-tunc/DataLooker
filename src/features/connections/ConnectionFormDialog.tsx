@@ -16,10 +16,11 @@ import {
 import { useSaveConnection } from "./hooks";
 
 /**
- * Every zone the webview can show a point in, which leaves out `UTC` itself:
- * that is the blank choice, since it is what a connection shows unless told.
+ * Every zone the webview can show a point in but `UTC`, which is the blank
+ * choice, since it is what a connection shows unless told. Chromium leaves it
+ * out of the list and WebKit may not.
  */
-const TIME_ZONES = Intl.supportedValuesOf("timeZone");
+const TIME_ZONES = Intl.supportedValuesOf("timeZone").filter((zone) => zone !== "UTC");
 
 const TITLES: Record<FormMode, string> = {
   new: "New connection",
