@@ -75,6 +75,7 @@ mod tests {
                 },
                 secret: Some("hunter2".into()),
                 command: command.map(str::to_string),
+                time_zone: None,
             })
             .await
             .unwrap();

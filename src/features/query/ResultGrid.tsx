@@ -3,7 +3,8 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
-import { formatCell, formatCellInFull } from "./cell";
+import { useTimeZone } from "../connections/hooks";
+import { formatCell, formatCellInFull, inTimeZone } from "./cell";
 import { clampColumnWidth, columnWidths } from "./columnWidths";
 
 const ROW_HEIGHT = 28;
@@ -41,9 +42,18 @@ type Props = {
   editing?: GridEditing;
   /** Told which row holds the selected cell, for whatever acts on a row. */
   onSelectRow?: (row: number | null) => void;
+  /** Whose zone points in time are shown in. */
+  connectionId: string;
 };
 
-export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }: Props) {
+export function ResultGrid({
+  result,
+  sort,
+  onSortColumn,
+  editing,
+  onSelectRow,
+  connectionId,
+}: Props) {
   // State, not a ref: React attaches a parent's ref after its children's
   // effects have run, so the virtualizer would measure nothing.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
@@ -52,7 +62,15 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   const [peek, setPeek] = useState<Peek | null>(null);
   const closing = useRef<number | undefined>(undefined);
   const peekId = useId();
+  const timeZone = useTimeZone(connectionId);
   const peeked = peek?.result === result ? peek : null;
+  // Everything the grid shows, measures and copies is the rows as the zone
+  // reads them. A pending edit is shown as it was typed.
+  const rows = result.rows.map((row) =>
+    row.map((cell, column) =>
+      result.columns[column]?.instant ? inTimeZone(cell, timeZone) : cell,
+    ),
+  );
 
   function showPeek(cell: Cell, anchor: DOMRect) {
     window.clearTimeout(closing.current);
@@ -61,7 +79,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
 
   function valueAt({ row, column }: Cell): unknown {
     const pending = editing?.pendingValue(row, result.columns[column]?.name ?? "");
-    return pending === undefined ? result.rows[row]?.[column] : pending;
+    return pending === undefined ? rows[row]?.[column] : pending;
   }
 
   // Delayed, so that the pointer can move from the cell onto the full view.
@@ -80,7 +98,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
   const overrides = dragged.columns === columns ? dragged.widths : {};
   const widths = columnWidths(
     result.columns.map((column) => ({ name: column.name, typeName: column.type_name })),
-    result.rows,
+    rows,
   ).map((width, index) => overrides[index] ?? width);
 
   function resize(event: PointerEvent<HTMLDivElement>, index: number) {
@@ -129,7 +147,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
     const next = keys[event.key];
     if (next) {
       event.preventDefault();
-      if (next.row < 0 || next.row >= result.rows.length) return;
+      if (next.row < 0 || next.row >= rows.length) return;
       if (next.column < 0 || next.column >= result.columns.length) return;
       select(next);
       return;
@@ -144,7 +162,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
     }
     if (event.key === "c" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      const cell = result.rows[selected.row]?.[selected.column];
+      const cell = rows[selected.row]?.[selected.column];
       void navigator.clipboard.writeText(cell === undefined ? "" : formatCell(cell));
     }
   }
@@ -203,7 +221,7 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
           </div>
 
           <Rows
-            rows={result.rows}
+            rows={rows}
             columns={result.columns}
             widths={widths}
             scroller={scroller}

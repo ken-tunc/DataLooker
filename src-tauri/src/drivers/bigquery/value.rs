@@ -18,6 +18,12 @@ pub fn type_name(field: &TableFieldSchema) -> String {
     }
 }
 
+/// Whether a field's values, or its array's elements, are `TIMESTAMP`s. One
+/// inside a `STRUCT` is not: the struct crosses as a document.
+pub fn holds_instants(field: &TableFieldSchema) -> bool {
+    matches!(field.r#type, FieldType::Timestamp)
+}
+
 /// BigQuery sends every value as text, so the schema says how to read it.
 pub fn decode(cell: Option<&Value>, field: &TableFieldSchema) -> Value {
     decode_as(cell, field, repeated(field))
@@ -290,5 +296,13 @@ mod tests {
         assert_eq!(type_name(&field("s", FieldType::String)), "STRING");
         assert_eq!(type_name(&many("ids", FieldType::Int64)), "ARRAY<INT64>");
         assert_eq!(type_name(&field("c", FieldType::Record)), "STRUCT");
+    }
+
+    #[test]
+    fn only_timestamps_hold_instants() {
+        assert!(holds_instants(&field("at", FieldType::Timestamp)));
+        assert!(holds_instants(&many("ats", FieldType::Timestamp)));
+        assert!(!holds_instants(&field("wall", FieldType::Datetime)));
+        assert!(!holds_instants(&field("day", FieldType::Date)));
     }
 }

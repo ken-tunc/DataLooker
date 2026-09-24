@@ -16,6 +16,7 @@ const connection: ConnectionRecord = {
     username: "admin",
   },
   command: TUNNEL,
+  time_zone: null,
   created_at: "2026-09-20T00:00:00Z",
 };
 

@@ -347,6 +347,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
                 onSortColumn={sortBy}
                 onSelectRow={(row) => setTarget(targetAt(row))}
                 editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
+                connectionId={connectionId}
               />
             ) : (
               <div className="hairline text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">

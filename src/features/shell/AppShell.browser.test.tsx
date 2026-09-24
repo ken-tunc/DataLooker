@@ -16,6 +16,7 @@ const local: ConnectionRecord = {
     username: "admin",
   },
   command: null,
+  time_zone: null,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -33,7 +34,7 @@ const definition = {
 
 const page = {
   result: {
-    columns: [{ name: "id", type_name: "INT8" }],
+    columns: [{ name: "id", type_name: "INT8", instant: false }],
     rows: [[4242]],
     truncated: false,
     elapsed_ms: 2,

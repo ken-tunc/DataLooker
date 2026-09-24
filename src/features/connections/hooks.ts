@@ -14,6 +14,11 @@ export function useConnections() {
   return useQuery({ queryKey: connectionKeys.list(), queryFn: listConnections });
 }
 
+/** The IANA zone a connection's points in time are shown in. */
+export function useTimeZone(connectionId: string): string {
+  return useConnections().data?.find(({ id }) => id === connectionId)?.time_zone ?? "UTC";
+}
+
 export function useSaveConnection() {
   const queryClient = useQueryClient();
   return useMutation({

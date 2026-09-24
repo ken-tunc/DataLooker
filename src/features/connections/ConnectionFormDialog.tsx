@@ -15,6 +15,13 @@ import {
 } from "./form";
 import { useSaveConnection } from "./hooks";
 
+/**
+ * Every zone the webview can show a point in but `UTC`, which is the blank
+ * choice, since it is what a connection shows unless told. Chromium leaves it
+ * out of the list and WebKit may not.
+ */
+const TIME_ZONES = Intl.supportedValuesOf("timeZone").filter((zone) => zone !== "UTC");
+
 const TITLES: Record<FormMode, string> = {
   new: "New connection",
   edit: "Edit connection",
@@ -231,6 +238,31 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 value={values.command}
                 onChange={(event) => update("command", event.target.value)}
               />
+            </Field>
+
+            <Field
+              id={`${fieldId}-time-zone`}
+              label="Time zone"
+              hint="Points in time, such as timestamptz, are shown in this zone. The value is the same whichever zone reads it."
+            >
+              <select
+                id={`${fieldId}-time-zone`}
+                className="select w-full"
+                value={values.timeZone}
+                onChange={(event) => update("timeZone", event.target.value)}
+              >
+                <option value="">UTC</option>
+                {/* One stored under a name this webview no longer lists stays
+                    chosen rather than falling back to UTC unseen. */}
+                {values.timeZone !== "" && !TIME_ZONES.includes(values.timeZone) && (
+                  <option value={values.timeZone}>{values.timeZone}</option>
+                )}
+                {TIME_ZONES.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone}
+                  </option>
+                ))}
+              </select>
             </Field>
           </fieldset>
 

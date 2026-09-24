@@ -5,4 +5,8 @@ export type ConnectionRecord = { id: string, label: string, config: DriverConfig
 /**
  * A shell command the reader runs before connecting, if they gave one.
  */
-command: string | null, created_at: string, };
+command: string | null, 
+/**
+ * The IANA zone its points in time are shown in; UTC when absent.
+ */
+time_zone: string | null, created_at: string, };

@@ -16,6 +16,8 @@ const shared = {
   secret: z.string(),
   // Unchecked: the shell is what reads it.
   command: z.string().trim(),
+  // Picked from the zones the webview knows, or blank for UTC.
+  timeZone: z.string(),
 };
 
 const postgres = z.object({
@@ -50,6 +52,7 @@ export type ConnectionFormValues = {
   location: string;
   secret: string;
   command: string;
+  timeZone: string;
 };
 
 export type FieldErrors = Partial<Record<keyof ConnectionFormValues, string>>;
@@ -66,6 +69,7 @@ export const EMPTY_FORM: ConnectionFormValues = {
   location: "US",
   secret: "",
   command: "",
+  timeZone: "",
 };
 
 export const SECRET_LABELS: Record<DriverKind, string> = {
@@ -123,6 +127,7 @@ export function parseConnectionForm(
             },
       secret: values.secret === "" ? null : values.secret,
       command: parsed.data.command === "" ? null : parsed.data.command,
+      time_zone: parsed.data.timeZone === "" ? null : parsed.data.timeZone,
     },
   };
 }
@@ -134,6 +139,8 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
     label: mode === "duplicate" ? `${record.label} copy` : record.label,
     kind: config.kind,
     command: record.command ?? "",
+    // UTC is the blank choice, however it was stored.
+    timeZone: record.time_zone === "UTC" ? "" : (record.time_zone ?? ""),
     ...(config.kind === "postgres"
       ? {
           host: config.host,
@@ -159,6 +166,7 @@ if (import.meta.vitest) {
       username: "admin",
     },
     command: "ssh -L 5432:db:5432 bastion",
+    time_zone: "Asia/Tokyo",
     created_at: "2026-09-20T00:00:00Z",
   };
 
@@ -196,6 +204,7 @@ if (import.meta.vitest) {
           },
           secret: "hunter2",
           command: null,
+          time_zone: null,
         },
       });
     });
@@ -260,6 +269,13 @@ if (import.meta.vitest) {
       expect(given.ok && given.input.command).toBe("ssh -N host");
     });
 
+    it("sends a zone left at UTC as no zone", () => {
+      const utc = parseConnectionForm(valid, "new", null);
+      const tokyo = parseConnectionForm({ ...valid, timeZone: "Asia/Tokyo" }, "new", null);
+      expect(utc.ok && utc.input.time_zone).toBeNull();
+      expect(tokyo.ok && tokyo.input.time_zone).toBe("Asia/Tokyo");
+    });
+
     it.each(["0", "70000", "abc", ""])("rejects the port %o", (port) => {
       const result = parseConnectionForm({ ...valid, port }, "new", null);
       expect(!result.ok && result.errors.port).toBeTruthy();
@@ -276,8 +292,13 @@ if (import.meta.vitest) {
         database: "datalooker",
         username: "admin",
         command: "ssh -L 5432:db:5432 bastion",
+        timeZone: "Asia/Tokyo",
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");
+    });
+
+    it("shows a stored UTC as the blank choice it is", () => {
+      expect(formValuesFrom({ ...record, time_zone: "UTC" }, "edit").timeZone).toBe("");
     });
 
     it("fills the fields of whichever driver the connection is", () => {
@@ -286,6 +307,7 @@ if (import.meta.vitest) {
           ...record,
           config: { kind: "bigquery", project_id: "looking", location: "EU" },
           command: null,
+          time_zone: null,
         },
         "edit",
       );

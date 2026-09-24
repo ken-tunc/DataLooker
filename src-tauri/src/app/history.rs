@@ -61,6 +61,7 @@ mod tests {
                 label: "Local",
                 config: &config,
                 command: None,
+                time_zone: None,
             },
         )
         .await
