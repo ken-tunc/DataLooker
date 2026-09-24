@@ -238,22 +238,34 @@ absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
   return place;
 }
 
-// What can follow the probe, most of the statement first: the statement as it
-// is, and then cut back, as it would read had the reader not yet written what
-// does not parse or resolve. A cut is tried as it is and with a `NULL` where
-// an operand or a condition was left unwritten, and parentheses left open are
-// closed. The newlines keep what is added out of a line comment.
-std::vector<std::string> Tails(absl::string_view text, const Place& place) {
-  std::vector<std::string> tails;
+// One way the statement can end after the probe.
+struct Ending {
+  const Cut* cut;
+  bool null;
+};
+
+// The ways the statement can end, most of it first: as it is, and then cut
+// back, as it would read had the reader not yet written what does not parse or
+// resolve. A cut is tried as it is and with a `NULL` where an operand or a
+// condition was left unwritten.
+std::vector<Ending> Endings(const Place& place) {
+  std::vector<Ending> endings;
   for (auto cut = place.cuts.rbegin(); cut != place.cuts.rend(); ++cut) {
     if (cut->open < 0) continue;
-    const std::string kept(text.substr(place.replace.end, cut->at - place.replace.end));
-    const std::string closed =
-        cut->open == 0 ? "" : "\n" + std::string(cut->open, ')');
-    tails.push_back(kept + closed);
-    if (!cut->after_dot) tails.push_back(kept + "\nNULL" + closed);
+    endings.push_back({&*cut, false});
+    if (!cut->after_dot) endings.push_back({&*cut, true});
   }
-  return tails;
+  return endings;
+}
+
+// What follows the probe for an ending, made only when it is tried: each is
+// most of the statement. Parentheses left open are closed, and the newlines
+// keep what is added out of a line comment.
+std::string Tail(absl::string_view text, const Place& place, const Ending& ending) {
+  return absl::StrCat(
+      text.substr(place.replace.end, ending.cut->at - place.replace.end),
+      ending.null ? "\nNULL" : "",
+      ending.cut->open == 0 ? "" : "\n" + std::string(ending.cut->open, ')'));
 }
 
 // The probes tried in turn. An undeclared parameter takes its type from an
@@ -494,7 +506,8 @@ json Analyzer::Complete(const json& params) {
   std::optional<std::string> complaint;
   int analyzed = 0;
   int unparsed = 0;
-  for (const std::string& tail : Tails(text, place)) {
+  for (const Ending& ending : Endings(place)) {
+    const std::string tail = Tail(text, place, ending);
     // Which tables the statement names is read from it with a probe in place,
     // since the half-typed statement does not parse.
     googlesql::TableNamesSet names;

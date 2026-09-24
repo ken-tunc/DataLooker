@@ -209,6 +209,7 @@ TEST(Complete, GivesUpOnAStatementThatDoesNotParseBeforeTheCursor) {
   // and the helper answers nothing else meanwhile.
   std::string statement = "SELECT CASE WHEN TRUE THEN | FROM sales.orders o WHERE";
   for (int i = 0; i < 2000; ++i) statement += " o.order_id = 1 AND";
+  Shared();  // Built before the clock starts: it is slow to build.
   const auto started = std::chrono::steady_clock::now();
   EXPECT_TRUE(Ask(statement).contains("unresolved"));
   EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(1));
