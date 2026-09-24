@@ -15,8 +15,7 @@ use crate::db::connection::DriverConfig;
 use crate::drivers::session::Whose;
 use crate::error::AppError;
 
-/// How much of the log an agent is given at once. It is looking for what was
-/// run lately rather than reading the whole of it.
+/// An agent wants what was run lately, not the whole log.
 const RECENT: u32 = 100;
 
 /// A connection as an agent sees it: what to call it, and what it reaches.
@@ -236,8 +235,6 @@ impl Agent {
     }
 }
 
-/// What this server is, and what it can do. The tools are the router's to
-/// answer for; the rest is what an agent reads before it asks anything.
 #[tool_handler]
 impl ServerHandler for Agent {
     fn get_info(&self) -> ServerConfig {
@@ -246,11 +243,9 @@ impl ServerHandler for Agent {
 }
 
 impl Agent {
-    /// The instructions are what a reader would otherwise have to put in
-    /// their prompt.
+    /// What a reader would otherwise have to put in their prompt.
     fn about() -> ServerConfig {
-        // Filled in rather than written out: both of these reserve the right
-        // to grow fields.
+        // Assigned field by field because both structs are non-exhaustive.
         let mut who = Implementation::default();
         who.name = "datalooker".to_string();
         who.version = env!("CARGO_PKG_VERSION").to_string();
@@ -290,8 +285,7 @@ impl From<crate::db::connection::ConnectionRecord> for Connection {
     }
 }
 
-/// What the app refused, as the protocol says it. The message is the app's
-/// own: an agent reads it the way a reader reads a toast.
+/// The app's own message, which an agent reads the way a reader reads a toast.
 fn refused(e: AppError) -> ErrorData {
     ErrorData::internal_error(e.to_string(), None)
 }

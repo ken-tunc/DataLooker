@@ -7,8 +7,7 @@ export type SaveConnectionInput = {
  */
 id: string | null, label: string, config: DriverConfig, 
 /**
- * Absent leaves the stored secret alone, which is how an edit that does
- * not touch the password arrives.
+ * Absent leaves the stored secret alone.
  */
 secret: string | null, 
 /**

@@ -5,10 +5,7 @@ use sqlx::PgConnection;
 use crate::drivers::postgres::{query, quote};
 use crate::drivers::{Preview, TablePage};
 
-/// Builds the `SELECT` a table preview runs. The filter is a WHERE expression
-/// the reader wrote — no less trusted than the editor beside it, and not
-/// something this can parse anyway — while the table and the sorted column are
-/// identifiers, which are quoted here.
+/// The filter is the reader's own WHERE expression, as trusted as the editor.
 pub fn preview_sql(preview: &Preview) -> String {
     let Preview {
         schema,
@@ -20,8 +17,7 @@ pub fn preview_sql(preview: &Preview) -> String {
         versioned,
     } = preview;
 
-    // The version comes last so that stripping it off the result is the same
-    // work whatever the table holds.
+    // Last, so it is stripped off the same way whatever the table holds.
     let columns = if *versioned {
         "t.*, t.xmin::text"
     } else {
@@ -48,8 +44,7 @@ pub async fn preview(
     request: &Preview<'_>,
 ) -> Result<TablePage, sqlx::Error> {
     let started = Instant::now();
-    // Selecting one row past the page is how the reader learns there is another
-    // one: `execute` keeps the page and reports the extra row as `truncated`.
+    // One row past the page comes back as `truncated`.
     let sql = preview_sql(&Preview {
         limit: request.limit + 1,
         ..*request

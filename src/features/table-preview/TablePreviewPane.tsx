@@ -35,19 +35,15 @@ type Props = {
 };
 
 export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved }: Props) {
-  // The rows keep their state while the structure is read — a pending edit is
-  // still pending, and the page is still the page the reader was on — but
-  // nothing asks the server for them: one connection serves a connection's
-  // queries in turn, so a page nobody is looking at would hold up the
-  // definition that is on screen.
+  // The rows keep their state while the structure is shown, but are not
+  // fetched: the session runs one query at a time, and a page nobody is
+  // looking at would hold up the definition that is on screen.
   const structure = tab.shows === "structure";
   const shape = useTableShape(connectionId, tab.schema, tab.table, !structure);
-  // A row can only be written when it can be named, which is what a primary
-  // key is for. A view has none, and neither has a table nobody gave one.
+  // A row can only be written when a primary key can name it.
   const primaryKey = shape.data?.primary_key ?? [];
   const editable = primaryKey.length > 0;
-  // A driver that cannot write a row at all says so, and says why; that is a
-  // fact about the table rather than a failure to read its shape.
+  // A fact about the table, not a failure to read its shape.
   const unwritable =
     shape.error instanceof IpcError && shape.error.kind === "Unsupported"
       ? shape.error.message
@@ -57,8 +53,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
-  // The filter applies when it is submitted, not as it is typed: half a
-  // predicate is a syntax error, and every keystroke would be a query.
+  // Applied on submit: half a predicate is a syntax error.
   const [draft, setDraft] = useState(tab.filter);
 
   const page = preview.data;
@@ -67,14 +62,11 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
     editable && page !== undefined && page.versions.length === page.result.rows.length;
   const pending = editCount(edits);
   const unsaved = pending > 0;
-  // The edits stay the pane's; whoever closes the tab only has to know that
-  // there are some. Only a change is worth telling, and the callback is a new
-  // function every render.
+  // Only a change is worth telling, and the callback is new every render.
   // eslint-disable-next-line react/exhaustive-deps
   useEffect(() => onUnsaved(unsaved), [unsaved]);
 
-  // New rows sit above the table's own, so a row index below their count is a
-  // draft and the rest are the page's, shifted by it.
+  // Drafts sit above the page's rows and shift their indexes.
   const drafts = edits.inserts;
   const shown: QueryResult | undefined = page && {
     ...page.result,
@@ -93,7 +85,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       const index = columns.findIndex((candidate) => candidate.name === column);
       const value = index === -1 ? undefined : values[index];
       if (value === undefined) return null;
-      // The text of a cell is what an update casts back to the column's type.
+      // An update casts this text back to the column's type.
       key[column] = value === null ? null : formatCell(value);
     }
     return key;
@@ -125,16 +117,13 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
     return key && isDeleted(edits, key) ? "bg-error/15 line-through opacity-60" : undefined;
   }
 
-  // A save takes the edits as they are when it starts, and clears them when it
-  // succeeds, so anything changed while it is in flight would be thrown away
-  // unsent.
+  // A save clears the edits it started with, so a change made while it is in
+  // flight would be lost.
   const editingNow = editingPage && !commit.isPending;
 
   /**
-   * Which row is selected has to survive what moves the rows: a draft added
-   * above them shifts every index down, and a refetch can replace them all.
-   * So a selection is resolved to the row itself, and forgotten once that row
-   * is no longer on the page.
+   * Resolved to the row itself, because a draft shifts indexes and a refetch
+   * replaces rows; forgotten once the row is gone from the page.
    */
   function targetAt(row: number | null): DeleteTarget | null {
     if (row === null) return null;
@@ -149,9 +138,8 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   function stillShown(): boolean {
     if (target === null) return false;
     if ("draft" in target) return drafts.some((row) => row.id === target.draft);
-    // A row that came back with a new version is someone else's row now: the
-    // selection is a cursor, not a decision, so it is dropped rather than
-    // carried into a delete that would be refused anyway.
+    // A row with a new version changed underneath; deleting it would be
+    // refused anyway.
     return (page?.result.rows ?? []).some((_, index) => {
       const key = keyOfRow(index);
       return (

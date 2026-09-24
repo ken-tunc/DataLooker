@@ -4,10 +4,9 @@ use sqlx::{PgConnection, Row};
 use crate::drivers::postgres::quote;
 use crate::drivers::{NamedDefinition, TableDefinition};
 
-/// PostgreSQL has no `SHOW CREATE TABLE`: what it offers is `pg_get_*def` for
-/// the pieces that are objects of their own — an index, a trigger, a
-/// constraint, a view's body — and the columns, which have to be written out
-/// from `pg_attribute`. So the statement below is rebuilt rather than read.
+/// PostgreSQL has no `SHOW CREATE TABLE`, only `pg_get_*def` for the pieces
+/// that are objects of their own, so the statement is rebuilt around them from
+/// `pg_attribute`.
 const RELATION: &str = "
     SELECT c.oid,
            c.relkind,
@@ -49,11 +48,9 @@ const CONSTRAINTS: &str = "
      ORDER BY CASE contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 WHEN 'f' THEN 2 ELSE 3 END, conname
 ";
 
-/// An index that backs a constraint of this table is left out: its definition
-/// is already in the statement, as the constraint that owns it. The constraint
-/// has to be this table's own — a foreign key elsewhere points its `conindid`
-/// at the index it referenced here, and that index is still one nobody but
-/// this table declared.
+/// An index backing one of this table's constraints is already in the
+/// statement as that constraint. Only this table's own: a foreign key elsewhere
+/// points its `conindid` at the index it references here.
 const INDEXES: &str = "
     SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS definition
       FROM pg_index i
@@ -66,8 +63,7 @@ const INDEXES: &str = "
      ORDER BY c.relname
 ";
 
-/// `tgisinternal` is how the triggers enforcing a foreign key hide themselves,
-/// and nobody wrote them.
+/// `tgisinternal` triggers enforce foreign keys; nobody wrote them.
 const TRIGGERS: &str = "
     SELECT tgname AS name, pg_get_triggerdef(oid) AS definition
       FROM pg_trigger
@@ -75,8 +71,6 @@ const TRIGGERS: &str = "
      ORDER BY tgname
 ";
 
-/// What `pg_class` says about the relation, which decides what its statement
-/// has to say.
 struct Relation {
     oid: Oid,
     relkind: char,
@@ -143,7 +137,7 @@ async fn view(
     schema: &str,
     table: &str,
 ) -> Result<String, sqlx::Error> {
-    // `true` pretty-prints it, which is what makes a view worth reading.
+    // Pretty-printed.
     let body: String = sqlx::query_scalar("SELECT pg_get_viewdef($1, true)")
         .bind(relation.oid)
         .fetch_one(conn)
@@ -158,8 +152,7 @@ fn create_view(relation: &Relation, schema: &str, table: &str, body: &str) -> St
     } else {
         "CREATE VIEW"
     };
-    // `pg_get_viewdef` ends the query with a semicolon of its own, and what
-    // follows a materialized view's body goes before it.
+    // `pg_get_viewdef` ends with a semicolon, and `WITH NO DATA` goes before it.
     let body = body.trim_end().trim_end_matches(';');
     let unpopulated = if materialized && !relation.populated {
         "\nWITH NO DATA"
@@ -197,8 +190,7 @@ async fn table_statement(
 
     let constraints = named(&mut *conn, CONSTRAINTS, relation.oid).await?;
 
-    // A partitioned table is one whose partition key the statement has to
-    // carry, or what it says is a different table.
+    // Without its partition key the statement would make a different table.
     let partition: Option<String> = if relation.relkind == 'p' {
         Some(
             sqlx::query_scalar("SELECT pg_get_partkeydef($1)")
@@ -220,8 +212,8 @@ async fn table_statement(
     ))
 }
 
-/// What a table is made with, which is not always `CREATE TABLE`: an unlogged
-/// table that says it is one would be made with a WAL it does not have.
+/// Not always `CREATE TABLE`: leaving out `UNLOGGED` would make a different
+/// table.
 fn keyword(relation: &Relation) -> &'static str {
     match (relation.relkind, relation.persistence) {
         ('f', _) => "CREATE FOREIGN TABLE",
@@ -242,8 +234,7 @@ fn create_table(
     let keyword = keyword(relation);
     let partition_by = partition.map_or(String::new(), |by| format!(" PARTITION BY {by}"));
 
-    // A partition takes its columns from the table it is part of, so what says
-    // which rows are in it is the bound and not a column list.
+    // A partition's columns are its parent's; what defines it is the bound.
     if let Some((parent, bound)) = &relation.partition_of {
         return format!(
             "{keyword} {}.{} PARTITION OF {parent} {bound}{partition_by};",
@@ -280,8 +271,7 @@ fn column(column: &ColumnDefinition) -> String {
         (Some(expression), true, _) => {
             text.push_str(&format!(" GENERATED ALWAYS AS ({expression}) STORED"));
         }
-        // An identity column's sequence is not a default: the column says how
-        // the number arrives, and `pg_attrdef` holds nothing for it.
+        // `pg_attrdef` holds nothing for an identity column.
         (_, _, 'a') => text.push_str(" GENERATED ALWAYS AS IDENTITY"),
         (_, _, 'd') => text.push_str(" GENERATED BY DEFAULT AS IDENTITY"),
         (Some(expression), false, _) => text.push_str(&format!(" DEFAULT {expression}")),

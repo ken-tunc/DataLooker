@@ -20,10 +20,7 @@ type Ranked = { hits: readonly number[]; score: number };
 
 const qualify = (schema: string, table: string) => `${schema}.${table}`;
 
-/**
- * A name reads as words separated by the punctuation identifiers are allowed —
- * `sales.order_items` is four of them — and a query almost always starts at one.
- */
+/** `sales.order_items` is three words, and a query almost always starts at one. */
 function startsWord(text: string, index: number): boolean {
   if (index === 0) return true;
   const before = text[index - 1];
@@ -31,9 +28,8 @@ function startsWord(text: string, index: number): boolean {
 }
 
 /**
- * The leftmost subsequence that begins at `start`, or null if there is none.
- * Positions count UTF-16 units rather than code points, so that a character
- * outside the basic plane is matched and marked up by the same halves.
+ * The leftmost subsequence from `start`. Positions are UTF-16 units, the same
+ * ones the highlight slices by.
  */
 function matchFrom(text: string, query: string, start: number): number[] | null {
   const hits: number[] = [];
@@ -58,10 +54,8 @@ function score(text: string, hits: readonly number[], schemaLength: number): num
 }
 
 /**
- * The best a query can do against one name. A subsequence can be spelled out in
- * several places — "or" is in `orders.order_id` three times over — and the
- * leftmost one is not the one a reader means, so every starting point is tried
- * and the tightest, most word-aligned match wins.
+ * Every starting point is tried: the leftmost subsequence is not always the
+ * one a reader means ("or" in `orders.order_id`).
  */
 function best(text: string, query: string, schemaLength: number): Ranked | null {
   let winner: Ranked | null = null;
@@ -79,9 +73,8 @@ function best(text: string, query: string, schemaLength: number): Ranked | null 
 }
 
 /**
- * The tables a query names, best first. The haystack is the qualified name, so
- * typing the period narrows by schema as well; spaces are dropped, since an
- * identifier has none and a stray one should not empty the list.
+ * Matched against the qualified name, so a period narrows by schema. Spaces
+ * are dropped: an identifier has none.
  */
 export function searchTables(tree: SchemaTree, query: string, limit = MATCH_LIMIT): TableMatch[] {
   const needle = query.replaceAll(/\s+/gu, "").toLowerCase();
@@ -99,10 +92,9 @@ export function searchTables(tree: SchemaTree, query: string, limit = MATCH_LIMI
     }
   }
 
-  // A shorter name wearing the same score is the more specific hit: `people`
-  // before `people_audit_2024`. The name itself settles the rest, so the list
-  // never reshuffles between two runs of the same query. With nothing typed
-  // there is nothing to rank, and the tree's order is the one the sidebar shows.
+  // On a tie the shorter name is more specific (`people` before
+  // `people_audit_2024`), then the name itself keeps the order stable. With
+  // nothing typed, the tree's order stands.
   if (needle !== "") {
     found.sort(
       (left, right) =>

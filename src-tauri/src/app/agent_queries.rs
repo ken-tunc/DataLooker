@@ -9,21 +9,15 @@ use crate::drivers::session::Whose;
 use crate::drivers::QueryResult;
 use crate::error::AppError;
 
-/// Enough rows for an agent to work from, few enough that a careless
-/// `SELECT *` is not answered with a table. It is smaller than the reader's
-/// own limit: a reader scrolls what they asked for, and an agent reads it all
-/// into whatever is holding its context.
+/// Lower than the reader's limit: a reader scrolls, an agent reads it all into
+/// its context.
 const ROWS: usize = 1_000;
 
-/// How long an agent's statement may run. The reader's own has no limit —
-/// long queries are legitimate and there is a Cancel button for the rest —
-/// but nobody is watching this one and nothing will stop it.
+/// The reader's statements have no limit because they can cancel; nobody is
+/// watching an agent's.
 const WAIT: Duration = Duration::from_secs(60);
 
 impl App {
-    /// Run a statement for an agent: on a session of its own, reading only,
-    /// bounded in rows and in time, and written into the same log the
-    /// reader's own runs go to.
     pub async fn run_agent_query(
         &self,
         connection_id: &str,
@@ -36,8 +30,7 @@ impl App {
         let result = tokio::select! {
             result = session.execute_reading(sql, ROWS, &cancel) => result,
             () = tokio::time::sleep(WAIT) => {
-                // The statement is given up on rather than stopped: what it
-                // left on the wire is why the session goes with it.
+                // What it left on the wire is why the session goes too.
                 cancel.cancel();
                 self.sessions.drop_one(connection_id, Whose::Agent);
                 Err(AppError::Timeout)
@@ -55,8 +48,7 @@ impl App {
         result
     }
 
-    /// Bounds what an agent waits for the way its statements are bounded:
-    /// nobody is watching it. A reader waiting is watching, and can stop.
+    /// Nobody is watching an agent wait.
     pub(super) async fn within<T>(
         &self,
         connection_id: &str,
@@ -72,8 +64,6 @@ impl App {
         }
     }
 
-    /// What has been run against this connection, whoever ran it. An agent
-    /// reading the log is the reason the log says who.
     pub async fn agent_query_history(
         &self,
         connection_id: &str,
@@ -97,8 +87,7 @@ mod tests {
         let read = app.run_agent_query(&id, "SELECT 1 AS one").await;
         assert_eq!(read.expect("a statement that reads").rows.len(), 1);
 
-        // The server refuses it, rather than anything here reading the
-        // statement and deciding what it would do.
+        // Refused by the server.
         let written = app
             .run_agent_query(&id, "CREATE TABLE agent_was_here (id integer)")
             .await;
@@ -115,9 +104,8 @@ mod tests {
             return;
         };
 
-        // Not a write, and PostgreSQL lets anyone set it: what it sets is the
-        // default for transactions to come, and every statement here begins
-        // its own read-only transaction.
+        // Anyone may set this, but each statement begins its own read-only
+        // transaction regardless.
         let _ = app
             .run_agent_query(
                 &id,
@@ -144,10 +132,8 @@ mod tests {
             return;
         };
 
-        // Two commands in one string would be two chances to leave the
-        // transaction that is holding this to reading. PostgreSQL refuses
-        // them where a statement is prepared, which is how every statement
-        // gets here.
+        // A second command could end the read-only transaction; PostgreSQL
+        // refuses one in a prepared statement.
         let both = app
             .run_agent_query(&id, "SELECT 1; CREATE TABLE agent_snuck_in (id integer)")
             .await
@@ -185,8 +171,7 @@ mod tests {
             return;
         };
 
-        // A reader may write; the agent's session is another session, opened
-        // to read, and one does not become the other.
+        // The reader's temporary table is not the agent's to see.
         app.execute_query(&id, "CREATE TEMP TABLE only_ours (id integer)", "q1")
             .await
             .expect("the reader writes");

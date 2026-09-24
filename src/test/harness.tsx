@@ -7,20 +7,14 @@ import { ToastProvider } from "../components/Toast";
 import type { Command } from "../lib/invoke";
 
 /**
- * What a command answers with, as the Rust declaration says it does. A
- * function is handed what the frontend sent, and whatever it throws comes back
- * as a rejection — which is how an `AppError` arrives, since Tauri rejects
- * with the serialized value rather than an `Error`.
+ * A function's throw becomes a rejection with the thrown value, which is how
+ * Tauri delivers an `AppError`.
  */
 type Reply<C extends Command> =
   | Commands[C]["returns"]
   | ((args: Received<C>) => Commands[C]["returns"] | Promise<Commands[C]["returns"]>);
 
-/**
- * What a command's stub is handed. A command that takes nothing is sent no
- * payload at all, so it receives `undefined` rather than the `null` the
- * bindings write for "no arguments".
- */
+/** A command that takes nothing is sent no payload, so its stub gets `undefined`. */
 type Received<C extends Command> = Commands[C]["args"] extends null
   ? undefined
   : Commands[C]["args"];
@@ -36,16 +30,12 @@ export type Ipc = {
 };
 
 /**
- * Stands in for the Tauri side. The app reaches the backend through
- * `window.__TAURI_INTERNALS__.invoke`, and nothing between here and there
- * knows the difference — the wrappers in `lib/commands.ts`, React Query and
- * every component above them run exactly as they do in the window.
+ * Replaces `window.__TAURI_INTERNALS__.invoke`, so everything from
+ * `lib/commands.ts` upwards runs as it does in the window.
  */
 export function stubIpc(replies: Replies): Ipc {
   const calls: Ipc["calls"] = [];
-  // What `listen` handed over, by the number it was given. Tauri passes a
-  // callback to the backend as a number and calls it back by that number; the
-  // frontend never sees either, so neither does a test.
+  // Tauri passes a callback to the backend as a number and calls it back by it.
   const listeners = new Map<number, { event: string; handler: (message: unknown) => void }>();
   let nextHandler = 0;
 
@@ -59,8 +49,7 @@ export function stubIpc(replies: Replies): Ipc {
       listeners.delete(payload.eventId as number);
       return null;
     }
-    // A command's arguments travel under `args`, which is the part a test
-    // wrote and the part it reads back.
+    // Arguments travel under `args`.
     const args = payload.args;
     calls.push({ command, args });
     const reply = (replies as Record<string, unknown>)[command];
@@ -82,8 +71,7 @@ export function stubIpc(replies: Replies): Ipc {
     configurable: true,
     writable: true,
   });
-  // `listen` tells the event plugin's own bookkeeping that a listener is going
-  // away. Nothing here keeps that book, but unlistening must not throw.
+  // Unlistening reaches into this, and must not throw.
   Object.defineProperty(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
     value: { unregisterListener: () => {} },
     configurable: true,
@@ -103,9 +91,8 @@ export function stubIpc(replies: Replies): Ipc {
 }
 
 /**
- * The providers `main.tsx` mounts, minus the error boundary: a test wants the
- * failure, not a fallback screen. Each test gets a cache of its own so that
- * one test's rows cannot answer another test's query.
+ * `main.tsx`'s providers without the error boundary, so a test sees the
+ * failure. A fresh cache per test.
  */
 export async function renderApp(ui: ReactNode) {
   const client = new QueryClient({

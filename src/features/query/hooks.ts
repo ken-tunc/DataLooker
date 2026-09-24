@@ -3,10 +3,7 @@ import { useRef } from "react";
 import { cancelQuery, executeQuery } from "../../lib/commands";
 import { historyKeys } from "../query-history/keys";
 
-/**
- * The id minted here is what the backend registers the running query under, so
- * cancelling is a second command rather than a property of this promise.
- */
+/** Cancelling is a second command, sent with the id minted here. */
 export function useQueryRunner(connectionId: string) {
   const runningId = useRef<string | null>(null);
   const queryClient = useQueryClient();
@@ -21,10 +18,8 @@ export function useQueryRunner(connectionId: string) {
         runningId.current = null;
       }
     },
-    // The backend logs a run whatever became of it, so the history the palette
-    // shows is stale either way. Returning the promise would hold the mutation
-    // open until the refetch came back, and the editor would still be saying
-    // the query is running.
+    // Every run is logged, whatever became of it. Not returned, or the
+    // mutation would stay pending until the refetch came back.
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: historyKeys.of(connectionId) });
     },

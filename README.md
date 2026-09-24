@@ -1,203 +1,105 @@
 # DataLooker
 
-A GUI database client for macOS, built with Tauri 2 + Rust + React 19.
+A GUI database client for macOS, built with Tauri 2, Rust and React 19. It speaks
+PostgreSQL and BigQuery.
 
-> **Status:** early development. PostgreSQL connections can be created, edited, duplicated
-> and deleted — stored locally, with their passwords in the OS keychain — and each one
-> opens a window of SQL tabs: a Monaco editor per tab, the rows in a grid below it. A schema
-> tree shows what a database holds, a table is found by name from anywhere with ⌘O, and it
-> opens in a tab of its own where its rows can be filtered and sorted — and edited, when the
-> table has a primary key to name a row by — beside the statement that would make the table
-> again, with its indexes and triggers. The editor marks what PostgreSQL would refuse to
-> parse, without asking a server, and has vim keybindings behind a toggle. Every statement
-> that runs is logged, and ⌘Y reopens one. ⌘⇧D on a name in a statement opens
-> what it names. A connection can carry a shell command — a port
-> forward, an SSH tunnel — started and stopped from its row in the list. A BigQuery
-> connection can be made, tested, queried, its tables' rows paged through, and its
-> datasets read like any other schema tree, where a table written a day at a time is folded into one row per set of
-> days. A statement completes out of the database it will run against: through
-> `sqls`, a language server DataLooker will build with your Go toolchain if you
-> have none, for PostgreSQL, and through a GoogleSQL helper that reads the
-> statement itself for BigQuery, which sees the project as the connection's own
-> service account. Your own agents can be let in over MCP, on this
-> machine and behind a token, to see which connections there are, what they
-> hold, what a table holds, and to run statements that read — logged beside your
-> own, and marked. They never write: that is not something DataLooker does on an
-> agent's behalf.
+## Features
 
-## Prerequisites
+- **Connections** — PostgreSQL and BigQuery (service account key). Secrets stay in the
+  macOS keychain. A connection can carry a shell command, such as an SSH tunnel, started
+  and stopped from its header.
+- **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
+  a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
+  keybindings.
+- **Results** — a virtualized grid with resizable columns and cell copy.
+- **Schema tree** — schemas and tables, filterable; day-named tables such as
+  `events_20250101` are folded into one row.
+- **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
+  indexes and triggers. PostgreSQL tables with a primary key can be edited in place.
+- **History** — every statement run is logged and can be reopened.
+- **Agents** — an optional MCP server on localhost, behind a token, lets your own agents
+  list connections, read schemas and run read-only statements. Their runs are logged and
+  marked.
 
-- **macOS** to run the app (Linux and Windows are not validated; Linux is where CI runs
-  the tests, which need no window)
-- **[Vite+](https://viteplus.dev/)** — the `vp` CLI drives the frontend toolchain and
-  installs the Node.js and pnpm versions this project pins:
-  ```sh
-  curl -fsSL https://vite.plus | bash
-  ```
-  Node.js 26.9.0 (`devEngines.runtime` in `package.json`) and pnpm 11.11.0
-  (`packageManager`) are fetched by `vp` — no separate version manager needed.
-- **Rust** 1.98, pinned in `rust-toolchain.toml` (rustup installs it on first build)
-- Tauri's [system dependencies](https://tauri.app/start/prerequisites/) — on macOS the
-  Xcode Command Line Tools are enough
+## Keyboard
 
-## Getting started
+| Keys              | What it does                       |
+| ----------------- | ---------------------------------- |
+| ⌘O                | Find a table by name and open it   |
+| ⌘⇧D, ⌘-click      | Open the table a name in SQL names |
+| ⌘Y                | Reopen a query that was run before |
+| ⌃N, ⌃P            | Next / previous item in a palette  |
+| ⌘T                | New SQL tab                        |
+| ⌃Tab, ⌃⇧Tab       | Next / previous tab                |
+| Delete, Backspace | Close the focused tab              |
+| ⌘Enter            | Run the editor's query             |
+| ⌘C                | Copy the selected cell             |
+| ⌘Backspace        | Set the cell being edited to NULL  |
+
+## Installing a release
+
+Download `DataLooker.app.tar.gz` from a Release, unpack it and move `DataLooker.app` to
+`/Applications`. The app is self-signed, so the first launch needs **right-click → Open**
+(or **System Settings → Privacy & Security → Open Anyway**).
+
+Every merge to `main` updates a draft Release, **DataLooker (unreleased)**. Bumping
+`version` in `package.json` publishes `v<version>`; see `.github/workflows/release.yml`.
+
+## Development
+
+Requirements:
+
+- macOS (CI runs the tests on Linux)
+- [Vite+](https://viteplus.dev/) — `curl -fsSL https://vite.plus | bash`. The `vp` CLI
+  installs the Node.js and pnpm versions pinned in `package.json`.
+- Rust, pinned in `rust-toolchain.toml`
+- Tauri's [system dependencies](https://tauri.app/start/prerequisites/) — on macOS, the
+  Xcode Command Line Tools
 
 ```sh
 vp install
+npx skills experimental_install   # agent skills pinned in skills-lock.json
 vp run tauri dev
 ```
 
-A native window titled "DataLooker" opens.
-
-The sidebar is as wide, and the editor as tall, as the line beside it is dragged to; a
-double-click on the line puts it back.
-
-### Something to look at
-
-`compose.yaml` holds a PostgreSQL with a small shop in it — customers, products, orders, a
-view, a materialized view, a partitioned table, a table with no primary key and a run of
-day-named tables — made from `demo/postgres/` the first time it starts:
+### Demo database
 
 ```sh
 docker compose --profile demo up -d --wait demo
 ```
 
-Add a PostgreSQL connection to `localhost:55433`, database `demo`, user and password
-`demo`. `docker compose --profile demo down -v` throws it away, and the next `up` makes it
-again.
+Connect to `localhost:55433`, database `demo`, user and password `demo`.
+`docker compose --profile demo down -v` removes it.
 
-## Keyboard
-
-| Keys              | What it does                         |
-| ----------------- | ------------------------------------ |
-| ⌘O                | Find a table by name and open it     |
-| ⌘⇧D, ⌘-click      | Open what a name in the editor names |
-| ⌘Y                | Reopen a query that was run before   |
-| ⌃N, ⌃P            | Next / previous match in the palette |
-| ⌘T                | New SQL tab                          |
-| ⌃Tab, ⌃⇧Tab       | Next / previous tab                  |
-| Delete, Backspace | Close the focused tab                |
-| ⌘Enter            | Run the editor's query               |
-| ⌘C                | Copy the selected cell               |
-| ⌘Backspace        | Set the cell being edited to NULL    |
-
-## Agent skills
-
-`skills-lock.json` pins the agent skills this repository uses. The skills themselves are
-not committed — restore them with:
+### Tests
 
 ```sh
-npx skills experimental_install
+vp exec playwright install chromium   # once, for the browser tests
+vp check                              # format, lint, type check
+vp test --run                         # frontend
+docker compose up -d --wait           # PostgreSQL for the live tests
+cd src-tauri && cargo test            # backend
 ```
 
-To add one, which also updates the lockfile:
+Tests that need a PostgreSQL skip themselves when none is listening. The BigQuery ones
+need a real project and skip unless one is named:
 
 ```sh
-npx skills add saadeghi/daisyui --agent claude-code --yes
+DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
 ```
 
-## Tests
+`--coverage` (frontend) and `cargo llvm-cov` (backend) report coverage.
 
-```sh
-vp exec playwright install chromium             # once, for the browser tests
-vp test --run                                   # frontend
-docker compose up -d --wait                     # PostgreSQL for the integration tests
-cd src-tauri && cargo test                      # backend
-```
-
-`vp test --run` runs two projects: `node` for the `import.meta.vitest` blocks the source
-files carry, and `browser` for the `*.browser.test.tsx` files, which mount components in a
-real Chromium with the Tauri side stubbed. Run one of them with `--project node` or
-`--project browser`.
-
-Both suites can report their coverage — `vp test --run --coverage` and, in `src-tauri`,
-`cargo llvm-cov` (`cargo install cargo-llvm-cov`). CI runs both and puts the tables on the
-run's summary page. No external coverage service is involved, so there is nothing to sign
-up for and no secret to keep — the workflow posts its comment with the token GitHub already
-gives the run.
-
-The tests that reach a database sit in a `live` module beside the code they cover. Those
-for PostgreSQL need the one from `compose.yaml`; each skips itself when nothing is
-listening on its port, so `cargo test` still passes without Docker.
-`--wait` holds until the server is healthy, so the tests do not skip a container that is
-still starting.
-
-The BigQuery ones need a real project, which they skip unless one is named:
-
-```sh
-cd src-tauri && DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
-```
-
-`DATALOOKER_TEST_BQ_LOCATION` says where the project is read, and defaults to `US`. A key
-that is named has to work: only its absence is a skip.
-
-## Building the app
+### Building the app
 
 ```sh
 ./scripts/make-signing-identity.sh
 APPLE_SIGNING_IDENTITY="DataLooker Self-Signed" vp run tauri build
 ```
 
-The bundle lands at `src-tauri/target/release/bundle/macos/DataLooker.app`, and it is yours
-to run rather than anyone else's to install: the certificate is self-signed, so Gatekeeper
-on another Mac will refuse a copy that was downloaded there.
-
-The signature is not about that, though. macOS keys what an app is allowed to reach — the
-keychain items holding your passwords, the folders it has been let into — to the app's
-signature, and the one the linker leaves behind is a hash of the binary, which every build
-changes:
-
-```
-designated => cdhash H"4571b98e…"                                        # unsigned
-designated => identifier "org.kentunc.datalooker" and certificate leaf = H"323b037b…"
-```
-
-The second one is the same after the next build, so a permission you grant once stays
-granted. `make-signing-identity.sh` makes that certificate if the keychain has none, and
-the key stays on the machine that made it.
-
-The built app and `vp run tauri dev` are the same app to macOS — the identifier decides
-where the data lives — so they share `meta.db`, the connections in it and the language
-servers under `servers/`. A migration applied by one is applied for the other, which is
-worth remembering when running a branch that does not have it.
-
-## Releases
-
-Every merge to `main` builds the app and leaves it on a draft Release called **DataLooker
-(unreleased)**, so there is always a download of what `main` currently is. Publishing one
-is bumping `version` in `package.json` and merging that: the build for it goes out as
-`v<version>` — tag made, notes written from the pull requests since the release before —
-and the draft is swept. Nothing is tagged or published by hand;
-`.github/workflows/release.yml` says how it decides which of the two it is doing.
-
-**Installing a build.** Download `DataLooker.app.tar.gz`, unpack it, move `DataLooker.app`
-to `/Applications`, then **right-click it → Open** and confirm. The build is signed but by
-nobody Apple knows, so Gatekeeper asks once; without the signature it would refuse the app
-as damaged instead. (If macOS offers only "Move to Trash", open **System Settings →
-Privacy & Security** and press **Open Anyway**.)
-
-The certificate is made by the workflow for that one build and goes with the runner, so
-each release is signed by a different one and macOS asks again after an update — it has no
-way to know the new build is the same app. Keeping one certificate in the repository's
-secrets and signing every release with it is what would end that, and it is worth doing
-when the asking becomes a nuisance.
-
-## Scripts
-
-| Command                                                      | What it does                                                |
-| ------------------------------------------------------------ | ----------------------------------------------------------- |
-| `vp run tauri dev`                                           | Tauri shell with the Vite dev server (the main dev command) |
-| `vp dev`                                                     | Vite dev server only, no Tauri shell                        |
-| `vp build`                                                   | Type-check and build the frontend bundle                    |
-| `vp run tauri build`                                         | Build the `.app` (see above; sign it by naming an identity) |
-| `./scripts/make-signing-identity.sh`                         | Make the self-signed certificate builds are signed with     |
-| `vp check`                                                   | Format, lint and type check (`--fix` applies fixes)         |
-| `vp test --run`                                              | Frontend tests                                              |
-| `vp test --run --coverage`                                   | Frontend tests with a coverage report                       |
-| `cargo test` (in `src-tauri`)                                | Rust tests                                                  |
-| `cargo llvm-cov` (in `src-tauri`)                            | Rust tests with a coverage report                           |
-| `cargo clippy --all-targets -- -D warnings` (in `src-tauri`) | Rust linter                                                 |
-| `cargo fmt` (in `src-tauri`)                                 | Rust formatter                                              |
+The bundle lands in `src-tauri/target/release/bundle/macos/`. The self-signed certificate
+keeps the app's signature stable across builds, so macOS remembers the keychain access you
+granted. The built app and `vp run tauri dev` share the same data directory.
 
 ## License
 

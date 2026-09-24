@@ -27,23 +27,18 @@ use crate::shell::{ShellExit, ShellRegistry};
 use completion::Catalogs;
 use query::QueryRegistry;
 
-/// How many endings a listener may fall behind by before it misses one. A
-/// reader runs one command at a time and hears about it at once; the room is
-/// for a listener that was busy, not for a backlog worth keeping.
+/// Room for a busy listener, not a backlog.
 const EXITS_HELD: usize = 16;
 
-/// How far a listener may fall behind a language server. A server answers
-/// every keystroke, so this is a window that stopped listening rather than one
-/// that is busy — and a client that missed a reply is told the server ended.
+/// A server answers every keystroke, so falling this far behind means the
+/// window stopped listening.
 const NOTICES_HELD: usize = 256;
 
-/// What DataLooker can do, with no Tauri in sight. The window reaches it through
-/// `commands/`, and anything else that drives the app arrives here the same way.
-/// One file per feature: the methods live beside the rules they apply.
+/// What DataLooker can do, with no Tauri in sight. The window (`commands/`) and
+/// agents (`mcp/`) both call it. One file per feature.
 pub struct App {
     pool: SqlitePool,
-    /// Where the app keeps what is its own rather than the reader's — meta.db
-    /// is here too, and so is any language server DataLooker built.
+    /// meta.db, and any server DataLooker built.
     data_dir: PathBuf,
     secrets: Box<dyn SecretStore>,
     sessions: SessionRegistry,
@@ -56,14 +51,11 @@ pub struct App {
     /// when the server stops answering.
     servers: Arc<LspRegistry>,
     notices: broadcast::Sender<LspNotice>,
-    /// Reads BigQuery SQL for completion, and what the tables it names hold.
     analyzer: Analyzer,
     catalogs: Catalogs,
-    /// The MCP server, while the reader has it open.
     agents: std::sync::Mutex<Option<Listening>>,
-    /// Held for the whole of opening or shutting the door. Two of those at
-    /// once could each stop what the other had just started, and leave a
-    /// server answering that nothing holds.
+    /// Held across opening or shutting: two at once could each stop what the
+    /// other started, leaving a server nothing holds.
     turning: tokio::sync::Mutex<()>,
 }
 
@@ -114,10 +106,8 @@ pub mod tests {
         )
     }
 
-    /// An app with one connection saved, reaching the PostgreSQL of
-    /// `compose.yaml` — or nothing, when nothing is listening there. What an
-    /// `App` does with the sessions it holds is a question only a server can
-    /// answer, so these tests drive the same methods the window does.
+    /// An app with one connection to `compose.yaml`'s PostgreSQL, or `None`
+    /// when nothing is listening there.
     pub async fn app_reaching_postgres() -> Option<(App, String)> {
         let (config, password) = config();
         let DriverConfig::Postgres { host, port, .. } = &config else {

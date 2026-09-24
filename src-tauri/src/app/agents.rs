@@ -8,26 +8,20 @@ use crate::db::agent::{self, Access};
 use crate::error::AppError;
 use crate::mcp;
 
-/// Where the keychain keeps what an agent has to present. Connections are kept
-/// there by their id, which is a uuid, so this name is nobody else's.
+/// The token's keychain name. Connection ids are uuids, so it cannot collide.
 const AGENTS: &str = "agents";
 
-/// How the door stands, which is a row of meta.db and a secret of the
-/// keychain's read together.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct AgentAccess {
     pub enabled: bool,
-    /// What an agent has to present. Empty until the door has been opened
-    /// once, and shown to the reader so they can hand it to the agent they
-    /// meant to.
+    /// Empty until first opened. Shown to the reader to hand to an agent.
     pub token: String,
     /// Chosen once and kept.
     pub port: u16,
 }
 
 impl App {
-    /// Whether agents may reach this app, and what they have to present.
     pub async fn agent_access(&self) -> Result<AgentAccess, AppError> {
         let access = agent::find(&self.pool).await?;
         Ok(AgentAccess {
@@ -37,18 +31,15 @@ impl App {
         })
     }
 
-    /// Open or shut the door, answering with how it now stands. A token is
-    /// made the first time it is opened and kept from then on, as is the port
-    /// the system gives: an agent configured once should not have to be told a
-    /// new address after every restart.
+    /// The token and port are made the first time and kept, so an agent
+    /// configured once keeps working after a restart.
     pub async fn set_agent_access(
         self: &Arc<Self>,
         enabled: bool,
     ) -> Result<AgentAccess, AppError> {
         let _turning = self.turning.lock().await;
         let mut access = self.agent_access().await?;
-        // Waited for rather than told to stop: the task holds the port until
-        // it has let go, and what comes next is asking for that same port.
+        // Awaited: the port is asked for again next.
         let listening = self.agents.lock().unwrap().take();
         if let Some(listening) = listening {
             listening.stop().await;
@@ -63,9 +54,8 @@ impl App {
             let listening =
                 mcp::listen(Arc::clone(self), access.token.clone(), access.port).await?;
             access.port = listening.port;
-            // Held here until the door is written down as open. A save that
-            // fails would otherwise leave a server answering that nothing in
-            // the app knows about.
+            // Kept only once recorded as open, so a failed save does not leave
+            // a server nothing knows about.
             opened = Some(listening);
         }
 
@@ -91,9 +81,8 @@ impl App {
         }
     }
 
-    /// Start answering if the reader left it that way. Called once, as the app
-    /// comes up. A door that cannot be opened — the port is someone else's now
-    /// — is recorded as shut, so that what the reader is shown is what is so.
+    /// Called once at startup. If the port has been taken, the door is
+    /// recorded as shut, so the reader is not shown a server that is not there.
     pub async fn answer_agents_if_open(self: &Arc<Self>) -> Result<(), AppError> {
         if !self.agent_access().await?.enabled {
             return Ok(());
@@ -105,8 +94,6 @@ impl App {
         Ok(())
     }
 
-    /// Stop answering. An app on its way out does this too: the port is the
-    /// app's, and nothing should be left holding it.
     pub fn stop_answering_agents(&self) {
         if let Some(listening) = self.agents.lock().unwrap().take() {
             listening.cancel();

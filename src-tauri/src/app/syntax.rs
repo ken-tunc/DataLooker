@@ -4,13 +4,11 @@ use ts_rs::TS;
 
 use crate::app::App;
 
-/// Where a statement went wrong, in the coordinates an editor marks in: lines
-/// and columns count from 1, and a column counts UTF-16 units, because that is
-/// what the editor measures a line in.
+/// Lines and columns count from 1, and columns in UTF-16 units, as the editor
+/// does.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct SyntaxError {
-    /// PostgreSQL's own complaint, unchanged.
     pub message: String,
     pub start_line: u32,
     pub start_column: u32,
@@ -19,10 +17,8 @@ pub struct SyntaxError {
 }
 
 impl App {
-    /// What PostgreSQL would refuse to parse, without asking a server. The
-    /// grammar is the one libpg_query carries, so this says nothing about a
-    /// connection and needs none — and, until there is a second driver to
-    /// abstract over, it assumes the editor is pointed at PostgreSQL.
+    /// What PostgreSQL would refuse to parse, using libpg_query's grammar, so
+    /// no connection is needed. Only for PostgreSQL connections.
     pub fn check_syntax(&self, sql: &str) -> Vec<SyntaxError> {
         check(sql)
     }
@@ -31,8 +27,7 @@ impl App {
 fn check(sql: &str) -> Vec<SyntaxError> {
     let tokens = match pg_query::scan(sql) {
         Ok(result) => result.tokens,
-        // The text cannot even be split into tokens — an unterminated string or
-        // comment — so there is one complaint about the whole of it.
+        // Not even scannable (an unterminated string or comment).
         Err(error) => return vec![whole_text(sql, &strip(error))],
     };
 
@@ -41,9 +36,8 @@ fn check(sql: &str) -> Vec<SyntaxError> {
         .collect()
 }
 
-/// The byte range of each statement, ending before the semicolon that closes
-/// it. Ranges rather than the substrings `split_with_scanner` returns, because
-/// a mark has to land where the statement sits in the whole text.
+/// Byte ranges rather than `split_with_scanner`'s substrings, because a mark
+/// has to land where the statement sits in the whole text.
 fn statements<'a>(
     sql: &'a str,
     tokens: &'a [ScanToken],
@@ -64,8 +58,7 @@ fn statements<'a>(
         .filter(|(start, end)| sql.get(*start..*end).is_some_and(|text| !is_blank(text)))
 }
 
-/// Whether the text holds nothing a parser would read — the trailing newline
-/// after the last semicolon is not an empty statement anyone wrote.
+/// The newline after the last semicolon is not an empty statement.
 fn is_blank(text: &str) -> bool {
     text.trim().is_empty()
 }
@@ -76,8 +69,7 @@ fn fault(sql: &str, tokens: &[ScanToken], (start, end): (usize, usize)) -> Optio
     };
     let message = strip(error);
 
-    // A statement that simply has not been finished yet is not a mistake to
-    // point at: it is what every statement looks like while it is being typed.
+    // Every statement looks like this while it is being typed.
     if message.ends_with("at end of input") {
         return None;
     }
@@ -97,15 +89,13 @@ fn named_token(message: &str) -> Option<&str> {
     tail.strip_suffix('"')
 }
 
-/// Where that token sits. The name is matched against whole tokens rather than
-/// searched for in the text, so that a word inside a string literal or a longer
-/// identifier is not mistaken for it.
+/// Matched against whole tokens, so a word inside a string literal is not
+/// mistaken for it. The `pg_query` crate drops libpg_query's cursor position,
+/// so this is all there is to go on.
 ///
-/// A name the statement uses more than once is not placed at all. The message
-/// says which word the parser choked on, not which of them, and the first is
-/// not reliably the one: `GROUP BY a HAVING BY` fails at the second `BY`.
-/// Marking the whole statement says less than the truth rather than something
-/// other than it.
+/// A word the statement uses more than once is not placed: the message does
+/// not say which (`GROUP BY a HAVING BY` fails at the second `BY`), and
+/// marking the whole statement is better than marking the wrong word.
 fn token_named(
     sql: &str,
     tokens: &[ScanToken],
@@ -129,9 +119,7 @@ fn whole_text(sql: &str, message: &str) -> SyntaxError {
     }
 }
 
-/// Byte offsets turned into the line and column an editor counts in. Both ends
-/// are walked from the start of the text, which is as much work as the text is
-/// long and no more.
+/// Byte offsets to the editor's lines and columns.
 fn span(sql: &str, from: usize, to: usize) -> SyntaxError {
     let (start_line, start_column) = position(sql, from);
     let (end_line, end_column) = position(sql, to);
@@ -161,7 +149,7 @@ fn position(sql: &str, offset: usize) -> (u32, u32) {
     (line, column)
 }
 
-/// The parser's own wording, without the crate's framing around it.
+/// Without the crate's framing.
 fn strip(error: pg_query::Error) -> String {
     match error {
         pg_query::Error::Parse(message) | pg_query::Error::Scan(message) => message,

@@ -9,8 +9,7 @@ use std::sync::{Arc, Mutex};
 
 pub use session::{shell_for, GroupKill, ShellExit, ShellRun};
 
-/// What is running, by connection. One connection runs one command, so the
-/// connection's id is the whole of the key.
+/// What is running, by connection; a connection runs one command.
 #[derive(Default)]
 pub struct ShellRegistry {
     running: Mutex<HashMap<String, Arc<ShellRun>>>,
@@ -21,9 +20,8 @@ impl ShellRegistry {
         self.running.lock().unwrap().contains_key(connection_id)
     }
 
-    /// Take the run in, unless the connection already has one. `false` means
-    /// another call got there first, and the caller should drop what it holds
-    /// rather than start it.
+    /// `false` when the connection already has a run; the caller should drop
+    /// what it holds rather than start it.
     pub fn insert(&self, run: Arc<ShellRun>) -> bool {
         let mut running = self.running.lock().unwrap();
         if running.contains_key(&run.connection_id) {
@@ -33,13 +31,13 @@ impl ShellRegistry {
         true
     }
 
-    /// Take the connection's run out. Stopping it is the caller's to do.
+    /// Stopping the run is the caller's to do.
     pub fn remove(&self, connection_id: &str) -> Option<Arc<ShellRun>> {
         self.running.lock().unwrap().remove(connection_id)
     }
 
-    /// Take a run out only if it is still the one registered. A run that ended
-    /// after it was stopped and started again must not evict its successor.
+    /// Only if it is still the one registered, so a run that ended does not
+    /// evict its successor.
     pub fn remove_run(&self, connection_id: &str, run_id: &str) -> Option<Arc<ShellRun>> {
         let mut running = self.running.lock().unwrap();
         match running.get(connection_id) {
@@ -48,7 +46,6 @@ impl ShellRegistry {
         }
     }
 
-    /// Take every run out at once, for whoever is ending all of them.
     pub fn take_all(&self) -> Vec<Arc<ShellRun>> {
         self.running
             .lock()

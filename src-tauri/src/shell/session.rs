@@ -12,13 +12,11 @@ use ts_rs::TS;
 use super::ShellRegistry;
 use crate::error::AppError;
 
-/// How much of the command's chatter to keep. A tunnel that fails says why in
-/// its last few lines; one that works can talk for days, and none of it is
-/// worth holding on to.
+/// A failing tunnel says why in its last few lines; a working one can talk for
+/// days.
 const KEPT_LINES: usize = 50;
 
-/// How long to keep reading a command's output after the command itself has
-/// ended.
+/// How long to keep reading output after the command has ended.
 const LAST_WORDS: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -27,8 +25,8 @@ pub struct ShellExit {
     pub connection_id: String,
     /// `None` when a signal ended it, which is what stopping one looks like.
     pub code: Option<i32>,
-    /// True when this run was stopped on purpose. A command that dies on its
-    /// own is worth telling the reader about; one they stopped is not.
+    /// A command that dies on its own is worth telling the reader about; one
+    /// they stopped is not.
     pub stopped: bool,
     /// The last lines it wrote, stdout and stderr together in arrival order.
     pub output: String,
@@ -41,8 +39,7 @@ pub struct ShellRun {
     /// New for every spawn, so that the watcher can take itself out of the
     /// registry on exit without evicting the run that replaced it.
     pub id: String,
-    /// The process group the shell leads, which is every process the command
-    /// started. Its id is the shell's own pid.
+    /// The group the shell leads; its id is the shell's pid.
     group: Option<i32>,
     child: Mutex<Option<Child>>,
     output: Arc<Mutex<VecDeque<String>>>,
@@ -63,10 +60,9 @@ impl ShellRun {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        // The shell leads a process group of its own. What the reader wrote is
-        // rarely one process — `ssh -L …` forks, a pipeline is two commands —
-        // and killing the shell alone would leave the tunnel holding its port
-        // while the window says it stopped.
+        // What the reader wrote is rarely one process (`ssh -L` forks, a
+        // pipeline is two), and killing the shell alone would leave the tunnel
+        // holding its port.
         #[cfg(unix)]
         spawned.process_group(0);
 
@@ -106,21 +102,18 @@ impl ShellRun {
         let connection_id = self.connection_id.clone();
         let run_id = self.id.clone();
         let output = self.output.clone();
-        // Armed until the leader has been reaped. If the task is dropped with
-        // the child still running — the runtime going down as the app quits —
-        // the guard takes the group with it, which `kill_on_drop` alone would
-        // not: that reaps the shell and orphans whatever it forked.
+        // Armed until the leader is reaped, so a task dropped as the app quits
+        // takes the group with it; `kill_on_drop` would orphan what the shell
+        // forked.
         let mut group = GroupKill(self.group);
 
         tokio::spawn(async move {
             let (code, stopped) = tokio::select! {
-                // Both can be ready at once: the app on its way out kills the
-                // group and lets go of the run in the same breath. Asked in
-                // order, what ended the command is what the ending says.
+                // Quitting kills the group and drops the run at once, so both
+                // arms can be ready; `stopped` must not be decided at random.
                 biased;
-                // Letting go of the run counts as stopping it: the registry
-                // holds the only other handle, and it lets go of a run when
-                // the reader stops it or when the app is closing.
+                // Dropping the run counts as stopping it: the registry holds
+                // the only other handle.
                 _ = stop_rx => {
                     group.now();
                     let _ = child.wait().await;
@@ -128,18 +121,14 @@ impl ShellRun {
                 }
                 status = child.wait() => (status.ok().and_then(|status| status.code()), false),
             };
-            // The leader is reaped on both paths, and a group with no members
-            // left is a number the system may hand to someone else. A command
-            // that ended on its own must not have its group killed either:
-            // `ssh -f` goes to the background on purpose.
+            // Once the leader is reaped the group id may be reused, and a
+            // command that ended on its own (`ssh -f`) meant to leave its
+            // children running.
             group.disarm();
 
-            // A pipe reaches its end when the last writer lets go of it, and
-            // a command that backgrounds something — `ssh -f`, a trailing `&` —
-            // leaves that descendant holding the pipes it inherited. Waiting
-            // for the end would be waiting for the descendant, which is what
-            // the command went to the trouble of outliving, so what has been
-            // read by the deadline is what the ending carries.
+            // A backgrounded descendant (`ssh -f`, a trailing `&`) holds the
+            // pipes open, so reading to EOF could wait forever. Take what has
+            // arrived by the deadline.
             let (stdout, stderr) = drains;
             let give_up = (stdout.abort_handle(), stderr.abort_handle());
             let flushed = tokio::time::timeout(LAST_WORDS, async {
@@ -152,8 +141,7 @@ impl ShellRun {
                 give_up.1.abort();
             }
 
-            // Out of the registry before the word goes out, so that whoever
-            // hears it and asks what is running gets the answer that matches.
+            // Before announcing, so a listener that asks what is running agrees.
             registry.remove_run(&connection_id, &run_id);
             let _ = exits.send(ShellExit {
                 connection_id,
@@ -178,10 +166,9 @@ impl ShellRun {
         }
     }
 
-    /// Kill the command here and now, without waiting for the watcher to do
-    /// it. For a run that is still registered only: once the leader has been
-    /// reaped, its group id is a number the system may have given to someone
-    /// else. Nothing is reaped, so the app must be on its way out.
+    /// Kill the group without waiting for the watcher, for an app on its way
+    /// out. Only for a run still registered: once the leader is reaped, the
+    /// group id may have been reused.
     pub fn kill_group(&self) {
         GroupKill(self.group).now();
     }
@@ -199,14 +186,11 @@ impl ShellRun {
     }
 }
 
-/// The shell to run the command with, and whether to make it a login shell.
+/// The shell to run a command with, and whether to make it a login shell.
 ///
-/// A window opened from Finder inherits a bare `PATH` with none of the places
-/// a reader installs `ssh`, `kubectl` or `aws`, and the login profile is what
-/// puts those back — so the reader's own shell is asked to read it. `/bin/sh`
-/// is the fallback for an environment that says nothing about a shell, and it
-/// gets no `-l`: there is no profile of the reader's to read, and a POSIX
-/// shell need not accept the flag at all (dash refuses it outright).
+/// An app opened from Finder inherits a bare `PATH`; the login profile puts
+/// back where `ssh` or `kubectl` live. The `/bin/sh` fallback gets no `-l`:
+/// there is no profile to read, and dash refuses the flag.
 pub fn shell_for(configured: Option<String>) -> (String, bool) {
     match configured {
         Some(shell) if !shell.trim().is_empty() => (shell, true),
@@ -231,9 +215,7 @@ where
     })
 }
 
-/// Kills the process group the child leads, on demand or when dropped while
-/// still armed. The child was spawned with a group of its own, so its pid is
-/// the group's id and every process the command started is in it.
+/// Kills the process group the child leads, on demand or when dropped armed.
 pub struct GroupKill(pub Option<i32>);
 
 impl GroupKill {

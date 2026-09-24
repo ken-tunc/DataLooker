@@ -2,7 +2,6 @@
 import type { QueryResult } from "./QueryResult";
 
 /**
- * A page of a table, with the version of each row beside the rows themselves
- * rather than in a column the reader would have to look at.
+ * Versions sit beside the rows rather than in a column the reader would see.
  */
 export type TablePage = { result: QueryResult, versions: Array<string>, };

@@ -32,8 +32,7 @@ pub async fn cancel_query(args: CancelQueryArgs, app: State<'_, Arc<App>>) -> Re
     Ok(())
 }
 
-/// Parsing needs no server, but the command is still async so that a long text
-/// cannot block the one thread Tauri dispatches commands on.
+/// Async so a long text does not block Tauri's command thread.
 #[tauri::command]
 pub async fn check_syntax(
     args: CheckSyntaxArgs,

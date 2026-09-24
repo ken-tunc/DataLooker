@@ -1,7 +1,5 @@
-//! What the tests that reach BigQuery share. There is no BigQuery to stand up
-//! in a container, so they reach a real project, and skip when no service
-//! account key is named — a machine, or a CI runner, without one still runs
-//! the rest of the suite.
+//! What the tests that reach BigQuery share. There is no BigQuery to run in a
+//! container, so they reach a real project and skip when no key is named.
 //!
 //! ```sh
 //! DATALOOKER_TEST_BQ_KEY=~/keys/project.json \
@@ -19,8 +17,7 @@ use crate::drivers::bigquery::BigQuerySession;
 
 pub(crate) const ROW_LIMIT: usize = 100;
 
-/// A key that is named has to work. Only its absence is a skip: turning a key
-/// Google refuses into one would let the suite pass while testing nothing.
+/// Only an absent key is a skip; a refused one fails.
 pub(crate) fn session_or_skip() -> Option<BigQuerySession> {
     let (Ok(path), Ok(project)) = (
         env::var("DATALOOKER_TEST_BQ_KEY"),
@@ -33,15 +30,12 @@ pub(crate) fn session_or_skip() -> Option<BigQuerySession> {
     Some(BigQuerySession::new(&project, &location(), &key).expect("a key that parses"))
 }
 
-/// Where the project is read, which is also where a dataset made here has to
-/// be: a job runs in one location and sees the catalog of that one.
+/// A dataset made here has to be where the jobs run.
 pub(crate) fn location() -> String {
     env::var("DATALOOKER_TEST_BQ_LOCATION").unwrap_or_else(|_| "US".to_string())
 }
 
-/// A dataset of this test's own, so that what it asserts is what it made. Its
-/// name is this run's alone: two of them can be in flight at once, against the
-/// same project.
+/// Uniquely named: runs can share a project concurrently.
 pub(crate) struct Dataset {
     pub(crate) session: BigQuerySession,
     pub(crate) name: String,
@@ -49,8 +43,7 @@ pub(crate) struct Dataset {
 
 impl Dataset {
     pub(crate) async fn make(session: BigQuerySession, what_for: &str) -> Self {
-        // A dataset is named in letters, digits and underscores, which is not
-        // how a uuid is written unless it is asked for plainly.
+        // Dataset names allow no hyphens.
         let name = format!("datalooker_{what_for}_{}", Uuid::new_v4().simple());
         let dataset = Self { session, name };
         dataset

@@ -19,13 +19,11 @@ const SHAPE: &str = "
      ORDER BY a.attnum
 ";
 
-/// The shape is read over the catalog's connection and its types are written
-/// into statements that run on the reader's, whose `search_path` is the
-/// reader's to set. `format_type` names a type the way the connection asking
-/// can find it — without its schema where the search path reaches it — so it
-/// is asked with nothing but `pg_catalog` on the path: every type outside it
-/// comes back with its schema, and the built-in ones, which every session
-/// finds, come back as they are.
+/// The shape is read over the catalog's connection but its types are written
+/// into statements run on the reader's, whose `search_path` may differ.
+/// `format_type` drops the schema of any type the search path reaches, so it
+/// is asked with only `pg_catalog` on the path: every other type comes back
+/// schema-qualified.
 pub async fn shape(
     conn: &mut PgConnection,
     schema: &str,
@@ -53,14 +51,12 @@ pub async fn shape(
     Ok(TableShape { types, primary_key })
 }
 
-/// The statements one save runs, in the order it runs them. Deletions go
-/// first and additions last, so that a row can be replaced by another with the
-/// same key in a single save.
+/// Deletions go first and additions last, so that one save can replace a row
+/// with another of the same key.
 pub struct Plan(Vec<Statement>);
 
 impl Plan {
-    /// The statements as they could be read back or run by hand: each value
-    /// written where its placeholder was, as the literal it was bound as.
+    /// The statements as they could be run by hand, for the history.
     pub fn script(&self) -> String {
         self.0
             .iter()
@@ -97,21 +93,14 @@ pub fn plan(
     Ok(Plan(statements))
 }
 
-/// Runs a save in one transaction: what the reader asked for is one change to
-/// the table, not a handful that might half happen.
+/// One transaction: a save must not half happen.
 pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverError> {
-    // The session is the editor's, so the reader may have left a transaction
-    // open on it. sqlx counts only the transactions it began itself: `begin`
-    // would send a second `BEGIN`, which PostgreSQL merely warns about, and the
-    // COMMIT or ROLLBACK ending this save would end the reader's transaction
-    // with it. Whether one is open is the server's to say, and sqlx keeps what
-    // the server said to itself, so the server is asked: inside a transaction,
-    // `now()` is when the transaction began rather than when this statement
-    // did. It is asked as a simple query, the one protocol in which a
-    // statement outside a transaction starts the transaction at the same
-    // instant — the extended one's Bind and Execute are two messages, two
-    // instants apart. A transaction that has failed refuses the question with
-    // its own complaint, which is the one the reader needs to see.
+    // The reader may have left a transaction open on this session, and this
+    // save's COMMIT would end it. sqlx only knows about transactions it began,
+    // so the server is asked: inside a transaction `now()` is when it began.
+    // A simple query, because the extended protocol's Bind and Execute are two
+    // instants apart even outside a transaction. A failed transaction refuses
+    // the question with the complaint the reader needs to see.
     let inside: bool = sqlx::raw_sql("SELECT now() <> statement_timestamp()")
         .fetch_one(&mut *conn)
         .await?
@@ -131,8 +120,7 @@ pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverEr
         for value in &statement.values {
             query = query.bind(value.clone());
         }
-        // One row is the only outcome that means what was asked for; dropping
-        // the transaction here puts the statements before it back as well.
+        // Anything but one row refuses the save; dropping `tx` rolls it back.
         let affected = query.execute(&mut *tx).await?.rows_affected();
         if affected != 1 {
             return Err(DriverError::Refused(if affected == 0 {
@@ -148,7 +136,6 @@ pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverEr
     Ok(applied)
 }
 
-/// Everything one save carries.
 pub struct Edits<'a> {
     pub inserts: &'a [RowInsert],
     pub updates: &'a [RowUpdate],
@@ -161,10 +148,9 @@ struct Statement {
 }
 
 impl Statement {
-    /// Each `$n` replaced by its value as a quoted literal, the cast after it
-    /// left where it was — so a value reads, and parses, as the text it was
-    /// bound as. The statement is ours, so the only other place a `$` can be
-    /// is inside a quoted identifier, which is copied as it stands.
+    /// Each `$n` replaced by its value as a literal, keeping the cast after it.
+    /// The statement is ours, so a `$` elsewhere can only be inside a quoted
+    /// identifier.
     fn rendered(&self) -> String {
         let mut out = String::with_capacity(self.sql.len());
         let mut chars = self.sql.chars().peekable();
@@ -252,15 +238,11 @@ impl Statement {
         }
     }
 
-    /// Values travel as the text the reader typed and are cast to the column's
-    /// own type, so PostgreSQL parses them with the same input functions it
-    /// uses everywhere else — every type it has, rather than the handful a
-    /// binding layer here would know. The type name is `format_type`'s, which
-    /// quotes whatever needs quoting.
+    /// Values are sent as the text the reader typed and cast to the column's
+    /// type, so PostgreSQL's own input functions parse every type it has.
     ///
-    /// The WHERE clause carries the row's version, so an update whose row has
-    /// changed underneath matches nothing and the reader hears about it rather
-    /// than overwriting someone else's work.
+    /// The WHERE clause carries the row's `xmin`, so a row changed underneath
+    /// matches nothing rather than being overwritten.
     fn update(shape: &TableShape, schema: &str, table: &str, update: &RowUpdate) -> Self {
         let mut values = Vec::new();
         let mut placeholder = |column: &str, value: Option<String>| {
@@ -298,10 +280,8 @@ impl Statement {
     }
 }
 
-/// A key is what names the one row a statement is allowed to touch, so it has
-/// to be the whole primary key: a key missing a column widens the WHERE clause
-/// to every row that shares the rest of it, and `xmin` narrows nothing when the
-/// rows were written by the same transaction.
+/// The whole primary key: a partial one matches every row sharing the rest,
+/// and `xmin` narrows nothing among rows one transaction wrote.
 fn names_one_row(
     shape: &TableShape,
     key: &HashMap<String, Option<String>>,
@@ -320,10 +300,8 @@ fn names_one_row(
     )))
 }
 
-/// An escape string, because it is the one form of literal that reads the same
-/// whatever the session's `standard_conforming_strings` is: a plain one reads
-/// a backslash as itself or as an escape depending on that setting, and a
-/// reader can turn it off.
+/// An escape string (`E'...'`) reads the same whatever
+/// `standard_conforming_strings` is; a plain one depends on it.
 fn literal(value: &Option<String>) -> String {
     match value {
         Some(text) => format!("E'{}'", text.replace('\\', "\\\\").replace('\'', "''")),
@@ -331,7 +309,6 @@ fn literal(value: &Option<String>) -> String {
     }
 }
 
-/// A value is cast to its column's type, which PostgreSQL printed for us.
 /// A column the table does not have is left as text for the database to
 /// reject by name.
 fn cast<'a>(shape: &'a TableShape, column: &str) -> &'a str {
@@ -342,8 +319,7 @@ fn cast<'a>(shape: &'a TableShape, column: &str) -> &'a str {
         .unwrap_or("text")
 }
 
-/// The columns of an update arrive in a map, and a statement has to be the
-/// same one every time so that a test can read it.
+/// A map has no order, and a statement should be the same every time.
 fn sorted(values: &HashMap<String, Option<String>>) -> Vec<(&str, Option<String>)> {
     let mut pairs: Vec<(&str, Option<String>)> = values
         .iter()
@@ -577,8 +553,6 @@ mod live {
     use crate::drivers::{Preview, RowDelete, RowInsert, RowUpdate, Sort};
     use crate::error::AppError;
 
-    /// A save the way the app makes one: planned against the table's shape, then
-    /// run.
     async fn save(
         session: &PostgresSession,
         schema: &str,
@@ -596,8 +570,7 @@ mod live {
         session.apply_plan(&plan).await
     }
 
-    /// A table of its own for each edit test: they run at the same time, and a
-    /// schema they shared would be torn down under one of them.
+    /// A table per test: they run concurrently.
     async fn edit_table(session: &PostgresSession, schema: &str) {
         for statement in [
             format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
@@ -680,8 +653,7 @@ mod live {
             .connect()
             .await
             .unwrap();
-        // A query of its own: a simple query is parsed whole before any of it
-        // runs, so a setting beside the script would come too late for it.
+        // Separately: a simple query is parsed whole before any of it runs.
         sqlx::raw_sql("SET standard_conforming_strings = off")
             .execute(&mut psql)
             .await

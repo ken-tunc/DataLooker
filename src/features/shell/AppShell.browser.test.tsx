@@ -55,10 +55,8 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
       <AppShell />
     </div>,
   );
-  // A table tab holds a strip of its own — Rows and Structure — so the tabs
-  // this shell keeps are the ones in the strip it draws. Every connection with
-  // tabs keeps its strip, hidden while another is in front, so the one read is
-  // the one on screen.
+  // A table tab holds a tablist of its own, and a hidden connection keeps its
+  // strip, so only the visible "Open tabs" strip is read.
   const tabs = () =>
     [
       ...document.querySelectorAll<HTMLElement>(

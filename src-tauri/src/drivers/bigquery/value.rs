@@ -2,15 +2,13 @@ use gcp_bigquery_client::model::field_type::FieldType;
 use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
 use serde_json::{Number, Value};
 
-/// Beyond this, a JSON number no longer survives the trip through JavaScript's
-/// `number`, so the value is sent as a string rather than silently rounded.
+/// Beyond this, JavaScript rounds a number, so it is sent as a string.
 const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 pub fn repeated(field: &TableFieldSchema) -> bool {
     field.mode.as_deref() == Some("REPEATED")
 }
 
-/// What the column is called where a reader is shown its type.
 pub fn type_name(field: &TableFieldSchema) -> String {
     let name = scalar_name(&field.r#type);
     if repeated(field) {
@@ -20,8 +18,7 @@ pub fn type_name(field: &TableFieldSchema) -> String {
     }
 }
 
-/// BigQuery sends every value as text, whatever its type, so the schema beside
-/// the rows is the only thing that says how to read one.
+/// BigQuery sends every value as text, so the schema says how to read it.
 pub fn decode(cell: Option<&Value>, field: &TableFieldSchema) -> Value {
     decode_as(cell, field, repeated(field))
 }
@@ -51,8 +48,8 @@ fn decode_as(cell: Option<&Value>, field: &TableFieldSchema, repeated: bool) -> 
     }
 }
 
-/// A record arrives as its fields in order under `f`, each holding its value
-/// under `v`. What they are called is the schema's to say, not the row's.
+/// Fields arrive in order under `f`, each value under `v`; names are the
+/// schema's.
 fn record(value: &Value, field: &TableFieldSchema) -> Value {
     let (Some(Value::Array(cells)), Some(fields)) = (value.get("f"), field.fields.as_ref()) else {
         return Value::Null;
@@ -71,8 +68,7 @@ fn record(value: &Value, field: &TableFieldSchema) -> Value {
 }
 
 fn scalar(value: &Value, kind: &FieldType) -> Value {
-    // Everything BigQuery sends is a string. Anything else is not what the
-    // schema said it would be, and is passed on as it arrived.
+    // Not what the schema promised; passed on as it arrived.
     let Value::String(text) = value else {
         return value.clone();
     };
@@ -84,11 +80,9 @@ fn scalar(value: &Value, kind: &FieldType) -> Value {
             text.parse::<f64>().map_or_else(|_| value.clone(), from_f64)
         }
         FieldType::Boolean | FieldType::Bool => Value::Bool(text == "true"),
-        // The text of a JSON column is JSON, and a reader is better served by
-        // the value than by its punctuation.
+        // The value rather than its text.
         FieldType::Json => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
-        // A timestamp is the one kind that is not sent the way it is written:
-        // it comes as seconds since the epoch, in a float's notation.
+        // Sent as seconds since the epoch, in a float's notation.
         FieldType::Timestamp => timestamp(text).map_or_else(|| value.clone(), Value::String),
         // NUMERIC and BIGNUMERIC hold more digits than a JSON number keeps,
         // and a date or a time is text to begin with.
@@ -96,10 +90,8 @@ fn scalar(value: &Value, kind: &FieldType) -> Value {
     }
 }
 
-/// Seconds since the epoch, as BigQuery writes them — `1735812000.0`, or
-/// `1.735812E9` — written as PostgreSQL's timestamps are here. The digits are
-/// read as they are written rather than through an `f64`, which would lose the
-/// microseconds of anything this century.
+/// `1735812000.0` or `1.735812E9`, written the way PostgreSQL timestamps are.
+/// Read digit by digit: an `f64` would lose the microseconds.
 fn timestamp(text: &str) -> Option<String> {
     let (mantissa, exponent) = match text.split_once(['E', 'e']) {
         Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
@@ -115,8 +107,7 @@ fn timestamp(text: &str) -> Option<String> {
         return None;
     }
     let mut micros: i128 = digits.parse().ok()?;
-    // The digits as a whole number, and how far the point has to move to make
-    // them microseconds.
+    // How far the point moves to make the digits microseconds.
     let shift = exponent - fraction.len() as i32 + 6;
     if shift >= 0 {
         micros = micros.checked_mul(10i128.checked_pow(shift as u32)?)?;

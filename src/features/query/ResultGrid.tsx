@@ -33,16 +33,14 @@ type Props = {
 };
 
 export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }: Props) {
-  // A ref would still be empty when the rows below measure it, because React
-  // attaches a parent's ref after its children have already run their effects.
-  // Holding the element in state renders them again with it in hand.
+  // State, not a ref: React attaches a parent's ref after its children's
+  // effects have run, so the virtualizer would measure nothing.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<Cell | null>(null);
   const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
 
   const columns = result.columns.map((column) => column.name).join("\u0000");
-  // A result with other columns is another table; the widths dragged for the
-  // last one mean nothing to it.
+  // Widths dragged for other columns mean nothing here.
   const overrides = dragged.columns === columns ? dragged.widths : {};
   const widths = columnWidths(
     result.columns.map((column) => ({ name: column.name, typeName: column.type_name })),
@@ -123,9 +121,8 @@ export function ResultGrid({ result, sort, onSortColumn, editing, onSelectRow }:
       <div className="min-w-full" style={{ width: total }}>
         <div className="bg-base-200 sticky top-0 z-10 flex min-w-full" role="row">
           {result.columns.map((column, index) => (
-            // The name truncates, the cell does not: a handle clipped by the
-            // cell it sits in would be unreachable on the last column, where
-            // there is no neighbour to grab instead.
+            // Only the name truncates: a clipped handle would be unreachable
+            // on the last column.
             <div
               key={`${index}-${column.name}`}
               role="columnheader"
@@ -194,8 +191,7 @@ function GridCell({
   if (draft !== null && onEdit) {
     return (
       <input
-        // The grid's own header is not a label, so the editor says which
-        // column it is writing to.
+        // The header is not a label for it.
         aria-label={column}
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
@@ -210,7 +206,7 @@ function GridCell({
             setDraft(null);
           }
           if (event.key === "Escape") setDraft(null);
-          // A cell has to be able to hold nothing as well as an empty string.
+          // NULL, as distinct from an empty string.
           if (event.key === "Backspace" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             onEdit(null);
@@ -303,13 +299,11 @@ function Rows({
     getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
-    // The header sticks over the top of the scroll area, so a row scrolled to
-    // the top would end up underneath it.
+    // The sticky header covers the top row.
     scrollPaddingStart: ROW_HEIGHT,
   });
 
-  // The selected row is the one the arrows just moved to, and the virtualizer
-  // is what knows where it sits.
+  // Keep the row the arrows moved to in view.
   useEffect(() => {
     if (selected) virtual.scrollToIndex(selected.row);
     // eslint-disable-next-line react/exhaustive-deps

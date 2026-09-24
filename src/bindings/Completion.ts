@@ -3,7 +3,6 @@ import type { Candidate } from "./Candidate";
 import type { TextSpan } from "./TextSpan";
 
 /**
- * What could go where the cursor is. It says nothing about which driver it
- * came from, so that any of them can answer in it.
+ * What could go where the cursor is, in a shape any driver could answer in.
  */
 export type Completion = { "kind": "names", replace: TextSpan, expected_type: string | null, candidates: Array<Candidate>, } | { "kind": "tables", replace: TextSpan, path: Array<string>, } | { "kind": "nothing" };

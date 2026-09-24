@@ -31,19 +31,14 @@ pub async fn running_connection_commands(
     Ok(app.running_commands())
 }
 
-/// Carry what the app announces into the window. The app has no way to reach a
-/// window and no reason to: an ending is a fact about a process, and this is
-/// the adapter that makes it an event, the way a command makes a method an
-/// invocation.
+/// Turns the app's broadcast into window events.
 pub fn forward_exits(handle: AppHandle, app: &App) {
     let mut exits = app.command_exits();
     tauri::async_runtime::spawn(async move {
         loop {
             match exits.recv().await {
                 Ok(exit) => shell_exit::emit(&handle, exit),
-                // A window too slow to keep up missed an ending. It asks what
-                // is running when it hears one, so the next ending sets it
-                // right; there is nothing to recover here.
+                // The window re-reads what is running on the next ending.
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => break,
             }

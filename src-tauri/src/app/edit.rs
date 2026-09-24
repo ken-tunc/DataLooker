@@ -24,8 +24,6 @@ pub struct TableEdits {
 }
 
 impl App {
-    /// What the frontend needs before it can offer editing: the primary key it
-    /// names rows by, and the type of each column.
     pub async fn table_shape(
         &self,
         connection_id: &str,
@@ -38,10 +36,8 @@ impl App {
             .await
     }
 
-    /// Resolves to how many rows changed, which is every update or none. The
-    /// statements go into the log whatever became of them, the way a
-    /// statement run in the editor does: a save is a write to the reader's
-    /// database, which is what the log is the record of.
+    /// Resolves to how many rows changed, which is every update or none. Logged
+    /// whatever became of it: a save is a write to the reader's database.
     pub async fn commit_table_edits(&self, edits: TableEdits) -> Result<u32, AppError> {
         if edits.inserts.is_empty() && edits.updates.is_empty() && edits.deletes.is_empty() {
             return Err(AppError::Validation("there is nothing to save".into()));

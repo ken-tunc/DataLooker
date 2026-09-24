@@ -20,18 +20,14 @@ use yup_oauth2::ServiceAccountKey;
 use crate::drivers::{Column, Preview, QueryResult, SchemaTree, TablePage};
 use crate::error::AppError;
 
-/// Bounds the whole of `test`: reaching Google means an OAuth exchange and
-/// then a job, and neither has a deadline of its own.
+/// Bounds `test`: neither the OAuth exchange nor the job has a deadline.
 const TEST_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// What BigQuery is asked to do to prove it can be reached. It reads no table,
-/// so it scans nothing and is billed nothing.
+/// Reads no table, so it is billed nothing.
 const NOTHING_AT_ALL: &str = "SELECT 1";
 
-/// A project, and the key it is reached with. BigQuery has no session to hold
-/// open — every statement is a job of its own — so what is kept here is the
-/// authenticated client, which is worth keeping because building one is an
-/// OAuth exchange with Google.
+/// Every statement is a job of its own, so there is no session to hold; what
+/// is kept is the client, because building one is an OAuth exchange.
 pub struct BigQuerySession {
     project_id: String,
     location: String,
@@ -40,9 +36,8 @@ pub struct BigQuerySession {
 }
 
 impl BigQuerySession {
-    /// The key is the service account JSON the reader pasted, which is read
-    /// here rather than when the connection was saved: a key that no longer
-    /// parses is a failure to connect, and that is where the reader looks.
+    /// The key is parsed here rather than on save: a bad key is a failure to
+    /// connect, which is where the reader looks.
     pub fn new(project_id: &str, location: &str, key_json: &str) -> Result<Self, AppError> {
         let key = serde_json::from_str(key_json)
             .map_err(|e| AppError::Secret(format!("the service account key is not JSON: {e}")))?;
@@ -54,10 +49,8 @@ impl BigQuerySession {
         })
     }
 
-    /// The client, built on first use and kept. The token is not asked to be
-    /// read-only: what the reader may do is the service account's to say, the
-    /// way it is the role's to say on a PostgreSQL connection. A statement
-    /// they are entitled to run is one this editor runs.
+    /// Built on first use. The scope is not read-only: what the reader may do
+    /// is the service account's to decide.
     async fn client(&self) -> Result<&Client, AppError> {
         self.client
             .get_or_try_init(|| async {
@@ -68,10 +61,8 @@ impl BigQuerySession {
             .await
     }
 
-    /// What BigQuery says this statement is, without running it. A dry run is
-    /// a parse and a plan and nothing else, so the answer is BigQuery's own
-    /// — which matters, because BigQuery is a dialect this app has no parser
-    /// for and there is no read-only connection to hold a caller to.
+    /// Asked of a dry run: this app has no parser for BigQuery's dialect, and
+    /// there is no read-only connection to hold a caller to.
     pub async fn statement_kind(
         &self,
         sql: &str,
@@ -83,9 +74,8 @@ impl BigQuerySession {
         };
 
         let asking = Job {
-            // Planned where it would run. A job with no location is planned
-            // in the default one, whose catalog is not the one this
-            // connection reads — the tables it names would not be there.
+            // Without a location it is planned in the default region, where
+            // the tables it names are not.
             job_reference: Some(JobReference {
                 job_id: None,
                 location: Some(self.location.clone()),
@@ -118,21 +108,16 @@ impl BigQuerySession {
             })
     }
 
-    /// A statement is a job of its own, so nothing is carried over from the
-    /// one before it — no transaction, no session settings, nothing temporary.
     pub async fn execute(
         &self,
         sql: &str,
         row_limit: usize,
         cancel: &CancellationToken,
     ) -> Result<QueryResult, AppError> {
-        // Started before the client is asked for, so that the first query of a
-        // connection is timed with the exchange that authenticated it.
+        // The first query's time includes the OAuth exchange.
         let started = Instant::now();
-        // That exchange is the first thing a query waits on and the last thing
-        // that would notice it had been called off, so it is raced against the
-        // cancellation too. Dropping it leaves the client unbuilt, which is
-        // what the next query finds and builds.
+        // The OAuth exchange is raced against cancellation too; dropping it
+        // leaves the client for the next query to build.
         let client = tokio::select! {
             client = self.client() => client?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -149,8 +134,6 @@ impl BigQuerySession {
         .await
     }
 
-    /// The datasets of the project and the tables in them. What a table holds
-    /// is `columns`, asked for one table at a time.
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         schema::tree(self.client().await?, &self.project_id, &self.location).await
     }
@@ -166,8 +149,6 @@ impl BigQuerySession {
         .await
     }
 
-    /// What a table in any project holds, for reading a statement against, or
-    /// nothing where there is no such table this key can see.
     pub async fn described(
         &self,
         project_id: &str,
@@ -232,8 +213,7 @@ mod tests {
 
     #[test]
     fn a_key_that_is_not_json_is_a_secret_that_cannot_be_used() {
-        // A session holds a client that has no `Debug`, so the error is taken
-        // out of the result by hand rather than by `unwrap_err`.
+        // The client has no `Debug`, so no `unwrap_err`.
         let Err(err) = BigQuerySession::new("looking", "US", "hunter2") else {
             panic!("a key that is not JSON opened a session");
         };

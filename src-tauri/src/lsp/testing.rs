@@ -1,7 +1,5 @@
 //! What the tests that run a real language server share. They reach the
-//! PostgreSQL in `compose.yaml` (`docker compose up -d --wait`) and skip when
-//! either is missing — no server on the port, or no `sqls` installed — and
-//! nothing else is a skip: a server that answers has to answer usefully.
+//! PostgreSQL in `compose.yaml` and skip only when it or `sqls` is missing.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -21,8 +19,7 @@ use crate::lsp::{LspNotice, LspSession};
 /// How long to wait for an answer that should already be on its way.
 pub(crate) const ANSWER: Duration = Duration::from_secs(20);
 
-/// The table the server is asked to complete, made before it starts: a
-/// language server reads the schema once, on its way up.
+/// Made before the server starts, which is when it reads the schema.
 pub(crate) async fn table_or_skip() -> Option<(String, PostgresSession)> {
     let (
         DriverConfig::Postgres {
@@ -40,8 +37,7 @@ pub(crate) async fn table_or_skip() -> Option<(String, PostgresSession)> {
         eprintln!("skipping: nothing is listening on {host}:{port}");
         return None;
     }
-    // Asked before the table is made: a test that skips for want of a server
-    // never reaches the line that drops it.
+    // Before the table is made, so a skip does not leave one behind.
     if let Err(e) = server::find(Server::Sqls, Path::new("/nowhere")).await {
         eprintln!("skipping: {e}");
         return None;
@@ -61,8 +57,7 @@ pub(crate) async fn table_or_skip() -> Option<(String, PostgresSession)> {
 }
 
 pub(crate) async fn started_or_skip(connection_id: &str) -> Option<Arc<LspSession>> {
-    // Nothing of this test's own is installed anywhere, so the reader's own
-    // `sqls` is the one it runs.
+    // The machine's own `sqls`.
     let binary = match server::find(Server::Sqls, Path::new("/nowhere")).await {
         Ok(binary) => binary,
         Err(e) => {
@@ -109,8 +104,7 @@ pub(crate) fn completion(id: i64, line: u32, character: u32) -> String {
     .to_string()
 }
 
-/// The answer to one request, with everything the server says on the way to it
-/// passed over — a log line, a diagnostic, whatever else it volunteers.
+/// Skipping whatever else the server volunteers on the way.
 pub(crate) async fn answer_to(notices: &mut broadcast::Receiver<LspNotice>, id: i64) -> Value {
     tokio::time::timeout(ANSWER, async {
         loop {

@@ -5,9 +5,8 @@ import { describeError } from "../../lib/invoke";
 import { useAgentAccess, useSetAgentAccess } from "./hooks";
 
 /**
- * Lets the reader open this app to their own agents, and shows them what to
- * hand one. It is shut until they say otherwise: an app that answers anything
- * on a port is an app anything on this machine can ask about their databases.
+ * Shut until the reader opens it: anything on this machine could ask a port
+ * about their databases.
  */
 export function AgentAccess() {
   const [open, setOpen] = useState(false);
@@ -118,8 +117,8 @@ function Handed({
       <input
         className="input input-sm grow font-mono text-xs"
         readOnly
-        // A token is not hidden: it is only worth anything to something
-        // already on this machine, and a reader has to read it to hand it on.
+        // Not hidden: it is worth something only on this machine, and the
+        // reader has to read it to hand it on.
         value={value}
         aria-label={what}
       />

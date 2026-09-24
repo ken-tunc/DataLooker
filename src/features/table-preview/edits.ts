@@ -19,10 +19,7 @@ export type PendingEdits = {
 
 export const NO_EDITS: PendingEdits = { updates: {}, deletes: {}, inserts: [] };
 
-/**
- * Names a row by its primary key. The parts are encoded rather than joined,
- * because a key value is free to contain whatever a separator would be.
- */
+/** Encoded rather than joined: a key value may contain any separator. */
 export function rowKeyOf(key: Record<string, string | null>): string {
   return JSON.stringify(
     Object.keys(key)
@@ -45,9 +42,8 @@ export function withEdit(
       ...edits.updates,
       [id]: {
         ...row,
-        // The version is the one the row was read with the first time it was
-        // edited: a page that has since been refetched must not quietly carry
-        // an edit onto a row someone else has rewritten.
+        // The version from the first edit, so a refetch cannot carry the edit
+        // onto a row someone else has rewritten.
         version: existing?.version ?? row.version,
         set: { ...existing?.set, [column]: value },
       },
@@ -55,7 +51,7 @@ export function withEdit(
   };
 }
 
-/** Marking a row again unmarks it, which is the only way back from a mistake. */
+/** Marking a row again unmarks it. */
 export function withDeleted(
   edits: PendingEdits,
   key: Record<string, string | null>,
@@ -93,8 +89,8 @@ export function withoutNewRow(edits: PendingEdits, id: string): PendingEdits {
 }
 
 /**
- * A row marked for deletion drops whatever was typed into it: the delete runs
- * first, so an update behind it would match nothing and refuse the whole save.
+ * The delete runs first, so an update to the same row would match nothing and
+ * refuse the whole save.
  */
 function liveUpdates(edits: PendingEdits): PendingRow[] {
   return Object.entries(edits.updates)

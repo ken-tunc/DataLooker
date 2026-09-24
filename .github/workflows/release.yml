@@ -1,54 +1,29 @@
 name: Release
 
-# There is always a build of `main` to download, and bumping the version is
-# what publishes one.
+# Every push to `main` builds the app. If the `v<version>` tag for
+# package.json's version exists, the build replaces the rolling draft
+# "DataLooker (unreleased)"; if not, it is published as `v<version>`. So
+# cutting a release is bumping `version` and merging it.
 #
-# Every push to `main` builds the app. What becomes of that build is decided by
-# whether the `v<version>` tag for `package.json`'s version already exists:
+# The tag, not the Release, says a version is out: it is made at the moment of
+# publishing, so a publish that died halfway does not hide the version from the
+# next push.
 #
-# - It does, so this version has been released: the build replaces the single
-#   rolling draft, "DataLooker (unreleased)". The tag name `unreleased` is a
-#   placeholder a draft never turns into a real tag.
-# - It does not, so the push bumped the version (or an earlier publish did not
-#   finish): the build is published as `v<version>` — a real Release, notes
-#   written from the pull requests since the last one — and the rolling draft
-#   goes, having been published. Cutting a release is bumping `version` in
-#   package.json and merging it.
-#
-# The tag rather than the Release is what says a version has been released,
-# because the tag is made at the moment of publishing: a draft left behind by a
-# publish that died halfway does not then hide the version from the next push.
-# And since the bump is itself a push that builds, what is published always
-# carries the version it is published under — `tauri.conf.json` reads that from
-# package.json.
-#
-# What is built is the `.app` for Apple silicon, signed by a certificate the
-# workflow makes for that build alone. `scripts/make-signing-identity.sh` says
-# what that buys and what it does not.
-#
-# Building and publishing are two jobs because only one of them may write. The
-# build runs this repository's dependencies, its toolchain and its own scripts;
-# the publish takes what that produced and speaks to the API, so the token that
-# can move tags and Releases is never in a step where any of those run.
+# Building and publishing are separate jobs so that the token that can write
+# tags and Releases is never present while the repository's own code runs.
 
 on:
   push:
     branches: [main]
-    # A documentation merge changes nothing that is shipped, and a build of
-    # this size is worth skipping. A version bump touches package.json, so a
-    # release can never be filtered out here.
+    # A version bump touches package.json, so a release is never skipped.
     paths-ignore:
       - "**.md"
-  # Run it again by hand, which reads the version and the tags afresh.
   workflow_dispatch: {}
 
-# Each job says what it may do; neither inherits more than that.
 permissions: {}
 
-# Queued rather than cancelled: a bump that is midway through publishing must
-# not be killed by the merge behind it, and `max` keeps the ones waiting behind
-# that — where the default drops all but the newest, a version bump that
-# arrived while another was building would never be published at all.
+# Queued, not cancelled: a publish must not be killed by the merge behind it,
+# and the default queue drops all but the newest, which could lose a bump.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -56,9 +31,7 @@ concurrency:
 
 jobs:
   build:
-    # An Apple silicon runner, whose host target is the bundle to ship.
     runs-on: macos-26
-    # Reading the repository is all a build needs.
     permissions:
       contents: read
     outputs:
@@ -67,14 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # Nothing here pushes, and a token left in the checkout's git config
-          # is one every later step can reach.
+          # A token left in git config would be reachable from every step.
           persist-credentials: false
 
-      # Decided before anything is built, so that the rest of the run knows
-      # what it is for. `git ls-remote --exit-code` answers 2 for a ref that is
-      # not there; anything else is a failure to reach the remote rather than
-      # an answer about the tag.
+      # `git ls-remote --exit-code` answers 2 for a missing ref; anything else
+      # is a failure to reach the remote.
       - name: Say whether this build is a release
         id: mode
         run: |
@@ -101,8 +71,6 @@ jobs:
             echo "mode=$mode"
           } >> "$GITHUB_OUTPUT"
 
-      # setup-vp installs Vite+, the pinned Node.js and the package manager,
-      # and caches the dependency store.
       - uses: voidzero-dev/setup-vp@v1.21.0
         with:
           cache: true
@@ -115,21 +83,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: src-tauri
-          # Its own cache: this is the release profile, which shares nothing
-          # with what the tests are built with.
+          # The release profile shares nothing with the test builds.
           shared-key: release
 
       # Writes the identity's name into the environment for the build below.
-      # The keychain is the runner's own and goes with it.
       - name: Make the signing identity
         env:
           KEYCHAIN: ${{ runner.temp }}/datalooker-signing.keychain-db
         run: ./scripts/make-signing-identity.sh
 
-      # The bundler signs with the identity the step above named. APPLE_* is
-      # deliberately not set beyond that: the bundler tries to import a
-      # certificate whenever APPLE_CERTIFICATE exists at all, and an empty one
-      # fails the build.
+      # No other APPLE_* variable: the bundler tries to import a certificate
+      # whenever APPLE_CERTIFICATE exists, and an empty one fails the build.
       - name: Build the app
         run: vp run tauri build
 
@@ -140,35 +104,27 @@ jobs:
         with:
           name: app
           path: DataLooker.app.tar.gz
-          # It is handed to the next job and never wanted again; the Release is
-          # where a build worth keeping lives.
+          # Only handed to the next job.
           retention-days: 1
 
   publish:
     needs: build
-    # Only ever for `main`. A push cannot be anything else, but a dispatch can
-    # name any branch or tag, and that build is not what this repository
-    # releases — it still builds, which is a way to ask whether a branch does.
+    # A dispatch can name any branch; only `main` is released.
     if: github.ref == 'refs/heads/main'
-    # Nothing is built here, so the cheapest runner will do.
     runs-on: ubuntu-24.04
-    # The tag, the Releases and their assets.
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.build.outputs.version }}
     steps:
-      # No checkout: what this job needs is the bundle and the API.
       - uses: actions/download-artifact@v8.0.1
         with:
           name: app
 
-      # A draft for this version means an earlier publish died between creating
-      # the Release and taking the draft flag off; it is dropped rather than
-      # left for `create` to stack a second one beside. The Release is made as
-      # a draft and then published, so that it is never seen without the app,
-      # and publishing is also when GitHub makes the tag — at this commit.
+      # A draft for this version is a publish that died halfway; it is dropped
+      # rather than stacked beside. Created as a draft and then published, so
+      # it is never seen without the app; publishing makes the tag.
       - name: Publish the release
         if: needs.build.outputs.mode == 'release'
         run: |
@@ -188,12 +144,9 @@ jobs:
             DataLooker.app.tar.gz
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
 
-      # Between the two, which is where both modes want it: what a published
-      # version leaves behind, and what a new draft would otherwise be created
-      # beside. A *published* `unreleased` Release means somebody pressed
-      # "Publish release" on the draft, which also makes a real `unreleased`
-      # tag — both are swept, or every refresh after it fails. A 404 from the
-      # tag is the ordinary answer.
+      # Both modes want this. If someone pressed "Publish release" on the
+      # draft, a real `unreleased` tag exists too and every refresh would fail,
+      # so it is swept; a 404 is the ordinary answer.
       - name: Drop the unreleased draft
         run: |
           set -euo pipefail
@@ -204,12 +157,9 @@ jobs:
             done
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/unreleased" > /dev/null 2>&1 || true
 
-      # Dropped and made again rather than edited, so that the assets of the
-      # build before cannot pile up beside this one's. A create that fails
-      # after the delete leaves no draft, and the next merge writes one.
-      # The notes are anchored at the newest published release by name, since
-      # `unreleased` is not a version GitHub can order against anything, and a
-      # failure to write them costs the header rather than the build.
+      # Recreated rather than edited, so old assets cannot pile up. The notes
+      # are anchored at the newest release by name, since GitHub cannot order
+      # `unreleased` against anything.
       - name: Refresh the unreleased draft
         if: needs.build.outputs.mode == 'draft'
         run: |

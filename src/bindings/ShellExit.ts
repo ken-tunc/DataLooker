@@ -6,8 +6,8 @@ export type ShellExit = { connection_id: string,
  */
 code: number | null, 
 /**
- * True when this run was stopped on purpose. A command that dies on its
- * own is worth telling the reader about; one they stopped is not.
+ * A command that dies on its own is worth telling the reader about; one
+ * they stopped is not.
  */
 stopped: boolean, 
 /**

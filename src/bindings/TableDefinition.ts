@@ -2,8 +2,6 @@
 import type { NamedDefinition } from "./NamedDefinition";
 
 /**
- * What a table is, as PostgreSQL's own catalogs describe it: the `CREATE`
- * statement rebuilt from them, and the indexes and triggers that are not part
- * of it.
+ * The `CREATE` statement, and the indexes and triggers it does not include.
  */
 export type TableDefinition = { definition: string, indexes: Array<NamedDefinition>, triggers: Array<NamedDefinition>, };

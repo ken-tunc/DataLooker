@@ -6,17 +6,14 @@ use crate::drivers::QueryResult;
 use crate::error::AppError;
 
 impl App {
-    /// Everything the log still holds. The palette searches what it was handed,
-    /// so a run left behind here could not be reached at all.
+    /// Everything the log still holds: the palette searches only what it gets.
     pub async fn query_history(&self, connection_id: &str) -> Result<Vec<HistoryEntry>, AppError> {
         history::list(&self.pool, connection_id, KEEP).await
     }
 
-    /// Every run is logged, whatever became of it: a statement that failed or
-    /// was cancelled is the one a reader most wants back. A log that cannot be
-    /// written is not worth failing the query over — the rows are already in
-    /// hand — and there is nothing the reader could do about it, so it is
-    /// dropped.
+    /// Whatever became of the run: a failed statement is the one a reader most
+    /// wants back. A failed write is ignored rather than failing a query whose
+    /// rows are already in hand.
     pub(super) async fn record_run(
         &self,
         connection_id: &str,
@@ -37,8 +34,6 @@ impl App {
     }
 }
 
-/// What a statement's run leaves in the log: how many rows it came back with,
-/// or why it did not.
 pub(super) fn rows_returned(result: &Result<QueryResult, AppError>) -> Result<u32, &AppError> {
     result
         .as_ref()

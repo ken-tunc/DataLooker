@@ -1,10 +1,8 @@
 //! Getting a language server for a reader who has none.
 //!
-//! It is built from source with the reader's Go toolchain rather than
-//! downloaded ready-made: sqls publishes one macOS build and it is x86_64, so
-//! a release binary would not run on an Apple Silicon Mac at all. Building
-//! also means the module checksum database vouches for what was fetched, which
-//! is a stronger answer than a hash written down here.
+//! It is built with the reader's Go toolchain rather than downloaded: sqls
+//! publishes only an x86_64 macOS build. Building also means Go's checksum
+//! database vouches for what was fetched.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -16,17 +14,13 @@ use super::server::Server;
 use crate::error::AppError;
 use crate::shell::GroupKill;
 
-/// The version this app was written against. Not "whatever is newest": a
-/// server that changed under a reader is a change nothing here wrote down.
+/// Pinned, so a server never changes under a reader without a commit saying so.
 const SQLS: &str = "github.com/sqls-server/sqls@v0.2.48";
 
-/// How long a build may take. It compiles a Go program and fetches what that
-/// program depends on, which is a minute on a cold cache and more on a slow
-/// line — but not a quarter of an hour.
+/// A cold build fetches dependencies too, but never takes this long.
 const BUILD: Duration = Duration::from_secs(900);
 
 impl Server {
-    /// What builds this server, as Go names it.
     fn module(self) -> &'static str {
         match self {
             Server::Sqls => SQLS,
@@ -34,7 +28,6 @@ impl Server {
     }
 }
 
-/// Build the server into `into`, answering with the binary it left there.
 pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
     let go = super::server::command("go")
         .await
@@ -44,26 +37,21 @@ pub async fn install(server: Server, into: &Path) -> Result<PathBuf, AppError> {
     building
         .arg("install")
         .arg(server.module())
-        // Where `go install` puts what it built, which is the whole of why
-        // this lands somewhere DataLooker can find it again.
+        // Where `go install` puts the binary.
         .env("GOBIN", into)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // A build is `go` and the compiler and the linker it runs, so it leads a
-    // group of its own — the same reason a connection's command does. Killing
-    // `go` alone would leave the build going a moment after the reader was
-    // told it had not finished.
+    // `go` runs the compiler and linker, so the whole group is killed on
+    // timeout.
     #[cfg(unix)]
     building.process_group(0);
 
     let child = building
         .spawn()
         .map_err(|e| AppError::Shell(format!("{}: {e}", go.display())))?;
-    // Armed until the build has been reaped: a group with no members left is
-    // a number the system may hand to someone else, and this guard kills a
-    // group when it is dropped.
+    // Armed until the build is reaped; after that the group id may be reused.
     let mut group = GroupKill(child.id().map(|pid| pid as i32));
 
     let built = tokio::select! {
@@ -124,9 +112,7 @@ mod live {
     use crate::lsp::install;
     use crate::lsp::server::{self, Server};
 
-    /// Builds the real server from source, which is what a reader with none
-    /// installed gets. It skips where Go is not installed, since Go is what builds
-    /// it, and it is slow the first time: it fetches what sqls depends on.
+    /// Skips where Go is not installed. Slow the first time.
     #[tokio::test]
     async fn builds_a_server_for_a_machine_that_has_none() {
         if server::command("go").await.is_err() {
@@ -137,9 +123,7 @@ mod live {
         let into = std::env::temp_dir().join(format!("datalooker-lsp-{}", Uuid::new_v4().simple()));
         std::fs::create_dir_all(&into).expect("a directory to build into");
 
-        // The build has a ceiling of its own, which is for a reader watching a
-        // spinner. This one is for a suite: a module proxy that has stopped
-        // answering should fail the test rather than hold it.
+        // A silent module proxy should fail the test rather than hold it.
         let built = tokio::time::timeout(
             Duration::from_secs(300),
             install::install(Server::Sqls, &into),
@@ -149,8 +133,7 @@ mod live {
         .expect("a language server that builds");
         assert_eq!(built, into.join("sqls"));
 
-        // Built for this machine, which a release binary would not be: what sqls
-        // publishes for macOS is x86_64 and nothing else.
+        // Runs on this machine, which a published x86_64 binary might not.
         let ran = tokio::process::Command::new(&built)
             .arg("--version")
             .output()

@@ -1,6 +1,5 @@
-// The editor API brings no editor features and no languages of its own, so
-// this file is the list of what DataLooker actually needs: a SQL editor, not
-// the IDE Monaco ships by default.
+// The editor API brings no features or languages; this is the list DataLooker
+// needs, rather than everything Monaco's main entry ships.
 import "monaco-editor/features/bracketMatching/register.js";
 import "monaco-editor/features/clipboard/register.js";
 import "monaco-editor/features/comment/register.js";
@@ -16,10 +15,8 @@ import "monaco-editor/features/linesOperations/register.js";
 import "monaco-editor/features/multicursor/register.js";
 import "monaco-editor/features/smartSelect/register.js";
 import "monaco-editor/features/snippet/register.js";
-// The suggestion widget, and the keys that walk it. The feature entry called
-// `suggest` registers the inline kind — the ghost text — and nothing else, so
-// the widget is not in the feature split at all and the contribution it lives
-// in is imported directly.
+// The suggestion widget. The `suggest` feature entry registers only inline
+// (ghost text) suggestions, so the widget's contribution is imported directly.
 import "monaco-editor/editor/contrib/suggest/browser/suggestController.js";
 import "monaco-editor/features/tokenization/register.js";
 import "monaco-editor/features/wordHighlighter/register.js";
@@ -39,10 +36,8 @@ export {
   languages,
 } from "monaco-editor/editor/editor.api.js";
 
-// Monaco paints itself rather than reading the page's theme, and it holds one
-// theme for everything it draws. Setting it here rather than on each editor is
-// what makes a statement coloured outside one — a table's definition — come
-// out the same colours as the same SQL in a tab.
+// Monaco holds one theme for everything it draws, so it is set here rather than
+// per editor; `colorize` outside an editor uses it too.
 editor.setTheme("vs-dark");
 
 self.MonacoEnvironment = {

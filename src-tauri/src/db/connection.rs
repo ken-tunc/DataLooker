@@ -14,9 +14,7 @@ pub enum DriverConfig {
         database: String,
         username: String,
     },
-    /// The secret of a BigQuery connection is the service account key, which
-    /// is where the account it reads as is named — so nothing about who is
-    /// reading appears here.
+    /// The service account is named in the key, which is the secret.
     BigQuery {
         project_id: String,
         /// Where the jobs run, and where the catalog that describes the
@@ -36,8 +34,6 @@ pub struct ConnectionRecord {
     pub created_at: String,
 }
 
-/// Everything a save writes. A struct rather than a run of arguments, so that
-/// a call says which value is which.
 pub struct ConnectionFields<'a> {
     pub label: &'a str,
     pub config: &'a DriverConfig,

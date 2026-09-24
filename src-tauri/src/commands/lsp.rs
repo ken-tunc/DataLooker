@@ -11,8 +11,7 @@ use crate::commands::{lsp_exit, lsp_message, ConnectionArgs, LanguageServerMessa
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspNotice};
 
-/// What a server said it can do, in answer to `initialize`. The window reads
-/// it as the protocol describes it, which is not a shape written down here.
+/// Shaped by the protocol, not by a type here.
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct Capabilities(#[ts(type = "unknown")] Value);
@@ -60,9 +59,7 @@ pub async fn stop_language_server(
     Ok(())
 }
 
-/// Carry what a server says into the window. The app has no window to tell, so
-/// it says it once and this is what makes it an event — two events, because a
-/// server answering and a server ending are different news.
+/// Turns the app's broadcast into window events.
 pub fn forward_notices(handle: AppHandle, app: &Arc<App>) {
     let mut notices = app.language_server_notices();
     let app = Arc::clone(app);
@@ -71,7 +68,6 @@ pub fn forward_notices(handle: AppHandle, app: &Arc<App>) {
             match notices.recv().await {
                 Ok(LspNotice::Said(message)) => lsp_message::emit(&handle, message),
                 Ok(LspNotice::Ended(exit)) => lsp_exit::emit(&handle, exit),
-                // What falling behind means is the app's to say.
                 Err(RecvError::Lagged(_)) => app.missed_language_server_notices(),
                 Err(RecvError::Closed) => break,
             }

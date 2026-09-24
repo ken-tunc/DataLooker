@@ -11,35 +11,27 @@ use super::value::{decode, type_name};
 use crate::drivers::{QueryColumn, QueryResult};
 use crate::error::AppError;
 
-/// How long BigQuery is asked to hold a request open while the job runs. It
-/// bounds one request rather than the query: a job that outlasts it is asked
-/// after again, so a long query is waited out rather than refused.
+/// How long BigQuery holds one request open. A job that outlasts it is asked
+/// after again, not refused.
 const HOLD_MS: i32 = 10_000;
 
-/// How many rows to take at a time when every row is wanted. The rows that
-/// are — what a project holds — are small, and a page apiece would be one
-/// round trip per ten thousand tables.
+/// Rows per page when every row is wanted; catalog rows are small.
 const PAGE: i32 = 10_000;
 
-/// Where the reader is, in a project. BigQuery keeps one catalog per region,
-/// named after it.
+/// BigQuery keeps one catalog per region, named after it.
 pub fn region(location: &str) -> String {
     format!("region-{}", location.to_lowercase())
 }
 
-/// One page of an answer, and what it takes to ask for the next.
 struct Page {
     fields: Vec<TableFieldSchema>,
     rows: Vec<TableRow>,
-    /// The job, for asking after a page or calling the whole thing off.
     job: Option<String>,
     next: Option<String>,
     /// How many rows the whole result holds, once the job has finished.
     total: Option<u64>,
 }
 
-/// Run `sql` and take the rows up to `row_limit`, saying whether there were
-/// more of them.
 pub async fn execute(
     client: &Client,
     project_id: &str,
@@ -49,7 +41,7 @@ pub async fn execute(
     cancel: &CancellationToken,
     started: Instant,
 ) -> Result<QueryResult, AppError> {
-    // One row past the limit is what says there are more of them.
+    // One row past the limit says there are more.
     let wanted = i32::try_from(row_limit)
         .unwrap_or(i32::MAX)
         .saturating_add(1);
@@ -82,9 +74,7 @@ pub async fn execute(
     })
 }
 
-/// Run `sql` and take every row, following the pages until there are none.
-/// For the answers that are read whole — what a project holds — rather than
-/// shown to a reader, who is given a limit instead.
+/// Every row, page by page, for answers read whole such as the catalog.
 pub async fn collect(
     client: &Client,
     project_id: &str,
@@ -129,21 +119,17 @@ pub(super) fn cells(row: &TableRow, fields: &[TableFieldSchema]) -> Vec<serde_js
         .collect()
 }
 
-/// Start the job and wait for it to finish, asking after it for as long as it
-/// takes. A query that runs for minutes is a query, not a failure.
+/// Waits for as long as the job takes: a long query is not a failure.
 async fn start(
     client: &Client,
     project_id: &str,
     location: &str,
     request: QueryRequest,
-    // How many rows to ask for while waiting, which is what the caller asked
-    // the query for: waiting is not a reason to read a different amount.
     wanted: i32,
     cancel: &CancellationToken,
 ) -> Result<Page, AppError> {
-    // A query cancelled before BigQuery has answered at all leaves no job id
-    // to cancel the job by, so it is left running: nothing here knows what to
-    // name. Once there is an id, cancelling cancels the job too.
+    // Cancelled before BigQuery names the job, the job cannot be cancelled and
+    // is left running. Once there is an id, it is cancelled too.
     let answered = tokio::select! {
         answered = client.job().query(project_id, request) => answered,
         () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -164,8 +150,7 @@ async fn start(
     let mut complete = answered.job_complete.unwrap_or(false);
     while !complete {
         let Some(job_id) = job.as_deref() else {
-            // BigQuery answered without finishing and without saying which
-            // job it started, so there is nothing to ask after.
+            // Unfinished and no job id: nothing to ask after.
             return Err(AppError::Database(
                 "BigQuery started a job it did not name".into(),
             ));
@@ -178,8 +163,6 @@ async fn start(
     Ok(page)
 }
 
-/// The page after this one. The job has finished by now, so what comes back is
-/// rows rather than a wait.
 async fn more(
     client: &Client,
     project_id: &str,
@@ -188,8 +171,7 @@ async fn more(
     token: &str,
     cancel: &CancellationToken,
 ) -> Result<Page, AppError> {
-    // A page of a whole answer is a page's worth, however few rows the first
-    // request asked to see.
+    // A full page, however few rows the first request asked for.
     let (page, _) = ask(
         client,
         project_id,
@@ -203,9 +185,7 @@ async fn more(
     Ok(page)
 }
 
-/// Ask after a job, for its first rows or for the page after a token.
-/// Cancelling here cancels the job as well: it is billed for what it reads
-/// whether or not anyone is listening.
+/// Cancelling cancels the job too: it is billed whether or not anyone listens.
 async fn ask(
     client: &Client,
     project_id: &str,
@@ -249,7 +229,7 @@ fn fields_of(fields: Option<Vec<TableFieldSchema>>) -> Vec<TableFieldSchema> {
     fields.unwrap_or_default()
 }
 
-/// BigQuery counts rows in a string, and says nothing while a job is running.
+/// A string, and absent while the job runs.
 fn count(total_rows: Option<&str>) -> Option<u64> {
     total_rows.and_then(|total| total.parse().ok())
 }
@@ -401,8 +381,7 @@ mod live {
         let cancel = CancellationToken::new();
         cancel.cancel();
 
-        // The session has not authenticated yet, so this is also the path where
-        // the exchange with Google is what would have been waited on.
+        // Not yet authenticated, so this also cancels the OAuth exchange.
         let err = session
             .execute("SELECT 1", ROW_LIMIT, &cancel)
             .await
@@ -432,8 +411,7 @@ mod live {
                 .expect("BigQuery planned the statement")
         };
 
-        // Asked of BigQuery rather than worked out here: this is its dialect and
-        // its parser, and a dry run is a plan and nothing else.
+        // A dry run plans and writes nothing.
         assert_eq!(kind(format!("SELECT * FROM {table}")).await, "SELECT");
         assert_eq!(
             kind(format!("INSERT INTO {table} (id) VALUES (1)")).await,

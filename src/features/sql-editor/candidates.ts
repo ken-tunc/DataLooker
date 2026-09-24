@@ -13,11 +13,9 @@ export type Offered = {
 const ordered = (index: number) => String(index).padStart(5, "0");
 
 /**
- * What a list of names becomes. A column two tables of the same query share is
- * offered with the table's name before it, since the name on its own is one
- * BigQuery would refuse as ambiguous. A name of the type the place wants comes
- * first, and then what the query the cursor is in can see, before what the
- * queries around it can.
+ * A column two tables of one query share is qualified, since BigQuery would
+ * refuse it as ambiguous. Names of the wanted type come first, then the
+ * innermost query's before the outer ones'.
  */
 export function offered(candidates: Candidate[], expected: string | null): Offered[] {
   const qualifiers = new Map<string, Set<string>>();
@@ -44,10 +42,8 @@ export function offered(candidates: Candidate[], expected: string | null): Offer
 }
 
 /**
- * What a table's name being typed after `FROM` can go on to: the datasets
- * where nothing is written yet, or only the project, and a dataset's tables
- * once one is. The tree is the connection's project, so a name in any other
- * project is not one it can offer.
+ * Datasets until one is written, then its tables. The tree is only the
+ * connection's own project.
  */
 export function tablesAfter(path: string[], tree: SchemaTree, project: string): Offered[] {
   const within = path[0] === project ? path.slice(1) : path;

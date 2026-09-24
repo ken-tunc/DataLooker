@@ -4,10 +4,7 @@ use sqlx::{PgConnection, Row};
 use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
 
 /// `pg_catalog` rather than `information_schema`: it knows about materialized
-/// views, and it answers without the permission-filtered views in between.
-/// What a table holds is not asked for here — that is `COLUMNS`, one table at
-/// a time, because a schema's every column is far more rows than its tables
-/// and nobody is looking at most of them.
+/// views, and has no permission-filtered views in between.
 const TREE: &str = "
     SELECT n.nspname AS schema_name,
            c.relname AS table_name,
@@ -21,7 +18,6 @@ const TREE: &str = "
      ORDER BY n.nspname, c.relname
 ";
 
-/// The columns of one relation, in the order it was written with.
 const COLUMNS: &str = "
     SELECT a.attname AS column_name,
            format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -41,8 +37,7 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
     while let Some(row) = rows.try_next().await? {
         let schema_name: String = row.try_get("schema_name")?;
 
-        // The rows arrive grouped by schema and table, so the one being built
-        // is always the last of each.
+        // The rows arrive grouped by schema and table.
         if schemas.last().map(|s| s.name.as_str()) != Some(&schema_name) {
             schemas.push(Schema {
                 name: schema_name,
@@ -154,8 +149,7 @@ mod live {
         assert_eq!(schema.tables[1].kind, TableKind::Table);
         assert_eq!(schema.tables[0].kind, TableKind::View);
 
-        // What a table holds is asked for on its own, in the order it was written
-        // with.
+        // In the order the columns were declared.
         let columns: Vec<(String, String, bool)> = session
             .columns("tree_test", "people")
             .await

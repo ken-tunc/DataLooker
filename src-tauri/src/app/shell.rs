@@ -8,9 +8,7 @@ use crate::error::AppError;
 use crate::shell::{ShellExit, ShellRun};
 
 impl App {
-    /// Start the connection's command, unless it is already running. Starting
-    /// it twice is what a second click looks like, and two tunnels on one port
-    /// is not what the reader meant by it.
+    /// A second click is not a second tunnel on the same port.
     pub async fn run_command(&self, connection_id: &str) -> Result<(), AppError> {
         if self.shells.is_running(connection_id) {
             return Ok(());
@@ -23,31 +21,24 @@ impl App {
             .ok_or_else(|| AppError::Validation(format!("{} has no command", record.label)))?;
 
         let run = ShellRun::spawn(connection_id.to_string(), &command)?;
-        // Into the registry before it is watched, so that the watcher taking
-        // itself out again cannot happen first. Losing the race means the run
-        // is dropped, and the child with it.
+        // Registered before it is watched, since the watcher removes it on exit.
         if self.shells.insert(Arc::clone(&run)) {
             run.watch(Arc::clone(&self.shells), self.exits.clone());
         } else {
-            // Nothing will watch this one, and letting go of it reaps the
-            // shell alone — whatever it forked in the moment it was alive
-            // would be left with no one to stop it.
+            // Lost the race. Dropping it reaps only the shell, not what it forked.
             run.kill_group();
         }
         Ok(())
     }
 
-    /// Stop it. A connection with nothing running is already stopped.
     pub fn stop_command(&self, connection_id: &str) {
         if let Some(run) = self.shells.remove(connection_id) {
             run.stop();
         }
     }
 
-    /// Kill every command, now. This is for an app on its way out: a run told
-    /// to stop needs the tasks and the runtime that are going with it, and a
-    /// tunnel that outlives the window which opened it is one nothing here can
-    /// stop any more.
+    /// For an app on its way out, synchronously: the runtime is going, and a
+    /// tunnel that outlives the app is one nothing can stop.
     pub fn stop_all_commands(&self) {
         for run in self.shells.take_all() {
             run.kill_group();
@@ -58,9 +49,6 @@ impl App {
         self.shells.running()
     }
 
-    /// Every command that ends, from here on. Whoever drives the app decides
-    /// what to do with one: the window turns the connection's button back and
-    /// says what the command complained about.
     pub fn command_exits(&self) -> broadcast::Receiver<ShellExit> {
         self.exits.subscribe()
     }

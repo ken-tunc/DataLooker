@@ -12,17 +12,14 @@ use crate::lsp::{install, server};
 use crate::lsp::{LanguageServerState, LspNotice, LspSession};
 
 impl App {
-    /// Start the connection's language server, answering with what it says it
-    /// can do. A connection that already has one answers for that one: a
-    /// second server would read the same schema again to say the same things.
+    /// Answers with the server's capabilities. A connection that already has a
+    /// server answers for that one.
     pub async fn start_language_server(&self, connection_id: &str) -> Result<Value, AppError> {
         if let Some(running) = self.servers.get(connection_id) {
             return Ok(running.capabilities.clone());
         }
 
-        // Read before the starting begins: saving or deleting the connection
-        // while a server is on its way up leaves that server holding
-        // credentials the reader has replaced.
+        // Before starting, so a save or delete meanwhile is noticed.
         let stops = self.servers.before_starting(connection_id);
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
@@ -35,8 +32,7 @@ impl App {
         let binary = server::find(server, &self.servers()).await?;
 
         let session = LspSession::start(connection_id, &binary, options).await?;
-        // Into the registry before it is read from, so that the reader taking
-        // it out again at the end cannot happen first.
+        // Registered before `listen`, which takes it out again at the end.
         let Some(running) = self.servers.insert(Arc::clone(&session), stops) else {
             session.stop();
             return Err(AppError::Conflict(format!(
@@ -46,15 +42,13 @@ impl App {
         if Arc::ptr_eq(&running, &session) {
             session.listen(Arc::clone(&self.servers), self.notices.clone());
         } else {
-            // Another start got there first, and one server is what the
-            // connection has. This one is stopped rather than left unheard.
+            // Another start got there first.
             session.stop();
         }
         Ok(running.capabilities.clone())
     }
 
-    /// Hand a message to the connection's server. A connection with no server
-    /// is one whose server died, which the window hears about separately.
+    /// No server means it died, which the window hears about separately.
     pub fn send_to_language_server(
         &self,
         connection_id: &str,
@@ -72,7 +66,6 @@ impl App {
         }
     }
 
-    /// Stop every one of them, for an app on its way out.
     pub fn stop_all_language_servers(&self) {
         for session in self.servers.take_all() {
             session.stop();
@@ -83,17 +76,13 @@ impl App {
         self.notices.subscribe()
     }
 
-    /// What becomes of a listener that fell behind the servers. It has missed
-    /// an answer it is still waiting for, and a request with no reply is one
-    /// nothing here can produce, so every server is stopped: that reaches the
-    /// listener as each one ending, which is the state a client recovers from
-    /// by starting again.
+    /// A listener that fell behind may have missed an answer it is waiting
+    /// for. Stopping every server reaches it as each one ending, which a
+    /// client recovers from by starting again.
     pub fn missed_language_server_notices(&self) {
         self.stop_all_language_servers();
     }
 
-    /// Whether this connection can be completed against, which is the question
-    /// behind whether to offer to build a server for it.
     pub async fn language_server_state(
         &self,
         connection_id: &str,
@@ -101,8 +90,7 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
-        // A connection with no language server is completed by the analyzer,
-        // which is the thing it would be missing instead.
+        // BigQuery is completed by the analyzer instead.
         let (found, binary) = match Server::of(&record.config) {
             Some(server) => (
                 server::find(server, &self.servers()).await.map(drop),
@@ -112,8 +100,7 @@ impl App {
         };
         Ok(match found {
             Ok(()) => LanguageServerState::Ready,
-            // An analyzer this machine has no build to fetch for is the
-            // reader's to build, which the offer to install would not do.
+            // No published build for this machine: the reader has to build it.
             Err(AppError::NotFound(_))
                 if binary == analyzer::BINARY && !analyzer::fetch::FETCHABLE =>
             {
@@ -125,23 +112,19 @@ impl App {
                 server: binary.to_string(),
                 downloaded: binary == analyzer::BINARY,
             },
-            // Anything else is the reader's own setting being wrong, which
-            // installing a server would not put right.
+            // The reader's own setting is wrong; installing would not help.
             Err(e) => LanguageServerState::Named {
                 message: e.to_string(),
             },
         })
     }
 
-    /// Build the server this connection would be completed against, and keep
-    /// it where the app keeps its own things.
     pub async fn install_language_server(&self, connection_id: &str) -> Result<(), AppError> {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
         let Some(server) = Server::of(&record.config) else {
-            // A connection with no language server is completed by the
-            // analyzer, which is downloaded rather than built.
+            // BigQuery's analyzer is downloaded rather than built.
             analyzer::fetch::fetch(&self.servers()).await?;
             return Ok(());
         };
@@ -149,12 +132,11 @@ impl App {
         std::fs::create_dir_all(&into)
             .map_err(|e| AppError::Shell(format!("{}: {e}", into.display())))?;
         install::install(server, &into).await?;
-        // Whatever was running is the server that was there before this one.
+        // Whatever was running is the old server.
         self.stop_language_server(connection_id);
         Ok(())
     }
 
-    /// Where a server DataLooker built for the reader lives.
     fn servers(&self) -> std::path::PathBuf {
         self.data_dir.join("servers")
     }

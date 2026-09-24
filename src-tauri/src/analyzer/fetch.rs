@@ -1,10 +1,8 @@
 //! Getting the analyzer for a reader who has none.
 //!
-//! It is downloaded rather than built: building it compiles GoogleSQL, which
-//! takes the better part of an hour and a toolchain no reader has. What is
-//! downloaded is the one build written down here, and it is checked against
-//! the hash written beside it before any of it is unpacked — a file that does
-//! not match is not run, whoever served it.
+//! Downloaded rather than built: building compiles GoogleSQL, which takes
+//! hours and a toolchain no reader has. The download is checked against the
+//! pinned hash before any of it is unpacked.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,25 +14,21 @@ use sha2::{Digest, Sha256};
 use super::BINARY;
 use crate::error::AppError;
 
-/// The build this app was written against, and what it hashes to. The
-/// Release is made by `.github/workflows/analyzer.yml` when the version is
-/// tagged; the hash is copied from it.
+/// Published by `.github/workflows/analyzer.yml`; the hash is copied from the
+/// Release.
 const RELEASE: &str = "https://github.com/ken-tunc/DataLooker/releases/download/analyzer-v0.1.0/datalooker-bigquery-analyzer-darwin-arm64.gz";
 const SHA256: &str = "dad4b757c73ca1e5e546b5407c577325f8efa61dde6de3beaaec44f96af6263c";
 
-/// How long the download may take. It is tens of megabytes.
+/// Tens of megabytes.
 const FETCHING: Duration = Duration::from_secs(300);
 
-/// The most the download, and what it unpacks to, may be. The build is well
-/// under both; a file past them is not the build.
+/// Well above the build; anything larger is not it.
 const MOST_PACKED: usize = 64 * 1024 * 1024;
 const MOST_UNPACKED: u64 = 256 * 1024 * 1024;
 
-/// Whether there is a build to fetch for this machine. There is one for Apple
-/// silicon, which is what the Release is built on.
+/// The Release is built for Apple silicon only.
 pub const FETCHABLE: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 
-/// What a machine with nothing to fetch is told to do instead.
 pub fn build_it_yourself() -> AppError {
     AppError::Unsupported(format!(
         "{BINARY} is published for Apple silicon only. Build it from bigquery-analyzer/ and \
@@ -42,7 +36,6 @@ pub fn build_it_yourself() -> AppError {
     ))
 }
 
-/// Fetch the analyzer into `into`, answering with the binary it left there.
 pub async fn fetch(into: &Path) -> Result<PathBuf, AppError> {
     if !FETCHABLE {
         return Err(build_it_yourself());
@@ -73,9 +66,8 @@ async fn download(url: &str) -> Result<Vec<u8>, AppError> {
     Ok(packed)
 }
 
-/// Check `packed` against `expected`, and only then unpack it into `into`. It is
-/// written beside where it goes and moved there whole, so that a binary half
-/// written is never one that is found.
+/// Written beside its destination and renamed into place, so a half-written
+/// binary is never found.
 fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppError> {
     let found = format!("{:x}", Sha256::digest(packed));
     if expected.is_empty() || found != expected {
@@ -98,22 +90,19 @@ fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppErr
 
     let written = |e: std::io::Error| AppError::Shell(format!("{}: {e}", into.display()));
     std::fs::create_dir_all(into).map_err(written)?;
-    // Its own name for each install: two at once would otherwise write the
-    // same file, and one could empty it after the other finished writing and
-    // before it moved it into place.
+    // A name per install, so two at once cannot write the same file.
     let partial = into.join(format!(
         "{BINARY}.{}.partial",
         uuid::Uuid::new_v4().simple()
     ));
     let placed = place(&unpacked, &partial, &into.join(BINARY));
     if placed.is_err() {
-        // A file of this install's own that nothing will look for again.
+        // Nothing will look for it again.
         let _ = std::fs::remove_file(&partial);
     }
     placed.map_err(written)
 }
 
-/// Write `content` to `partial`, make it runnable, and move it to `binary`.
 fn place(content: &[u8], partial: &Path, binary: &Path) -> std::io::Result<PathBuf> {
     let mut file = std::fs::File::create(partial)?;
     file.write_all(content)?;

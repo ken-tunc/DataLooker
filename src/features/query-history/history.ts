@@ -1,18 +1,15 @@
 import type { HistoryEntry } from "../../bindings/HistoryEntry";
 
 /**
- * The newest run of each distinct statement, keeping only those the search
- * matches. The log holds every run — it has to, to say what was run against a
- * database and when — but a reader looking for a statement is looking for the
- * statement, not for the twelve times they ran it.
+ * The newest run of each distinct statement that matches. The log keeps every
+ * run, but a reader wants the statement, not every time they ran it.
  */
 export function recentQueries(entries: readonly HistoryEntry[], search: string): HistoryEntry[] {
   const needle = search.trim().toLowerCase();
   const seen = new Set<string>();
   const found: HistoryEntry[] = [];
 
-  // The log arrives newest first, so the first of a repeated statement is the
-  // one that also carries its latest row count or failure.
+  // The log arrives newest first.
   for (const entry of entries) {
     const sql = entry.sql.trim();
     if (seen.has(sql)) continue;

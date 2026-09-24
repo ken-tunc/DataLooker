@@ -20,23 +20,18 @@ use crate::drivers::{
 };
 use crate::error::AppError;
 
-/// Bounds opening a connection, and the whole of `test`: a server that accepts
-/// a connection and then stalls would otherwise leave Test spinning forever.
+/// Bounds opening a connection, and the whole of `test`, against a server that
+/// accepts and then stalls.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// One PostgreSQL session, reused across queries so that `BEGIN`, `SET` and
-/// temporary tables outlive the statement that created them — a query editor
-/// where every run silently started a new session would surprise its user.
-/// Queries on the same session therefore run one at a time, as they would in
-/// `psql`.
+/// One PostgreSQL session, reused so that `BEGIN`, `SET` and temporary tables
+/// outlive the statement that made them. Queries on it run one at a time.
 pub struct PostgresSession {
     options: PgConnectOptions,
     conn: Mutex<Option<PgConnection>>,
-    /// Where what the app asks of the catalog goes. None of it needs the
-    /// reader's `BEGIN` or `SET`, and on the reader's connection all of it
-    /// would wait behind their longest query and fail inside a transaction
-    /// of theirs that had failed — the tree, and every table opened from it,
-    /// held hostage by a statement in an editor tab.
+    /// Catalog reads need none of the reader's `BEGIN` or `SET`, and on the
+    /// reader's connection they would wait behind their longest query and fail
+    /// inside their failed transaction.
     catalog: Mutex<Option<PgConnection>>,
 }
 
@@ -54,10 +49,8 @@ impl PostgresSession {
         }
     }
 
-    /// The same session, opened so that the server refuses to write through
-    /// it. It is told at connection time rather than asked per statement,
-    /// because a statement that only reads can still call a function that
-    /// writes — and PostgreSQL knows which those are.
+    /// Only a default, which a statement can turn off; `execute_reading` is
+    /// what holds an agent to reading.
     pub fn reading_only(self) -> Self {
         Self {
             options: self
@@ -67,8 +60,8 @@ impl PostgresSession {
         }
     }
 
-    /// Reach the server with these credentials on a connection of its own, so
-    /// that a session already open cannot make an unreachable server look fine.
+    /// On a connection of its own, so an open session cannot make an
+    /// unreachable server look fine.
     pub async fn test(&self) -> Result<(), AppError> {
         let attempt = async {
             let mut conn = connect(&self.options).await?;
@@ -95,13 +88,9 @@ impl PostgresSession {
         .await
     }
 
-    /// Run a statement for a caller that may only read. The read-only
-    /// transaction is what holds them to it: opening the session that way
-    /// only sets a default, and a default is something a statement can turn
-    /// off — `SET default_transaction_read_only = off` is not a write, and
-    /// neither is `SELECT set_config(...)`. A transaction that has begun
-    /// read-only cannot be made anything else, and the server is what says
-    /// so, down to a function called from a `SELECT`.
+    /// For a caller that may only read. A transaction begun `READ ONLY` cannot
+    /// be made anything else, and the server enforces it down to a function
+    /// called from a `SELECT`; a session default could be `SET` off.
     pub async fn execute_reading(
         &self,
         sql: &str,
@@ -112,10 +101,8 @@ impl PostgresSession {
         self.with_connection(cancel, async |conn| {
             conn.execute("BEGIN READ ONLY").await?;
             let result = query::execute(conn, sql, row_limit, started).await;
-            // Nothing was written and nothing is kept: the transaction is
-            // here to refuse, not to hold anything together. A transaction
-            // that will not end leaves a connection nobody can say anything
-            // about, so that connection goes rather than being handed on.
+            // A transaction that will not end leaves a connection in an unknown
+            // state, so it is dropped.
             match (result, conn.execute("ROLLBACK").await) {
                 (result, Ok(_)) => Ok(result?),
                 (result, Err(ending)) => Err(DriverError::Broken(match result {
@@ -153,8 +140,7 @@ impl PostgresSession {
             .await
     }
 
-    /// The statements a save would run. The shape is the catalog's, so it is
-    /// read there; nothing touches the reader's connection until it runs.
+    /// The shape is read on the catalog's connection.
     pub async fn plan_edits(
         &self,
         schema: &str,
@@ -165,9 +151,7 @@ impl PostgresSession {
         Ok(edit::plan(&shape, schema, table, edits)?)
     }
 
-    /// Runs a save in one transaction and resolves to how many rows it
-    /// changed — which is how the caller learns that one of them matched
-    /// nothing because the row had moved on.
+    /// Resolves to how many rows changed, which is how a stale row is noticed.
     pub async fn apply_plan(&self, plan: &Plan) -> Result<u32, AppError> {
         self.with_connection(&CancellationToken::new(), async |conn| {
             edit::apply(conn, plan).await
@@ -175,8 +159,6 @@ impl PostgresSession {
         .await
     }
 
-    /// What the tree shows is what has been committed: a schema the reader's
-    /// open transaction created is theirs until it commits.
     pub async fn schema_tree(&self) -> Result<SchemaTree, AppError> {
         self.on_catalog(async |conn| Ok(schema::tree(conn).await?))
             .await
@@ -187,8 +169,6 @@ impl PostgresSession {
             .await
     }
 
-    /// Runs `work` on the reader's connection, opening one when the session
-    /// has none.
     async fn with_connection<T>(
         &self,
         cancel: &CancellationToken,
@@ -227,20 +207,16 @@ impl PostgresSession {
             result = work(&mut conn) => Some(result),
         };
 
-        // Whether the connection goes back in the slot is the whole point of
-        // this function: what it does not keep, it drops, and the next caller
-        // opens a new one.
         match outcome {
-            // The work was abandoned mid-protocol, so what the connection would
-            // read next is anyone's guess.
+            // Abandoned mid-protocol: the connection cannot be trusted.
             None => Err(AppError::Cancelled),
             Some(Ok(value)) => {
                 *held = Some(conn);
                 Ok(value)
             }
-            // An open transaction is now aborted, which the user has to see,
-            // so an error the server reported keeps the session — as does a
-            // refusal, which never reached the wire.
+            // An error the server reported keeps the session, so the reader
+            // sees their aborted transaction; so does a refusal that never
+            // reached the wire.
             Some(Err(e)) => {
                 if matches!(
                     e,
@@ -261,8 +237,6 @@ async fn connect(options: &PgConnectOptions) -> Result<PgConnection, AppError> {
         .map_err(AppError::from)
 }
 
-/// A double quote inside an identifier is written twice, which is how a name
-/// like `weird"name` stays one identifier instead of ending the quoting.
 fn quote(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }

@@ -15,14 +15,11 @@ impl App {
     pub async fn save_connection(&self, input: SaveConnectionInput) -> Result<String, AppError> {
         let edited = input.id.clone();
         let saved = save(input, &self.pool, self.secrets.as_ref()).await;
-        // A save that failed can still have changed the password, and a session
-        // opened while it ran may hold one half of it, so the session goes
-        // either way. A new connection has no session: nothing knew its id yet.
+        // A failed save may still have changed the password, so the session
+        // goes either way.
         if let Some(id) = saved.as_ref().ok().or(edited.as_ref()) {
             self.sessions.close(id);
-            // The language server was handed the connection when it started,
-            // so it is reading the database the reader has just changed their
-            // mind about. It is started again when it is next asked for.
+            // It holds the old credentials; the next completion starts another.
             self.stop_language_server(id);
             self.catalogs.forget(id);
         }
@@ -34,9 +31,8 @@ impl App {
         self.sessions.close(id);
         self.stop_language_server(id);
         self.catalogs.forget(id);
-        // Nothing would be left to stop the command with: the row the run
-        // button lives on is going. A save leaves it running on purpose —
-        // renaming a connection is no reason to drop the reader's tunnel.
+        // Its stop button is going with the row. A save leaves it running:
+        // renaming a connection is no reason to drop a tunnel.
         self.stop_command(id);
         deleted
     }
@@ -49,16 +45,14 @@ pub struct SaveConnectionInput {
     pub id: Option<String>,
     pub label: String,
     pub config: DriverConfig,
-    /// Absent leaves the stored secret alone, which is how an edit that does
-    /// not touch the password arrives.
+    /// Absent leaves the stored secret alone.
     pub secret: Option<String>,
     /// A shell command to run before connecting, or nothing to run.
     pub command: Option<String>,
 }
 
-/// The keychain write sits inside the transaction: if it fails, dropping the
-/// transaction rolls the row back, so the two never disagree about whether the
-/// connection exists.
+/// The keychain write sits inside the transaction, so its failure rolls the
+/// row back.
 async fn delete(id: &str, pool: &SqlitePool, secrets: &dyn SecretStore) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     connection::delete(&mut *tx, id).await?;
@@ -87,8 +81,7 @@ async fn save(
 
     let id = match &input.id {
         Some(id) => {
-            // An id the database does not hold is not an edit: inserting it
-            // here would make a connection whose password was never required.
+            // Inserting an unknown id would skip the required password.
             if !connection::update(&mut *tx, id, fields).await? {
                 return Err(AppError::NotFound(id.clone()));
             }

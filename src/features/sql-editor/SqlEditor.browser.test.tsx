@@ -18,18 +18,15 @@ const slect: SyntaxError = {
 async function editor(
   replies: Replies,
   sql = "SLECT 1",
-  // A model is named after its connection and its tab, and a name Monaco
-  // already holds is one it refuses to make a second model for. A connection
-  // of its own also gives each test a language client of its own, since a
-  // client is made once per connection and kept.
+  // Monaco refuses a second model of the same name, and a language client is
+  // kept per connection, so each test gets its own connection.
   connectionId: string = crypto.randomUUID(),
 ) {
   const ipc = stubIpc(replies);
   const tabId = crypto.randomUUID();
   const onChange = vi.fn();
   const onJump = vi.fn();
-  // The editor fills what it is given, and what a test gives it is nothing
-  // unless it says so: a collapsed editor draws no line to click on.
+  // The editor fills its parent; a collapsed one has no line to click on.
   const screen = await renderApp(
     <div className="h-72">
       <SqlEditor
@@ -88,8 +85,7 @@ describe("SqlEditor", () => {
 
 describe("SqlEditor asked what a name is", () => {
   const STATEMENT = "select * from shop.orders";
-  // Monaco reads `CtrlCmd` as ⌘ on a Mac and as Ctrl everywhere else. The app
-  // is a Mac one, but the tests also run where the other half of that is true.
+  // CI runs these on Linux, where `CtrlCmd` is Ctrl.
   const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
   /** The column before `orders`, counting from one as Monaco does. */
   const ON_ORDERS = STATEMENT.indexOf("orders") + 1;
@@ -132,12 +128,7 @@ describe("SqlEditor asked what a name is", () => {
   });
 });
 
-/**
- * Vim mode is remembered outside the component — in `localStorage`, and in the
- * module that reads it — so it is whatever the last test or the last run left
- * behind, and a test that assumes it starts off would turn it on by turning it
- * off.
- */
+/** Vim mode outlives a test, so it may start either way. */
 async function vimToggle(screen: Awaited<ReturnType<typeof editor>>["screen"]) {
   const toggle = screen.getByRole("checkbox", { name: "Vim" });
   if ((toggle.element() as HTMLInputElement).checked) await toggle.click();
@@ -185,11 +176,7 @@ async function typing(text: string) {
   await userEvent.keyboard(text);
 }
 
-/**
- * A language server, as far as the window can tell one from the outside: it
- * takes messages, and it answers a question about a position the way the
- * backend announces an answer.
- */
+/** A language server as the window sees one: messages in, events out. */
 function server() {
   let ipc: Ipc | undefined;
   const sent: string[] = [];
@@ -223,8 +210,7 @@ describe("SqlEditor completion", () => {
 
     await typing(" ord");
 
-    // The label is drawn in pieces — the part already typed is marked — so
-    // what is read here is the row rather than a run of text.
+    // The label is drawn in pieces, so the row is read instead.
     const offered = page.getByRole("option");
     await expect.element(offered).toBeVisible();
     expect(offered.element().textContent).toContain("orders");
@@ -275,8 +261,7 @@ describe("SqlEditor completion", () => {
     // The server dies, and the editor goes on being an editor.
     made.ipc.emit("lsp:exit", { connection_id: made.connectionId });
     sent.length = 0;
-    // Away with the list that is up: typing on inside a word it is already
-    // showing filters that list rather than asking again.
+    // Typing on inside an open list filters it rather than asking again.
     await userEvent.keyboard("{Escape}");
     await typing("e");
 
