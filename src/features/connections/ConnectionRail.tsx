@@ -142,7 +142,7 @@ export function ConnectionRail({ selectedId, onSelect, onShowShortcuts }: Props)
           className="btn btn-ghost btn-square"
           aria-label="Keyboard shortcuts"
           title="Keyboard shortcuts (⌘?)"
-          aria-keyshortcuts="Meta+?"
+          aria-keyshortcuts="Meta+Shift+/"
           onClick={onShowShortcuts}
         >
           <Keyboard className="size-5" />

@@ -35,7 +35,7 @@ Press ⌘? for this list in the app.
 | ⌃Tab, ⌃⇧Tab       | Next / previous tab                   |
 | Delete, Backspace | Close the focused tab                 |
 | ⌘Enter            | Run the editor's query                |
-| ⌘⇧D, ⌘-click      | Open the table a name in SQL names    |
+| ⌘⇧D, ⌘-click      | Open the table named under the cursor |
 | ⌘C                | Copy the selected cell                |
 | Space             | Show the selected cell in full        |
 | ⌘Backspace        | Set the cell being edited to NULL     |

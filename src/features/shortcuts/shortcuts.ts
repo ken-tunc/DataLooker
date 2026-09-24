@@ -13,8 +13,11 @@ export type ShortcutGroup = { title: string; shortcuts: readonly Shortcut[] };
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   {
     title: "Anywhere",
+    shortcuts: [{ keys: ["⌘?"], what: "Show these shortcuts" }],
+  },
+  {
+    title: "With a connection",
     shortcuts: [
-      { keys: ["⌘?"], what: "Show these shortcuts" },
       { keys: ["⌘O"], what: "Find a table by name and open it" },
       { keys: ["⌘Y"], what: "Reopen a query that was run before" },
       { keys: ["⌘T"], what: "New SQL tab" },
@@ -31,7 +34,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     title: "Editor",
     shortcuts: [
       { keys: ["⌘Enter"], what: "Run the editor's query" },
-      { keys: ["⌘⇧D", "⌘-click"], what: "Open the table a name in SQL names" },
+      { keys: ["⌘⇧D", "⌘-click"], what: "Open the table named under the cursor" },
     ],
   },
   {
