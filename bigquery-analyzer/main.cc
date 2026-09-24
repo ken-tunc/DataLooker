@@ -18,7 +18,7 @@ namespace {
 
 using json = nlohmann::json;
 
-constexpr char kVersion[] = "0.1.0";
+constexpr char kVersion[] = "0.2.0";
 constexpr char kGoogleSql[] = "2026.9.2";
 
 // The most a message may claim to be, as on the app's side.

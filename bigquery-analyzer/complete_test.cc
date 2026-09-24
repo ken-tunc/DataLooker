@@ -1,5 +1,6 @@
 #include "complete.h"
 
+#include <chrono>
 #include <set>
 #include <string>
 #include <vector>
@@ -180,6 +181,63 @@ TEST(Complete, OffersNothingInsideAStringOrAComment) {
   EXPECT_EQ(Ask("SELECT * FROM sales.orders o # o.|")["context"], "none");
   // A block comment that has ended is not where the cursor is.
   EXPECT_EQ(Ask("SELECT /* x */ o.| FROM sales.orders o")["context"], "member");
+}
+
+TEST(Complete, ReadsPastWhatIsNotWrittenYet) {
+  EXPECT_THAT(Columns(Ask("SELECT | FROM sales.orders o WHERE")),
+              IsSupersetOf({"o.order_id"}));
+  EXPECT_THAT(Fields(Ask("SELECT * FROM sales.orders o WHERE o.| AND")),
+              ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+  EXPECT_EQ(Ask("SELECT * FROM sales.orders o WHERE o.| GROUP BY")["context"], "member");
+  EXPECT_THAT(
+      Fields(Ask("SELECT c.| FROM sales.orders o JOIN sales.customers c ON")),
+      ElementsAre("customer_id", "name"));
+  EXPECT_THAT(Fields(Ask("SELECT o.| FROM sales.orders o JOIN sales.customers c "
+                         "USING (customer_id) WHERE c.name =")),
+              ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+  // A subquery left open is closed.
+  EXPECT_THAT(Fields(Ask("SELECT * FROM sales.orders WHERE customer_id IN "
+                         "(SELECT c.| FROM sales.customers c WHERE")),
+              ElementsAre("customer_id", "name"));
+  // A column misspelt after the cursor is cut away too.
+  EXPECT_THAT(Fields(Ask("SELECT o.| FROM sales.orders o WHERE o.ordr_id = 1")),
+              ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+}
+
+TEST(Complete, GivesUpOnAStatementThatDoesNotParseBeforeTheCursor) {
+  // No cut adds the `END`, so none parses. Trying every one takes seconds,
+  // and the helper answers nothing else meanwhile.
+  std::string statement = "SELECT CASE WHEN TRUE THEN | FROM sales.orders o WHERE";
+  for (int i = 0; i < 2000; ++i) statement += " o.order_id = 1 AND";
+  Shared();  // Built before the clock starts: it is slow to build.
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_TRUE(Ask(statement).contains("unresolved"));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(1));
+}
+
+TEST(Complete, DoesNotCutATableNameIntoAnotherOne) {
+  // `shop.sales` would be read as the table `sales` of the dataset `shop`.
+  EXPECT_FALSE(Ask("SELECT o.| FROM shop.sales.", json::array()).contains("needs"));
+}
+
+TEST(Complete, OffersWhatAGroupByCanGroup) {
+  json answer = Ask("SELECT customer_id, COUNT(*) FROM sales.orders o GROUP BY |");
+  EXPECT_EQ(answer["context"], "name");
+  EXPECT_THAT(Columns(answer), IsSupersetOf({"o.customer_id", "o.ordered_at"}));
+  EXPECT_THAT(Fields(Ask("SELECT customer_id, COUNT(*) FROM sales.orders o "
+                         "GROUP BY o.customer_id, o.|")),
+              ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+  EXPECT_THAT(Columns(Ask("SELECT order_id, COUNT(*) FROM sales.orders o "
+                          "GROUP BY COALESCE(|, 0)")),
+              IsSupersetOf({"o.order_id"}));
+  // What the GROUP BY already names by alias or position still resolves.
+  EXPECT_THAT(Columns(Ask("SELECT o.order_id AS id, o.customer_id c, COUNT(*) "
+                          "FROM sales.orders o GROUP BY id, c, 3, |")),
+              IsSupersetOf({"o.ordered_at"}));
+  // Only the query the cursor is in has its select list set aside.
+  EXPECT_THAT(Columns(Ask("SELECT * FROM (SELECT customer_id, COUNT(*) "
+                          "FROM sales.customers c GROUP BY |)")),
+              IsSupersetOf({"c.name"}));
 }
 
 TEST(Complete, LeavesWhatItCannotResolveToTheCaller) {

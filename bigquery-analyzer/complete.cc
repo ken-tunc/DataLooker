@@ -40,6 +40,15 @@ struct Span {
   size_t end;
 };
 
+// A place the rest of the statement can be cut, and how many parentheses are
+// open there.
+struct Cut {
+  size_t at;
+  int open;
+  // A `NULL` after a dot would be a name.
+  bool after_dot;
+};
+
 size_t Start(const ParseToken& token) {
   return token.GetLocationRange().start().GetByteOffset();
 }
@@ -66,6 +75,12 @@ std::string TypeName(const googlesql::Type* type) {
 }
 
 // Where the cursor is, read from the tokens around it.
+// Text that replaces a span of the statement.
+struct StandIn {
+  Span span;
+  std::string text;
+};
+
 struct Place {
   Span statement;
   // The word being typed, which a candidate replaces; empty at a word's start.
@@ -77,7 +92,106 @@ struct Place {
   bool after_from = false;
   // Inside a string or a comment, where nothing is completed.
   bool quiet = false;
+  // The select list of the query whose `GROUP BY` the cursor is in, set
+  // aside: grouping by the probe leaves it naming columns no longer grouped.
+  std::optional<StandIn> select_list;
+  // Where what follows the cursor can be cut, the statement's end last.
+  std::vector<Cut> cuts;
 };
+
+// Clauses a `GROUP BY` cannot be looked for past.
+bool EndsClause(const ParseToken& token) {
+  for (absl::string_view keyword :
+       {"SELECT", "FROM", "WHERE", "HAVING", "QUALIFY", "WINDOW", "ORDER", "LIMIT",
+        "JOIN", "ON", "USING", "UNION", "INTERSECT", "EXCEPT", "WITH"}) {
+    if (Is(token, keyword)) return true;
+  }
+  return false;
+}
+
+// Walks back from `from` within one query, over what is in parentheses, and
+// stops at the first token `stop` accepts: that token's index, or -1. The
+// parentheses of an expression the walk started in are left, but not those of
+// a subquery.
+template <typename Stop>
+int Back(const std::vector<const ParseToken*>& tokens, int from, Stop stop) {
+  int depth = 0;
+  for (int i = from; i >= 0; --i) {
+    if (Is(*tokens[i], ")")) {
+      ++depth;
+    } else if (Is(*tokens[i], "(")) {
+      if (depth == 0) {
+        const bool query = i + 1 < static_cast<int>(tokens.size()) &&
+                           (Is(*tokens[i + 1], "SELECT") || Is(*tokens[i + 1], "WITH"));
+        if (query) return -1;
+        continue;
+      }
+      --depth;
+    } else if (depth == 0 && stop(i)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// The name a select list item is given, if it has one a `GROUP BY` can use:
+// `AS a`, `x a`, or the last part of a path.
+std::optional<std::string> AliasOf(const std::vector<const ParseToken*>& item) {
+  if (item.empty() || !item.back()->IsIdentifier()) return std::nullopt;
+  if (item.size() == 1) return item.back()->GetIdentifier();
+  const ParseToken& previous = *item[item.size() - 2];
+  if (Is(previous, "AS") || Is(previous, ".") || Is(previous, ")") ||
+      Is(previous, "END") || previous.IsIdentifier() || previous.IsValue()) {
+    return item.back()->GetIdentifier();
+  }
+  return std::nullopt;
+}
+
+// The select list of the query whose `GROUP BY` the token after `before` is
+// in, if it is in one, and what stands in for it: a `NULL` for each item, under
+// the item's name, so that the names and positions the `GROUP BY` already
+// uses still mean something.
+std::optional<StandIn> GroupedSelectList(const std::vector<const ParseToken*>& tokens,
+                                         int before) {
+  const int by = Back(tokens, before, [&](int i) {
+    return Is(*tokens[i], "BY") || EndsClause(*tokens[i]);
+  });
+  if (by < 1 || !Is(*tokens[by], "BY") || !Is(*tokens[by - 1], "GROUP")) {
+    return std::nullopt;
+  }
+  const int from = Back(tokens, by - 2, [&](int i) {
+    return Is(*tokens[i], "FROM") || Is(*tokens[i], "SELECT");
+  });
+  if (from < 0 || !Is(*tokens[from], "FROM")) return std::nullopt;
+  const int select =
+      Back(tokens, from - 1, [&](int i) { return Is(*tokens[i], "SELECT"); });
+  if (select < 0) return std::nullopt;
+
+  std::vector<std::vector<const ParseToken*>> items(1);
+  int depth = 0;
+  int first = select + 1;
+  while (first < from && (Is(*tokens[first], "DISTINCT") || Is(*tokens[first], "ALL"))) {
+    ++first;
+  }
+  for (int i = first; i < from; ++i) {
+    if (Is(*tokens[i], "(")) ++depth;
+    if (Is(*tokens[i], ")")) --depth;
+    if (depth == 0 && Is(*tokens[i], ",")) {
+      items.emplace_back();
+      continue;
+    }
+    items.back().push_back(tokens[i]);
+  }
+  // BigQuery allows a comma after the last item.
+  if (items.size() > 1 && items.back().empty()) items.pop_back();
+  std::vector<std::string> stand_ins;
+  for (const auto& item : items) {
+    std::optional<std::string> alias = AliasOf(item);
+    stand_ins.push_back(alias ? absl::StrCat("NULL AS `", *alias, "`") : "NULL");
+  }
+  return StandIn{{End(*tokens[select]), Start(*tokens[from])},
+                 absl::StrCat(" ", absl::StrJoin(stand_ins, ", "), " ")};
+}
 
 absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
                              const googlesql::LanguageOptions& language) {
@@ -153,7 +267,56 @@ absl::StatusOr<Place> Locate(absl::string_view text, size_t cursor,
   if (before >= 0 && (Is(*tokens[before], "FROM") || Is(*tokens[before], "JOIN"))) {
     place.after_from = true;
   }
+  place.select_list = GroupedSelectList(tokens, before);
+
+  // Never inside a dotted name, where what is left would name another table.
+  // The dot of an `a.` before the cursor does not start one.
+  const auto dot_after_cursor = [&](const ParseToken* token) {
+    return token != nullptr && Is(*token, ".") && Start(*token) >= place.replace.end;
+  };
+  int open = 0;
+  const ParseToken* previous = nullptr;
+  for (const ParseToken* token : tokens) {
+    if (Start(*token) >= place.replace.end && !Is(*token, ".") &&
+        !dot_after_cursor(previous)) {
+      place.cuts.push_back({Start(*token), open, false});
+    }
+    if (Is(*token, "(")) ++open;
+    if (Is(*token, ")")) --open;
+    previous = token;
+  }
+  place.cuts.push_back({place.statement.end, open, dot_after_cursor(previous)});
   return place;
+}
+
+// One way the statement can end after the probe.
+struct Ending {
+  const Cut* cut;
+  bool null;
+};
+
+// The ways the statement can end, most of it first: as it is, and then cut
+// back, as it would read had the reader not yet written what does not parse or
+// resolve. A cut is tried as it is and with a `NULL` where an operand or a
+// condition was left unwritten.
+std::vector<Ending> Endings(const Place& place) {
+  std::vector<Ending> endings;
+  for (auto cut = place.cuts.rbegin(); cut != place.cuts.rend(); ++cut) {
+    if (cut->open < 0) continue;
+    endings.push_back({&*cut, false});
+    if (!cut->after_dot) endings.push_back({&*cut, true});
+  }
+  return endings;
+}
+
+// What follows the probe for an ending, made only when it is tried: each is
+// most of the statement. Parentheses left open are closed, and the newlines
+// keep what is added out of a line comment.
+std::string Tail(absl::string_view text, const Place& place, const Ending& ending) {
+  return absl::StrCat(
+      text.substr(place.replace.end, ending.cut->at - place.replace.end),
+      ending.null ? "\nNULL" : "",
+      ending.cut->open == 0 ? "" : "\n" + std::string(ending.cut->open, ')'));
 }
 
 // The probes tried in turn. An undeclared parameter takes its type from an
@@ -305,6 +468,34 @@ TablePath ReadPath(const json& value) {
 
 json Replace(const Span& span) { return {{"start", span.start}, {"end", span.end}}; }
 
+// How many cuts of the statement are analyzed, and how many are found not to
+// parse, before giving up. A statement that does not parse before the cursor
+// fails every cut, and each costs a parse of the whole statement.
+constexpr int kAnalyses = 4;
+constexpr int kUnparsed = 16;
+
+json Answer(const Place& place, const Probe& fitted,
+            const googlesql::AnalyzerOutput& output) {
+  json answer = {{"replace", Replace(place.replace)},
+                 {"expected_type", fitted.expected_type ? json(fitted.expected_type)
+                                                         : json(nullptr)}};
+  if (place.member_of) {
+    const googlesql::Type* type = output.undeclared_parameters().at(kCursor);
+    json fields = json::array();
+    if (type->IsStruct()) {
+      for (const auto& field : type->AsStruct()->fields()) {
+        fields.push_back({{"name", field.name}, {"type", TypeName(field.type)}});
+      }
+    }
+    answer["context"] = "member";
+    answer["fields"] = std::move(fields);
+  } else {
+    answer["context"] = "name";
+    answer["scopes"] = Scopes(output.resolved_statement());
+  }
+  return answer;
+}
+
 }  // namespace
 
 Analyzer::Analyzer() : builtins_("builtins") {
@@ -334,11 +525,15 @@ json Analyzer::Complete(const json& params) {
 
   // The statement with the word under the cursor, and the prefix before it,
   // cut out: probes go where they were.
-  const Span cut = {place.member_of ? place.member_of->start : place.replace.start,
-                    place.replace.end};
-  const std::string head =
-      text.substr(place.statement.start, cut.start - place.statement.start);
-  const std::string tail = text.substr(cut.end, place.statement.end - cut.end);
+  const size_t cut = place.member_of ? place.member_of->start : place.replace.start;
+  std::string head;
+  if (place.select_list) {
+    const Span& list = place.select_list->span;
+    head = absl::StrCat(text.substr(place.statement.start, list.start - place.statement.start),
+                        place.select_list->text, text.substr(list.end, cut - list.end));
+  } else {
+    head = text.substr(place.statement.start, cut - place.statement.start);
+  }
   const std::string finder =
       place.member_of
           ? absl::StrCat("IF(FALSE, ",
@@ -347,8 +542,6 @@ json Analyzer::Complete(const json& params) {
                          ", @", kCursor, ")")
           : absl::StrCat("@", kCursor);
 
-  // Which tables the statement names is read from it with a probe in place,
-  // since the half-typed statement does not parse.
   std::set<TablePath> known, absent;
   for (const json& table : catalog.value("tables", json::array())) {
     known.insert(ReadPath(table.at("path")));
@@ -356,79 +549,78 @@ json Analyzer::Complete(const json& params) {
   for (const json& path : catalog.value("absent", json::array())) {
     absent.insert(ReadPath(path));
   }
-  googlesql::TableNamesSet names;
-  absl::Status extracted = googlesql::ExtractTableNamesFromStatement(
-      head + kProbes[0].make(finder) + tail, options_, &names);
-  if (!extracted.ok()) return {{"unresolved", extracted.message()}};
-  std::set<TablePath> needs;
-  for (const auto& name : names) {
-    std::optional<TablePath> path = Resolve(name, default_project);
-    if (path && !known.contains(*path) && !absent.contains(*path)) {
-      needs.insert(*path);
-    }
-  }
-  if (!needs.empty()) return {{"needs", needs}};
 
   googlesql::TypeFactory types;
   TablesCatalog tables(default_project);
-  for (const json& table : catalog.value("tables", json::array())) {
-    const TablePath path = ReadPath(table.at("path"));
-    std::vector<googlesql::SimpleTable::NameAndType> columns;
-    for (const json& column : table.at("columns")) {
-      const std::string name = column.at("name").get<std::string>();
-      const std::string type_name = column.at("type").get<std::string>();
-      const googlesql::Type* type = nullptr;
-      absl::Status parsed =
-          googlesql::AnalyzeType(type_name, options_, &builtins_, &types, &type);
-      // A type GoogleSQL does not know is a column it cannot offer, and no
-      // reason to offer nothing else: every table the app has read is sent,
-      // whether or not this statement names it.
-      if (!parsed.ok()) continue;
-      columns.emplace_back(name, type);
-    }
-    tables.Add(path, std::make_unique<googlesql::SimpleTable>(
-                         absl::StrJoin(path, "."), columns));
-  }
   std::unique_ptr<googlesql::MultiCatalog> root;
-  absl::Status created =
-      googlesql::MultiCatalog::Create("request", {&tables, &builtins_}, &root);
-  if (!created.ok()) throw std::runtime_error(std::string(created.message()));
-
-  std::unique_ptr<const googlesql::AnalyzerOutput> output;
-  absl::Status first;
-  const Probe* fitted = nullptr;
-  for (const Probe& probe : kProbes) {
-    absl::Status status = googlesql::AnalyzeStatement(
-        head + probe.make(finder) + tail, options_, root.get(), &types, &output);
-    if (status.ok()) {
-      fitted = &probe;
-      break;
+  // The statement's own complaint, which is what is said if no cut helps.
+  std::optional<std::string> complaint;
+  int analyzed = 0;
+  int unparsed = 0;
+  for (const Ending& ending : Endings(place)) {
+    const std::string tail = Tail(text, place, ending);
+    // Which tables the statement names is read from it with a probe in place,
+    // since the half-typed statement does not parse.
+    googlesql::TableNamesSet names;
+    absl::Status extracted = googlesql::ExtractTableNamesFromStatement(
+        head + kProbes[0].make(finder) + tail, options_, &names);
+    if (!extracted.ok()) {
+      if (!complaint) complaint = extracted.message();
+      if (++unparsed == kUnparsed) break;
+      continue;
     }
-    if (first.ok()) first = status;
-  }
-  // The first probe's complaint is about the statement; later ones are about
-  // the probe not being the type the place wanted.
-  if (fitted == nullptr) return {{"unresolved", first.message()}};
-
-  json answer = {{"replace", Replace(place.replace)},
-                 {"expected_type", fitted->expected_type
-                                       ? json(fitted->expected_type)
-                                       : json(nullptr)}};
-  if (place.member_of) {
-    const googlesql::Type* type = output->undeclared_parameters().at(kCursor);
-    json fields = json::array();
-    if (type->IsStruct()) {
-      for (const auto& field : type->AsStruct()->fields()) {
-        fields.push_back({{"name", field.name}, {"type", TypeName(field.type)}});
+    std::set<TablePath> needs;
+    for (const auto& name : names) {
+      std::optional<TablePath> path = Resolve(name, default_project);
+      if (path && !known.contains(*path) && !absent.contains(*path)) {
+        needs.insert(*path);
       }
     }
-    answer["context"] = "member";
-    answer["fields"] = std::move(fields);
-  } else {
-    answer["context"] = "name";
-    answer["scopes"] = Scopes(output->resolved_statement());
+    if (!needs.empty()) return {{"needs", needs}};
+
+    if (root == nullptr) {
+      for (const json& table : catalog.value("tables", json::array())) {
+        const TablePath path = ReadPath(table.at("path"));
+        std::vector<googlesql::SimpleTable::NameAndType> columns;
+        for (const json& column : table.at("columns")) {
+          const std::string name = column.at("name").get<std::string>();
+          const std::string type_name = column.at("type").get<std::string>();
+          const googlesql::Type* type = nullptr;
+          absl::Status parsed =
+              googlesql::AnalyzeType(type_name, options_, &builtins_, &types, &type);
+          // A type GoogleSQL does not know is a column it cannot offer, and
+          // no reason to offer nothing else: every table the app has read is
+          // sent, whether or not this statement names it.
+          if (!parsed.ok()) continue;
+          columns.emplace_back(name, type);
+        }
+        tables.Add(path, std::make_unique<googlesql::SimpleTable>(
+                             absl::StrJoin(path, "."), columns));
+      }
+      absl::Status created =
+          googlesql::MultiCatalog::Create("request", {&tables, &builtins_}, &root);
+      if (!created.ok()) throw std::runtime_error(std::string(created.message()));
+    }
+
+    std::unique_ptr<const googlesql::AnalyzerOutput> output;
+    const Probe* fitted = nullptr;
+    for (const Probe& probe : kProbes) {
+      absl::Status status = googlesql::AnalyzeStatement(
+          head + probe.make(finder) + tail, options_, root.get(), &types, &output);
+      if (status.ok()) {
+        fitted = &probe;
+        break;
+      }
+      // The first probe's complaint is about the statement; later ones are
+      // about the probe not being the type the place wanted.
+      if (&probe == &kProbes[0] && !complaint) complaint = status.message();
+    }
+    if (fitted != nullptr) return Answer(place, *fitted, *output);
+    // A statement that parses but does not resolve is cut back too, but only
+    // a few times: each costs an analysis per probe.
+    if (++analyzed == kAnalyses) break;
   }
-  return answer;
+  return {{"unresolved", complaint.value_or("nothing to complete")}};
 }
 
 }  // namespace datalooker
