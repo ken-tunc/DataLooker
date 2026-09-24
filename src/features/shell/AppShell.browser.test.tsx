@@ -227,7 +227,8 @@ describe("AppShell", () => {
   /**
    * Opens shop.people showing `shows`, hides it with `hide`, and lets the
    * window come back after everything it read has gone stale. Returns how
-   * many reads that sent, and how many showing the tab again sent.
+   * many reads that sent; showing the tab again has to read each of its
+   * queries afresh.
    */
   async function readsWhileHidden(
     shows: "rows" | "structure",
@@ -243,10 +244,14 @@ describe("AppShell", () => {
     } else {
       await expect.element(screen.getByText("4242", { exact: true })).toBeVisible();
     }
+    const commands = ["preview_table", "table_shape", "table_definition"] as const;
     const reads = () =>
-      ipc.calls.filter(({ command }) =>
-        ["preview_table", "table_shape", "table_definition"].includes(command),
-      ).length;
+      Object.fromEntries(
+        commands.map((command) => [
+          command,
+          ipc.calls.filter((call) => call.command === command).length,
+        ]),
+      ) as Record<(typeof commands)[number], number>;
     const before = reads();
 
     await hide(screen);
@@ -256,12 +261,19 @@ describe("AppShell", () => {
       window.dispatchEvent(new Event("visibilitychange"));
       // Whatever the window's return would read, it would have asked for by now.
       await new Promise((resolve) => setTimeout(resolve, 100));
-      const hidden = reads() - before;
+      const hidden = reads();
 
       await screen.getByRole("button", { name: "Local", exact: true }).click();
       await screen.getByRole("tab", { name: "shop.people" }).click();
-      await expect.poll(reads).toBeGreaterThan(before + hidden);
-      return hidden;
+      // Every query the view reads is read again, not just one of them.
+      const shown =
+        shows === "rows"
+          ? (["preview_table", "table_shape"] as const)
+          : (["table_definition"] as const);
+      for (const command of shown) {
+        await expect.poll(() => reads()[command]).toBeGreaterThan(hidden[command]);
+      }
+      return commands.reduce((sum, command) => sum + hidden[command] - before[command], 0);
     } finally {
       later.mockRestore();
     }
