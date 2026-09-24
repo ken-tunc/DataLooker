@@ -103,9 +103,10 @@ bool EndsClause(const ParseToken& token) {
   return false;
 }
 
-// Walks back from `from` over what is in parentheses, and stops at the first
-// token `stop` accepts, or at an opening parenthesis it did not pass: that
-// token's index, or -1.
+// Walks back from `from` within one query, over what is in parentheses, and
+// stops at the first token `stop` accepts: that token's index, or -1. The
+// parentheses of an expression the walk started in are left, but not those of
+// a subquery.
 template <typename Stop>
 int Back(const std::vector<const ParseToken*>& tokens, int from, Stop stop) {
   int depth = 0;
@@ -113,7 +114,12 @@ int Back(const std::vector<const ParseToken*>& tokens, int from, Stop stop) {
     if (Is(*tokens[i], ")")) {
       ++depth;
     } else if (Is(*tokens[i], "(")) {
-      if (depth == 0) return -1;
+      if (depth == 0) {
+        const bool query = i + 1 < static_cast<int>(tokens.size()) &&
+                           (Is(*tokens[i + 1], "SELECT") || Is(*tokens[i + 1], "WITH"));
+        if (query) return -1;
+        continue;
+      }
       --depth;
     } else if (depth == 0 && stop(i)) {
       return i;

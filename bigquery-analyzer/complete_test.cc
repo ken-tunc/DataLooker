@@ -227,6 +227,9 @@ TEST(Complete, OffersWhatAGroupByCanGroup) {
   EXPECT_THAT(Fields(Ask("SELECT customer_id, COUNT(*) FROM sales.orders o "
                          "GROUP BY o.customer_id, o.|")),
               ElementsAre("order_id", "customer_id", "ordered_at", "items", "shipping"));
+  EXPECT_THAT(Columns(Ask("SELECT order_id, COUNT(*) FROM sales.orders o "
+                          "GROUP BY COALESCE(|, 0)")),
+              IsSupersetOf({"o.order_id"}));
   // Only the query the cursor is in has its select list set aside.
   EXPECT_THAT(Columns(Ask("SELECT * FROM (SELECT customer_id, COUNT(*) "
                           "FROM sales.customers c GROUP BY |)")),
