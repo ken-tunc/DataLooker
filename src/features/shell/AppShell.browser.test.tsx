@@ -25,6 +25,12 @@ const tree: SchemaTree = {
   schemas: [{ name: "shop", tables: [{ name: "people", kind: "table" }] }],
 };
 
+const definition = {
+  definition: 'CREATE TABLE "shop"."people" ("id" bigint NOT NULL);',
+  indexes: [],
+  triggers: [],
+};
+
 const page = {
   result: {
     columns: [{ name: "id", type_name: "INT8" }],
@@ -218,36 +224,71 @@ describe("AppShell", () => {
     await expect.element(screen.getByText("2", { exact: true })).toBeVisible();
   });
 
-  it("leaves a table nobody is looking at unread when the window comes back", async () => {
-    const { ipc, screen, open } = await shell();
+  /**
+   * Opens shop.people showing `shows`, hides it with `hide`, and lets the
+   * window come back after everything it read has gone stale. Returns how
+   * many reads that sent, and how many showing the tab again sent.
+   */
+  async function readsWhileHidden(
+    shows: "rows" | "structure",
+    hide: (screen: Awaited<ReturnType<typeof shell>>["screen"]) => Promise<void>,
+  ) {
+    const { ipc, screen, open } = await shell({ table_definition: definition });
     await open("Local");
     await userEvent.keyboard("{Meta>}o{/Meta}");
     await screen.getByRole("option", { name: /shop\.people/ }).click();
-    await expect.element(screen.getByText("4242", { exact: true })).toBeVisible();
+    if (shows === "structure") {
+      await screen.getByRole("tab", { name: "Structure" }).click();
+      await expect.element(screen.getByText("No trigger.")).toBeVisible();
+    } else {
+      await expect.element(screen.getByText("4242", { exact: true })).toBeVisible();
+    }
     const reads = () =>
-      ipc.calls.filter(({ command }) => command === "preview_table" || command === "table_shape")
-        .length;
+      ipc.calls.filter(({ command }) =>
+        ["preview_table", "table_shape", "table_definition"].includes(command),
+      ).length;
     const before = reads();
 
-    // Behind another tab, and then behind another connection.
-    await screen.getByRole("tab", { name: "Query 1" }).click();
-    await screen.getByRole("button", { name: "Staging", exact: true }).click();
-    // Long enough for the rows and the shape to have gone stale.
-    const now = Date.now();
-    const later = vi.spyOn(Date, "now").mockReturnValue(now + 10 * 60_000);
+    await hide(screen);
+    // Long enough for the rows, the shape and the definition to have gone stale.
+    const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10 * 60_000);
     try {
       window.dispatchEvent(new Event("visibilitychange"));
       // Whatever the window's return would read, it would have asked for by now.
       await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(reads()).toBe(before);
+      const hidden = reads() - before;
 
-      // Shown again, a stale page is read afresh.
       await screen.getByRole("button", { name: "Local", exact: true }).click();
       await screen.getByRole("tab", { name: "shop.people" }).click();
-      await expect.poll(reads).toBeGreaterThan(before);
+      await expect.poll(reads).toBeGreaterThan(before + hidden);
+      return hidden;
     } finally {
       later.mockRestore();
     }
+  }
+
+  it("leaves a table behind another tab unread when the window comes back", async () => {
+    const hidden = await readsWhileHidden("rows", async (screen) => {
+      await screen.getByRole("tab", { name: "Query 1" }).click();
+    });
+
+    expect(hidden).toBe(0);
+  });
+
+  it("leaves a connection's tables unread while another connection is in front", async () => {
+    const hidden = await readsWhileHidden("rows", async (screen) => {
+      await screen.getByRole("button", { name: "Staging", exact: true }).click();
+    });
+
+    expect(hidden).toBe(0);
+  });
+
+  it("leaves a table's structure unread while it is out of sight", async () => {
+    const hidden = await readsWhileHidden("structure", async (screen) => {
+      await screen.getByRole("button", { name: "Staging", exact: true }).click();
+    });
+
+    expect(hidden).toBe(0);
   });
 
   it("asks before closing a tab that holds unsaved changes", async () => {
