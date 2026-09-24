@@ -1,3 +1,4 @@
+import { RotateCw } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { SqlInput } from "../../components/SqlInput";
 import type { QueryResult } from "../../bindings/QueryResult";
@@ -18,7 +19,13 @@ import {
   withNewValue,
   withoutNewRow,
 } from "./edits";
-import { type TableTab, useCommitEdits, useTablePreview, useTableShape } from "./hooks";
+import {
+  type TableTab,
+  useCommitEdits,
+  useRefreshTable,
+  useTablePreview,
+  useTableShape,
+} from "./hooks";
 import { TableStructure } from "./TableStructure";
 
 /** The row "Remove row" acts on: a draft by its id, a stored row by its key. */
@@ -52,6 +59,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
 
   const preview = useTablePreview(connectionId, tab, editable, !structure && !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
+  const { refresh, refreshing } = useRefreshTable(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
   // Applied on submit: half a predicate is a syntax error.
@@ -238,9 +246,20 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             </button>
           </>
         )}
-        {!structure && preview.isFetching && (
-          <span className="loading loading-spinner loading-xs" />
-        )}
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm btn-square"
+          aria-label="Refresh"
+          title="Refresh"
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? (
+            <span className="loading loading-spinner loading-xs" />
+          ) : (
+            <RotateCw className="size-4" />
+          )}
+        </button>
       </div>
 
       {pending > 0 && (
