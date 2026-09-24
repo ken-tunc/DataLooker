@@ -14,6 +14,11 @@ export function saveConnection(input: SaveConnectionInput) {
   return invoke("save_connection", input);
 }
 
+/** `connectionIds` is every connection, in the order the rail is to show them. */
+export function reorderConnections(connectionIds: string[]) {
+  return invoke("reorder_connections", { connection_ids: connectionIds });
+}
+
 export function deleteConnection(connectionId: string) {
   return invoke("delete_connection", { connection_id: connectionId });
 }

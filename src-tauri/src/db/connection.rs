@@ -42,7 +42,8 @@ pub struct ConnectionFields<'a> {
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, label, config, command, created_at FROM connections ORDER BY created_at, id",
+        "SELECT id, label, config, command, created_at FROM connections
+         ORDER BY position, created_at, id",
     )
     .fetch_all(pool)
     .await?;
@@ -63,11 +64,39 @@ pub async fn insert<'e>(
     id: &str,
     fields: ConnectionFields<'_>,
 ) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO connections (id, label, config, command) VALUES (?1, ?2, ?3, ?4)")
+    // A new connection goes to the end of the rail.
+    sqlx::query(
+        "INSERT INTO connections (id, label, config, command, position)
+         VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(position) + 1, 0) FROM connections))",
+    )
+    .bind(id)
+    .bind(fields.label)
+    .bind(encode(fields.config)?)
+    .bind(fields.command)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Every id, in the order `list_all` gives them.
+pub async fn ids<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
+) -> Result<Vec<String>, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT id FROM connections ORDER BY position, created_at, id")
+            .fetch_all(executor)
+            .await?,
+    )
+}
+
+pub async fn set_position<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    id: &str,
+    position: i64,
+) -> Result<(), AppError> {
+    sqlx::query("UPDATE connections SET position = ?2 WHERE id = ?1")
         .bind(id)
-        .bind(fields.label)
-        .bind(encode(fields.config)?)
-        .bind(fields.command)
+        .bind(position)
         .execute(executor)
         .await?;
     Ok(())
@@ -208,6 +237,83 @@ mod tests {
             .await
             .unwrap();
         assert!(!updated);
+    }
+
+    #[tokio::test]
+    async fn a_new_connection_is_listed_last_whatever_the_positions_before_it() {
+        let pool = open_in_memory().await.unwrap();
+        let config = postgres_config();
+        insert(&pool, "id-1", fields("One", &config)).await.unwrap();
+        insert(&pool, "id-2", fields("Two", &config)).await.unwrap();
+        set_position(&pool, "id-1", 5).await.unwrap();
+        set_position(&pool, "id-2", 3).await.unwrap();
+
+        insert(&pool, "id-3", fields("Three", &config))
+            .await
+            .unwrap();
+
+        assert_eq!(ids(&pool).await.unwrap(), ["id-2", "id-1", "id-3"]);
+        let listed: Vec<_> = list_all(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|record| record.id)
+            .collect();
+        assert_eq!(listed, ["id-2", "id-1", "id-3"]);
+    }
+
+    #[tokio::test]
+    async fn connections_made_before_they_could_be_reordered_keep_their_order() {
+        use std::borrow::Cow;
+        use std::str::FromStr;
+
+        use sqlx::sqlite::SqliteConnectOptions;
+        use sqlx::Connection;
+
+        const POSITIONS: i64 = 6;
+        let mut db = sqlx::SqliteConnection::connect_with(
+            &SqliteConnectOptions::from_str("sqlite::memory:").unwrap(),
+        )
+        .await
+        .unwrap();
+        let mut migrator = sqlx::migrate!();
+        let every = migrator.migrations.to_vec();
+        migrator.migrations = Cow::Owned(
+            every
+                .iter()
+                .filter(|m| m.version < POSITIONS)
+                .cloned()
+                .collect(),
+        );
+        migrator.run(&mut db).await.unwrap();
+        // Out of id order, and two made in the same second.
+        for (id, created_at) in [
+            ("c", "2026-01-01T00:00:00Z"),
+            ("b", "2026-01-02T00:00:00Z"),
+            ("a", "2026-01-02T00:00:00Z"),
+        ] {
+            sqlx::query(
+                "INSERT INTO connections (id, label, config, created_at) VALUES (?1, ?1, '{}', ?2)",
+            )
+            .bind(id)
+            .bind(created_at)
+            .execute(&mut db)
+            .await
+            .unwrap();
+        }
+
+        migrator.migrations = Cow::Owned(every);
+        migrator.run(&mut db).await.unwrap();
+
+        let positions: Vec<(String, i64)> =
+            sqlx::query_as("SELECT id, position FROM connections ORDER BY position")
+                .fetch_all(&mut db)
+                .await
+                .unwrap();
+        assert_eq!(
+            positions,
+            [("c".into(), 0), ("a".into(), 1), ("b".into(), 2)]
+        );
     }
 
     #[tokio::test]
