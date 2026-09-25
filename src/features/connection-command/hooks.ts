@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import {
@@ -8,6 +8,7 @@ import {
   stopConnectionCommand,
 } from "../../lib/commands";
 import { subscribe } from "../../lib/events";
+import { describeError } from "../../lib/invoke";
 import { connectionKeys } from "../connections/keys";
 import { commandKeys } from "./keys";
 
@@ -34,6 +35,48 @@ export function useStopCommand() {
       void queryClient.invalidateQueries({ queryKey: commandKeys.all });
     },
   });
+}
+
+/**
+ * For connections whose command runs only while they are selected: moving from
+ * one to another stops the one left before starting the one entered, since two
+ * tunnels often forward the same local port. Moves wait their turn, so a quick
+ * run across the rail does not leave a tunnel up behind it.
+ */
+export function useCommandsFollowSelection() {
+  const queryClient = useQueryClient();
+  const run = useRunCommand();
+  const stop = useStopCommand();
+  const { show } = useToast();
+  const queue = useRef(Promise.resolve());
+
+  // Read when the step runs, not when it was queued: the connection may have
+  // been edited while an earlier step waited.
+  function following(id: string | null): ConnectionRecord | undefined {
+    const connections = queryClient.getQueryData<ConnectionRecord[]>(connectionKeys.list());
+    const connection = connections?.find((each) => each.id === id);
+    return connection?.command && connection.command_while_selected ? connection : undefined;
+  }
+
+  return function follow(from: string | null, to: string) {
+    if (from === to) return;
+    queue.current = queue.current.then(async () => {
+      for (const [id, mutation] of [
+        [from, stop],
+        [to, run],
+      ] as const) {
+        const connection = following(id);
+        if (!connection) continue;
+        try {
+          await mutation.mutateAsync(connection.id);
+        } catch (error) {
+          show(`${connection.label}: ${describeError(error)}`, "error");
+          // What failed to stop may still hold the port the next would take.
+          if (mutation === stop) return;
+        }
+      }
+    });
+  };
 }
 
 /**

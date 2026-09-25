@@ -239,6 +239,17 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 onChange={(event) => update("command", event.target.value)}
               />
             </Field>
+            <label className="label mt-1 cursor-pointer">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-sm"
+                // Kept while the command is blank, so clearing it to retype loses nothing.
+                disabled={values.command.trim() === ""}
+                checked={values.commandWhileSelected}
+                onChange={(event) => update("commandWhileSelected", event.target.checked)}
+              />
+              Run it only while this connection is selected
+            </label>
 
             <Field
               id={`${fieldId}-time-zone`}

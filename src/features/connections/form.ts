@@ -16,6 +16,7 @@ const shared = {
   secret: z.string(),
   // Unchecked: the shell is what reads it.
   command: z.string().trim(),
+  commandWhileSelected: z.boolean(),
   // Picked from the zones the webview knows, or blank for UTC.
   timeZone: z.string(),
 };
@@ -52,6 +53,7 @@ export type ConnectionFormValues = {
   location: string;
   secret: string;
   command: string;
+  commandWhileSelected: boolean;
   timeZone: string;
 };
 
@@ -69,6 +71,7 @@ export const EMPTY_FORM: ConnectionFormValues = {
   location: "US",
   secret: "",
   command: "",
+  commandWhileSelected: false,
   timeZone: "",
 };
 
@@ -127,6 +130,7 @@ export function parseConnectionForm(
             },
       secret: values.secret === "" ? null : values.secret,
       command: parsed.data.command === "" ? null : parsed.data.command,
+      command_while_selected: parsed.data.commandWhileSelected,
       time_zone: parsed.data.timeZone === "" ? null : parsed.data.timeZone,
     },
   };
@@ -139,6 +143,7 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
     label: mode === "duplicate" ? `${record.label} copy` : record.label,
     kind: config.kind,
     command: record.command ?? "",
+    commandWhileSelected: record.command_while_selected,
     // UTC is the blank choice, however it was stored.
     timeZone: record.time_zone === "UTC" ? "" : (record.time_zone ?? ""),
     ...(config.kind === "postgres"
@@ -166,6 +171,7 @@ if (import.meta.vitest) {
       username: "admin",
     },
     command: "ssh -L 5432:db:5432 bastion",
+    command_while_selected: true,
     time_zone: "Asia/Tokyo",
     created_at: "2026-09-20T00:00:00Z",
   };
@@ -204,6 +210,7 @@ if (import.meta.vitest) {
           },
           secret: "hunter2",
           command: null,
+          command_while_selected: false,
           time_zone: null,
         },
       });
@@ -292,6 +299,7 @@ if (import.meta.vitest) {
         database: "datalooker",
         username: "admin",
         command: "ssh -L 5432:db:5432 bastion",
+        commandWhileSelected: true,
         timeZone: "Asia/Tokyo",
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");

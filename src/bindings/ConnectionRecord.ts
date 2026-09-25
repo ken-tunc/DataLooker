@@ -7,6 +7,10 @@ export type ConnectionRecord = { id: string, label: string, config: DriverConfig
  */
 command: string | null, 
 /**
+ * Whether the command runs only while this connection is selected.
+ */
+command_while_selected: boolean, 
+/**
  * The IANA zone its points in time are shown in; UTC when absent.
  */
 time_zone: string | null, created_at: string, };

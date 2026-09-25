@@ -31,6 +31,8 @@ pub struct ConnectionRecord {
     pub config: DriverConfig,
     /// A shell command the reader runs before connecting, if they gave one.
     pub command: Option<String>,
+    /// Whether the command runs only while this connection is selected.
+    pub command_while_selected: bool,
     /// The IANA zone its points in time are shown in; UTC when absent.
     pub time_zone: Option<String>,
     pub created_at: String,
@@ -40,12 +42,13 @@ pub struct ConnectionFields<'a> {
     pub label: &'a str,
     pub config: &'a DriverConfig,
     pub command: Option<&'a str>,
+    pub command_while_selected: bool,
     pub time_zone: Option<&'a str>,
 }
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, label, config, command, time_zone, created_at FROM connections
+        "SELECT id, label, config, command, command_while_selected, time_zone, created_at FROM connections
          ORDER BY position, created_at, id",
     )
     .fetch_all(pool)
@@ -55,7 +58,7 @@ pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppErr
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ConnectionRecord>, AppError> {
     let row = sqlx::query(
-        "SELECT id, label, config, command, time_zone, created_at FROM connections WHERE id = ?1",
+        "SELECT id, label, config, command, command_while_selected, time_zone, created_at FROM connections WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -70,13 +73,14 @@ pub async fn insert<'e>(
 ) -> Result<(), AppError> {
     // A new connection goes to the end of the rail.
     sqlx::query(
-        "INSERT INTO connections (id, label, config, command, time_zone, position)
-         VALUES (?1, ?2, ?3, ?4, ?5, (SELECT COALESCE(MAX(position) + 1, 0) FROM connections))",
+        "INSERT INTO connections (id, label, config, command, command_while_selected, time_zone, position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(position) + 1, 0) FROM connections))",
     )
     .bind(id)
     .bind(fields.label)
     .bind(encode(fields.config)?)
     .bind(fields.command)
+    .bind(fields.command_while_selected)
     .bind(fields.time_zone)
     .execute(executor)
     .await?;
@@ -113,12 +117,15 @@ pub async fn update<'e>(
     fields: ConnectionFields<'_>,
 ) -> Result<bool, AppError> {
     let result = sqlx::query(
-        "UPDATE connections SET label = ?2, config = ?3, command = ?4, time_zone = ?5 WHERE id = ?1",
+        "UPDATE connections
+         SET label = ?2, config = ?3, command = ?4, command_while_selected = ?5, time_zone = ?6
+         WHERE id = ?1",
     )
     .bind(id)
     .bind(fields.label)
     .bind(encode(fields.config)?)
     .bind(fields.command)
+    .bind(fields.command_while_selected)
     .bind(fields.time_zone)
     .execute(executor)
     .await?;
@@ -147,6 +154,7 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ConnectionRecord, AppE
         label: row.try_get("label")?,
         config: serde_json::from_str(&config).map_err(|e| AppError::Database(e.to_string()))?,
         command: row.try_get("command")?,
+        command_while_selected: row.try_get("command_while_selected")?,
         time_zone: row.try_get("time_zone")?,
         created_at: row.try_get("created_at")?,
     })
@@ -171,6 +179,7 @@ mod tests {
             label,
             config,
             command: None,
+            command_while_selected: false,
             time_zone: None,
         }
     }
@@ -187,6 +196,7 @@ mod tests {
         assert_eq!(found.label, "Local");
         assert_eq!(found.config, postgres_config());
         assert_eq!(found.command, None);
+        assert!(!found.command_while_selected);
         assert!(!found.created_at.is_empty());
     }
 
@@ -199,6 +209,7 @@ mod tests {
             "id-1",
             ConnectionFields {
                 command: Some("ssh -L 5432:db:5432 bastion"),
+                command_while_selected: true,
                 ..fields("Local", &config)
             },
         )
@@ -210,12 +221,14 @@ mod tests {
             found.command.as_deref(),
             Some("ssh -L 5432:db:5432 bastion")
         );
+        assert!(found.command_while_selected);
 
         update(&pool, "id-1", fields("Local", &config))
             .await
             .unwrap();
         let found = find_by_id(&pool, "id-1").await.unwrap().unwrap();
         assert_eq!(found.command, None);
+        assert!(!found.command_while_selected);
     }
 
     #[tokio::test]

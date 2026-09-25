@@ -31,9 +31,14 @@ impl App {
         Ok(())
     }
 
-    pub fn stop_command(&self, connection_id: &str) {
-        if let Some(run) = self.shells.remove(connection_id) {
-            run.stop();
+    /// Returns once the command is gone, so a command started next can take
+    /// the port it held. The run stays registered until then, so a start in
+    /// the meantime finds it rather than racing it for the port, and a second
+    /// stop waits for it too.
+    pub async fn stop_command(&self, connection_id: &str) {
+        if let Some(run) = self.shells.get(connection_id) {
+            run.stop().await;
+            self.shells.remove_run(connection_id, &run.id);
         }
     }
 
@@ -75,6 +80,7 @@ mod tests {
                 },
                 secret: Some("hunter2".into()),
                 command: command.map(str::to_string),
+                command_while_selected: false,
                 time_zone: None,
             })
             .await
@@ -93,7 +99,7 @@ mod tests {
         app.run_command(&id).await.unwrap();
         assert_eq!(app.running_commands().len(), 1);
 
-        app.stop_command(&id);
+        app.stop_command(&id).await;
 
         let exit = exits.recv().await.unwrap();
         assert_eq!(exit.connection_id, id);
@@ -147,6 +153,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn taking_the_command_away_stops_it() {
+        let (app, id) = connection_running(Some("sleep 120")).await;
+        let mut exits = app.command_exits();
+        app.run_command(&id).await.unwrap();
+        let edited = |command: Option<&str>| SaveConnectionInput {
+            id: Some(id.clone()),
+            label: "Local".into(),
+            config: DriverConfig::Postgres {
+                host: "localhost".into(),
+                port: 5432,
+                database: "datalooker".into(),
+                username: "admin".into(),
+            },
+            secret: None,
+            command: command.map(str::to_string),
+            command_while_selected: false,
+            time_zone: None,
+        };
+
+        // Renaming it, or changing what it would run next time, leaves it up.
+        app.save_connection(edited(Some("sleep 60"))).await.unwrap();
+        assert_eq!(app.running_commands(), [id.as_str()]);
+
+        app.save_connection(edited(Some("  "))).await.unwrap();
+
+        assert!(exits.recv().await.unwrap().stopped);
+        assert!(app.running_commands().is_empty());
+    }
+
+    #[tokio::test]
     async fn everything_running_can_be_killed_at_once() {
         let (app, id) = connection_running(Some("sleep 120")).await;
         let mut exits = app.command_exits();
@@ -160,9 +196,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_start_while_stopping_starts_nothing_beside_what_is_dying() {
+        let (app, id) = connection_running(Some("sleep 120")).await;
+        app.run_command(&id).await.unwrap();
+
+        let ((), started) = tokio::join!(app.stop_command(&id), app.run_command(&id));
+
+        started.unwrap();
+        assert!(
+            app.running_commands().is_empty(),
+            "a second run would race the first for its port"
+        );
+    }
+
+    #[tokio::test]
     async fn stopping_what_is_not_running_is_nothing() {
         let (app, id) = connection_running(Some("sleep 120")).await;
-        app.stop_command(&id);
+        app.stop_command(&id).await;
         assert!(app.running_commands().is_empty());
     }
 }

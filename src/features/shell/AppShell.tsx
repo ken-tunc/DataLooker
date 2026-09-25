@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Splitter } from "../../components/Splitter";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
+import { useCommandsFollowSelection } from "../connection-command/hooks";
 import { ConnectionHeader } from "../connections/ConnectionHeader";
 import { ConnectionRail } from "../connections/ConnectionRail";
 import { useConnections } from "../connections/hooks";
@@ -27,8 +28,10 @@ export function AppShell() {
   const [modal, setModal] = useState<Modal>(null);
   const tabs = useTabs();
   const [sidebarWidth] = usePaneSize(SIDEBAR);
+  const followSelection = useCommandsFollowSelection();
 
   function select(id: string) {
+    followSelection(selectedId, id);
     setSelectedId(id);
     if (!tabs.of(id)) tabs.open(id);
   }

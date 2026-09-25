@@ -61,6 +61,7 @@ mod tests {
                 label: "Local",
                 config: &config,
                 command: None,
+                command_while_selected: false,
                 time_zone: None,
             },
         )

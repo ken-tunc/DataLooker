@@ -7,7 +7,7 @@ PostgreSQL and BigQuery.
 
 - **Connections** — PostgreSQL and BigQuery (service account key). Secrets stay in the
   macOS keychain. A connection can carry a shell command, such as an SSH tunnel, started
-  and stopped from its header.
+  and stopped from its header, or run only while the connection is selected.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
   keybindings.
