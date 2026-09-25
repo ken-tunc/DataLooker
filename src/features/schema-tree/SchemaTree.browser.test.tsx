@@ -1,7 +1,16 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { SchemaTree as Tree } from "../../bindings/SchemaTree";
 import { renderApp, stubIpc } from "../../test/harness";
+import { treeRows } from "./rows";
 import { SchemaTree } from "./SchemaTree";
+
+// Watched, to tell when the tree is laid out again: that walks every table of
+// every schema, and a project can hold tens of thousands.
+vi.mock("./rows", async (original) => {
+  const rows = await original<typeof import("./rows")>();
+  return { ...rows, treeRows: vi.fn(rows.treeRows) };
+});
 
 const tree: Tree = {
   schemas: [
@@ -115,6 +124,31 @@ describe("SchemaTree", () => {
     await screen.getByText("events_20250103").click();
 
     expect(onOpenTable).toHaveBeenCalledWith("logs", "events_20250103");
+  });
+
+  it("is not laid out again when the window re-renders it", async () => {
+    stubIpc({ schema_tree: tree, table_columns: columns });
+    // As the window does on every keystroke in the editor: a new handler each time.
+    function Typing() {
+      const [typed, setTyped] = useState("");
+      return (
+        <div className="h-96">
+          <button type="button" onClick={() => setTyped(`${typed}x`)}>
+            Type
+          </button>
+          <SchemaTree connectionId="c1" onOpenTable={() => typed} />
+        </div>
+      );
+    }
+    const screen = await renderApp(<Typing />);
+    await screen.getByText("shop").click();
+    await screen.getByLabelText("Expand orders").click();
+    await expect.element(screen.getByText("total")).toBeVisible();
+
+    const laidOut = vi.mocked(treeRows).mock.calls.length;
+    await screen.getByText("Type").click();
+    await screen.getByText("Type").click();
+    expect(vi.mocked(treeRows).mock.calls.length).toBe(laidOut);
   });
 
   it("opens the table a reader clicks, rather than its columns", async () => {
