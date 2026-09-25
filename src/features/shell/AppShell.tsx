@@ -7,18 +7,24 @@ import { useConnections } from "../connections/hooks";
 import { QueryHistoryPalette } from "../query-history/QueryHistoryPalette";
 import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
+import { isHelpKey } from "../shortcuts/shortcuts";
+import { ShortcutsDialog } from "../shortcuts/ShortcutsDialog";
 import { TableSearchPalette } from "../table-search/TableSearchPalette";
 import { useTabs } from "../tabs/useTabs";
 
 const SIDEBAR: Pane = { key: "datalooker.sidebar-width", initial: 288, min: 200, max: 640 };
 
-/** Which palette is in front, if any. Only one can be: each is modal. */
-type Palette = { kind: "tables"; query?: string } | { kind: "history" } | null;
+/** Which modal is in front, if any. Only one can be. */
+type Modal =
+  | { kind: "tables"; query?: string }
+  | { kind: "history" }
+  | { kind: "shortcuts" }
+  | null;
 
 /** Holds only what the rail and the workspace share. */
 export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [palette, setPalette] = useState<Palette>(null);
+  const [modal, setModal] = useState<Modal>(null);
   const tabs = useTabs();
   const [sidebarWidth] = usePaneSize(SIDEBAR);
 
@@ -29,9 +35,14 @@ export function AppShell() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // A tab opened under a modal would go unnoticed.
+      if (modal) return;
+      if (isHelpKey(event)) {
+        event.preventDefault();
+        setModal({ kind: "shortcuts" });
+        return;
+      }
       if (!selectedId) return;
-      // A tab opened under a modal palette would go unnoticed.
-      if (palette) return;
       // Before the shortcuts that need a connection: this is how one gets a tab.
       if (event.key === "t" && event.metaKey) {
         event.preventDefault();
@@ -40,12 +51,12 @@ export function AppShell() {
       }
       if (event.key === "o" && event.metaKey) {
         event.preventDefault();
-        setPalette({ kind: "tables" });
+        setModal({ kind: "tables" });
         return;
       }
       if (event.key === "y" && event.metaKey) {
         event.preventDefault();
-        setPalette({ kind: "history" });
+        setModal({ kind: "history" });
         return;
       }
       if (event.key === "Tab" && event.ctrlKey) {
@@ -55,11 +66,15 @@ export function AppShell() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [palette, selectedId, tabs]);
+  }, [modal, selectedId, tabs]);
 
   return (
     <div className="flex h-full">
-      <ConnectionRail selectedId={selectedId} onSelect={select} />
+      <ConnectionRail
+        selectedId={selectedId}
+        onSelect={select}
+        onShowShortcuts={() => setModal({ kind: "shortcuts" })}
+      />
 
       {selectedId && (
         <section
@@ -82,22 +97,24 @@ export function AppShell() {
       )}
       {selectedId && <Splitter pane={SIDEBAR} axis="x" label="Resize the sidebar" />}
 
-      {selectedId && palette?.kind === "tables" && (
+      {selectedId && modal?.kind === "tables" && (
         <TableSearchPalette
           connectionId={selectedId}
-          initial={palette.query}
+          initial={modal.query}
           onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
-          onClose={() => setPalette(null)}
+          onClose={() => setModal(null)}
         />
       )}
 
-      {selectedId && palette?.kind === "history" && (
+      {selectedId && modal?.kind === "history" && (
         <QueryHistoryPalette
           connectionId={selectedId}
           onOpenQuery={(sql) => tabs.open(selectedId, sql)}
-          onClose={() => setPalette(null)}
+          onClose={() => setModal(null)}
         />
       )}
+
+      {modal?.kind === "shortcuts" && <ShortcutsDialog onClose={() => setModal(null)} />}
 
       <main className="bg-base-100 flex min-w-0 flex-1 flex-col">
         {tabs.connections().map((connectionId) => (
@@ -106,7 +123,7 @@ export function AppShell() {
             connectionId={connectionId}
             tabs={tabs}
             hidden={connectionId !== selectedId}
-            onFindTable={(query) => setPalette({ kind: "tables", query })}
+            onFindTable={(query) => setModal({ kind: "tables", query })}
           />
         ))}
         {!selectedId && <NothingInFront />}

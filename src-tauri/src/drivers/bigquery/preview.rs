@@ -6,7 +6,7 @@ use gcp_bigquery_client::Client;
 use tokio_util::sync::CancellationToken;
 
 use super::query::{self, cells, refused};
-use super::value::type_name;
+use super::value::{holds_instants, type_name};
 use crate::drivers::{Preview, QueryColumn, QueryResult, TablePage};
 use crate::error::AppError;
 
@@ -117,6 +117,7 @@ fn columns(fields: &[TableFieldSchema]) -> Vec<QueryColumn> {
         .map(|field| QueryColumn {
             name: field.name.clone(),
             type_name: type_name(field),
+            instant: holds_instants(field),
         })
         .collect()
 }

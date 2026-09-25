@@ -16,6 +16,7 @@ const local: ConnectionRecord = {
     username: "admin",
   },
   command: null,
+  time_zone: null,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -33,7 +34,7 @@ const definition = {
 
 const page = {
   result: {
-    columns: [{ name: "id", type_name: "INT8" }],
+    columns: [{ name: "id", type_name: "INT8", instant: false }],
     rows: [[4242]],
     truncated: false,
     elapsed_ms: 2,
@@ -185,6 +186,29 @@ describe("AppShell", () => {
     await userEvent.keyboard("{Meta>}t{/Meta}");
 
     // A tab opened behind the palette would go unnoticed.
+    expect(titles()).toEqual(["Query 1"]);
+  });
+
+  it("lists the shortcuts on ⌘?, before any connection is chosen", async () => {
+    const { screen } = await shell();
+    const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
+
+    await userEvent.keyboard("{Meta>}{Shift>}?{/Shift}{/Meta}");
+
+    await expect.element(help).toBeVisible();
+    await expect.element(help.getByText("Find a table by name and open it")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(help).not.toBeInTheDocument();
+  });
+
+  it("lists the shortcuts from the rail too, and keeps them quiet behind it", async () => {
+    const { screen, titles, open } = await shell();
+    await open("Local");
+
+    await screen.getByRole("button", { name: "Keyboard shortcuts" }).click();
+    await expect.element(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+
     expect(titles()).toEqual(["Query 1"]);
   });
 

@@ -3,7 +3,7 @@ use std::time::Instant;
 use futures_util::TryStreamExt;
 use sqlx::{AssertSqlSafe, Column, PgConnection, Row, TypeInfo};
 
-use crate::drivers::postgres::value::row_to_json;
+use crate::drivers::postgres::value::{holds_instants, row_to_json};
 use crate::drivers::{QueryColumn, QueryResult};
 
 /// `started` is taken before the connection is opened, so `elapsed_ms` is what
@@ -28,6 +28,7 @@ pub async fn execute(
                     .map(|column| QueryColumn {
                         name: column.name().to_string(),
                         type_name: column.type_info().name().to_string(),
+                        instant: holds_instants(column.type_info()),
                     })
                     .collect(),
             );
@@ -87,6 +88,35 @@ mod live {
             vec![vec![json!(42), json!("alice"), json!(true), Value::Null]]
         );
         assert!(!result.truncated);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn only_timestamptz_columns_hold_instants() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+
+        let result = run(
+            &session,
+            "SELECT now() AS at, ARRAY[now()] AS ats, now()::timestamp AS wall, now()::text AS said",
+        )
+        .await
+        .unwrap();
+
+        let instants: Vec<(&str, bool)> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.instant))
+            .collect();
+        assert_eq!(
+            instants,
+            [
+                ("at", true),
+                ("ats", true),
+                ("wall", false),
+                ("said", false)
+            ]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

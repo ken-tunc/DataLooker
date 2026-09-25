@@ -13,4 +13,8 @@ secret: string | null,
 /**
  * A shell command to run before connecting, or nothing to run.
  */
-command: string | null, };
+command: string | null, 
+/**
+ * The IANA zone to show its points in time in, or nothing for UTC.
+ */
+time_zone: string | null, };

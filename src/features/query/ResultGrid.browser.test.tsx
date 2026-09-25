@@ -8,8 +8,8 @@ const document = { customer: { name: "Ada Lovelace", tags: ["first", "programmer
 
 const result: QueryResult = {
   columns: [
-    { name: "id", type_name: "INT8" },
-    { name: "payload", type_name: "JSONB" },
+    { name: "id", type_name: "INT8", instant: false },
+    { name: "payload", type_name: "JSONB", instant: false },
   ],
   rows: [[1, document]],
   truncated: false,
@@ -20,7 +20,7 @@ async function grid() {
   // The virtualizer draws rows only into a scroller with a height.
   return renderApp(
     <div style={{ height: 200, width: 400 }}>
-      <ResultGrid result={result} />
+      <ResultGrid result={result} connectionId="c1" />
     </div>,
   );
 }
@@ -58,7 +58,11 @@ describe("ResultGrid", () => {
   it("leaves Space to a cell being edited", async () => {
     const screen = await renderApp(
       <div style={{ height: 200, width: 400 }}>
-        <ResultGrid result={result} editing={{ pendingValue: () => undefined, onEdit: () => {} }} />
+        <ResultGrid
+          result={result}
+          editing={{ pendingValue: () => undefined, onEdit: () => {} }}
+          connectionId="c1"
+        />
       </div>,
     );
 

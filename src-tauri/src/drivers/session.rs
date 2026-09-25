@@ -296,6 +296,7 @@ mod tests {
             label: "Local",
             config,
             command: None,
+            time_zone: None,
         }
     }
 
