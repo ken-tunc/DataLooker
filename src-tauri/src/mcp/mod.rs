@@ -221,6 +221,7 @@ mod tests {
             },
             secret: Some("opensesame".into()),
             command: None,
+            command_while_selected: false,
             time_zone: None,
         })
         .await

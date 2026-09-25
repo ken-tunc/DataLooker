@@ -77,8 +77,9 @@ and asks again after every build that changes the signature. The keychain write 
 inside the SQLite transaction so a keychain failure rolls the row back.
 
 A connection's driver settings are one JSON `config` column, so a new driver needs no
-migration. Its shell command and its time zone are columns of their own: they belong to
-the reader, not the driver.
+migration. Its shell command, and whether that runs only while the connection is
+selected, and its time zone are columns of their own: they belong to the reader, not the
+driver.
 
 ## Sessions
 

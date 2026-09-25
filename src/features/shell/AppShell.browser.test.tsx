@@ -16,6 +16,7 @@ const local: ConnectionRecord = {
     username: "admin",
   },
   command: null,
+  command_while_selected: false,
   time_zone: null,
   created_at: "2026-09-20T00:00:00Z",
 };
@@ -375,5 +376,79 @@ describe("AppShell", () => {
     await screen.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect.element(screen.getByText("Select a connection to start querying.")).toBeVisible();
+  });
+
+  describe("a command that runs only while its connection is selected", () => {
+    const tunnel = (connection: ConnectionRecord, command: string, whileSelected: boolean) => ({
+      ...connection,
+      command,
+      command_while_selected: whileSelected,
+    });
+    const commands = (ipc: Awaited<ReturnType<typeof shell>>["ipc"]) =>
+      ipc.calls
+        .filter(({ command }) => command.endsWith("_connection_command"))
+        .map(
+          ({ command, args }) => `${command} ${(args as { connection_id: string }).connection_id}`,
+        );
+
+    it("starts on selecting it, and stops before the next one starts", async () => {
+      let stopped = () => {};
+      const { ipc, screen } = await shell({
+        list_connections: [
+          tunnel(local, "ssh -N -L 5432:a:5432 bastion", true),
+          tunnel(staging, "ssh -N -L 5432:b:5432 bastion", true),
+        ],
+        run_connection_command: null,
+        // Held, as the backend holds it until the process is gone.
+        stop_connection_command: () =>
+          new Promise<null>((resolve) => {
+            stopped = () => resolve(null);
+          }),
+      });
+
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+      await expect.poll(() => commands(ipc)).toEqual(["run_connection_command id-1"]);
+
+      await screen.getByRole("button", { name: "Staging", exact: true }).click();
+      await expect
+        .poll(() => commands(ipc))
+        .toEqual(["run_connection_command id-1", "stop_connection_command id-1"]);
+      // Both forward 5432, so the second waits for the first to let go of it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(commands(ipc)).toHaveLength(2);
+
+      stopped();
+      await expect.poll(() => commands(ipc).at(-1)).toBe("run_connection_command id-2");
+    });
+
+    it("is left alone when the connection runs it by hand", async () => {
+      const { ipc, screen } = await shell({
+        list_connections: [tunnel(local, "ssh -N bastion", false), staging],
+      });
+
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+      await screen.getByRole("button", { name: "Staging", exact: true }).click();
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+
+      await expect
+        .element(screen.getByRole("button", { name: "Run the command for Local" }))
+        .toBeVisible();
+      expect(commands(ipc)).toEqual([]);
+    });
+
+    it("says why it did not start", async () => {
+      const { screen } = await shell({
+        list_connections: [tunnel(local, "ssh -N bastion", true)],
+        run_connection_command: () => {
+          throw { kind: "Shell", message: "/bin/zsh: No such file or directory" };
+        },
+      });
+
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+
+      await expect
+        .element(screen.getByText("Local: /bin/zsh: No such file or directory"))
+        .toBeVisible();
+    });
   });
 });

@@ -31,9 +31,11 @@ impl App {
         Ok(())
     }
 
-    pub fn stop_command(&self, connection_id: &str) {
+    /// Returns once the command is gone, so a command started next can take
+    /// the port it held.
+    pub async fn stop_command(&self, connection_id: &str) {
         if let Some(run) = self.shells.remove(connection_id) {
-            run.stop();
+            run.stop().await;
         }
     }
 
@@ -75,6 +77,7 @@ mod tests {
                 },
                 secret: Some("hunter2".into()),
                 command: command.map(str::to_string),
+                command_while_selected: false,
                 time_zone: None,
             })
             .await
@@ -93,7 +96,7 @@ mod tests {
         app.run_command(&id).await.unwrap();
         assert_eq!(app.running_commands().len(), 1);
 
-        app.stop_command(&id);
+        app.stop_command(&id).await;
 
         let exit = exits.recv().await.unwrap();
         assert_eq!(exit.connection_id, id);
@@ -162,7 +165,7 @@ mod tests {
     #[tokio::test]
     async fn stopping_what_is_not_running_is_nothing() {
         let (app, id) = connection_running(Some("sleep 120")).await;
-        app.stop_command(&id);
+        app.stop_command(&id).await;
         assert!(app.running_commands().is_empty());
     }
 }

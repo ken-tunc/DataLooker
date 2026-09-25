@@ -20,7 +20,7 @@ pub async fn stop_connection_command(
     args: ConnectionArgs,
     app: State<'_, Arc<App>>,
 ) -> Result<(), AppError> {
-    app.stop_command(&args.connection_id);
+    app.stop_command(&args.connection_id).await;
     Ok(())
 }
 

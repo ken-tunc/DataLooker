@@ -136,6 +136,7 @@ describe("TablePreviewPane", () => {
             username: "admin",
           },
           command: null,
+          command_while_selected: false,
           time_zone: "Asia/Tokyo",
           created_at: "2026-09-20T00:00:00Z",
         },

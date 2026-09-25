@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import {
@@ -8,6 +8,8 @@ import {
   stopConnectionCommand,
 } from "../../lib/commands";
 import { subscribe } from "../../lib/events";
+import { describeError } from "../../lib/invoke";
+import { useConnections } from "../connections/hooks";
 import { connectionKeys } from "../connections/keys";
 import { commandKeys } from "./keys";
 
@@ -34,6 +36,45 @@ export function useStopCommand() {
       void queryClient.invalidateQueries({ queryKey: commandKeys.all });
     },
   });
+}
+
+/**
+ * For connections whose command runs only while they are selected: moving from
+ * one to another stops the one left before starting the one entered, since two
+ * tunnels often forward the same local port. Moves wait their turn, so a quick
+ * run across the rail does not leave a tunnel up behind it.
+ */
+export function useCommandsFollowSelection() {
+  const connections = useConnections();
+  const run = useRunCommand();
+  const stop = useStopCommand();
+  const { show } = useToast();
+  const queue = useRef(Promise.resolve());
+
+  function following(id: string | null): ConnectionRecord | undefined {
+    const connection = connections.data?.find((each) => each.id === id);
+    return connection?.command && connection.command_while_selected ? connection : undefined;
+  }
+
+  return function follow(from: string | null, to: string) {
+    if (from === to) return;
+    const left = following(from);
+    const entered = following(to);
+    if (!left && !entered) return;
+    queue.current = queue.current.then(async () => {
+      for (const [connection, mutation] of [
+        [left, stop],
+        [entered, run],
+      ] as const) {
+        if (!connection) continue;
+        try {
+          await mutation.mutateAsync(connection.id);
+        } catch (error) {
+          show(`${connection.label}: ${describeError(error)}`, "error");
+        }
+      }
+    });
+  };
 }
 
 /**

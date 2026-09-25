@@ -7,6 +7,7 @@ use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, oneshot};
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use super::ShellRegistry;
@@ -44,6 +45,8 @@ pub struct ShellRun {
     child: Mutex<Option<Child>>,
     output: Arc<Mutex<VecDeque<String>>>,
     stop: Mutex<Option<oneshot::Sender<()>>>,
+    /// Cancelled once the watcher has reaped the shell.
+    reaped: CancellationToken,
 }
 
 impl ShellRun {
@@ -77,6 +80,7 @@ impl ShellRun {
             child: Mutex::new(Some(child)),
             output: Arc::new(Mutex::new(VecDeque::new())),
             stop: Mutex::new(None),
+            reaped: CancellationToken::new(),
         }))
     }
 
@@ -102,6 +106,7 @@ impl ShellRun {
         let connection_id = self.connection_id.clone();
         let run_id = self.id.clone();
         let output = self.output.clone();
+        let reaped = self.reaped.clone();
         // Armed until the leader is reaped, so a task dropped as the app quits
         // takes the group with it; `kill_on_drop` would orphan what the shell
         // forked.
@@ -121,6 +126,7 @@ impl ShellRun {
                 }
                 status = child.wait() => (status.ok().and_then(|status| status.code()), false),
             };
+            reaped.cancel();
             // Once the leader is reaped the group id may be reused, and a
             // command that ended on its own (`ssh -f`) meant to leave its
             // children running.
@@ -158,12 +164,14 @@ impl ShellRun {
         });
     }
 
-    /// Ask the watcher to kill the command. Saying so twice, or after it has
-    /// already ended, does nothing.
-    pub fn stop(&self) {
+    /// Have the watcher kill the command, and wait until it has: the next
+    /// command may want the port this one held. Saying so twice, or after it
+    /// has already ended, does nothing. Only for a run being watched.
+    pub async fn stop(&self) {
         if let Some(tx) = self.stop.lock().unwrap().take() {
             let _ = tx.send(());
         }
+        self.reaped.cancelled().await;
     }
 
     /// Kill the group without waiting for the watcher: for an app on its way
@@ -182,6 +190,7 @@ impl ShellRun {
             child: Mutex::new(None),
             output: Arc::new(Mutex::new(VecDeque::new())),
             stop: Mutex::new(None),
+            reaped: CancellationToken::new(),
         })
     }
 }
@@ -290,13 +299,33 @@ mod tests {
         registry.insert(session.clone());
         session.watch(registry.clone(), exits);
 
-        session.stop();
+        session.stop().await;
         let exit = heard.recv().await.unwrap();
 
         assert!(exit.stopped);
         assert_eq!(exit.code, None);
         // Saying so again is not an error, and there is nothing left to say it to.
-        session.stop();
+        session.stop().await;
+    }
+
+    /// So that another command can take the port this one held.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stopping_returns_once_the_command_is_gone() {
+        let registry = registry();
+        let (exits, _heard) = broadcast::channel(4);
+        let session = ShellRun::spawn("c1".to_string(), "sleep 120").unwrap();
+        registry.insert(session.clone());
+        session.watch(registry.clone(), exits);
+
+        session.stop().await;
+
+        let leader = nix::unistd::Pid::from_raw(session.group.unwrap());
+        assert_eq!(
+            nix::sys::signal::kill(leader, None),
+            Err(nix::errno::Errno::ESRCH),
+            "the shell is reaped"
+        );
     }
 
     #[tokio::test]

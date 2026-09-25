@@ -46,7 +46,7 @@ impl App {
         self.catalogs.forget(id);
         // Its stop button is going with the row. A save leaves it running:
         // renaming a connection is no reason to drop a tunnel.
-        self.stop_command(id);
+        self.stop_command(id).await;
         deleted
     }
 }
@@ -62,6 +62,8 @@ pub struct SaveConnectionInput {
     pub secret: Option<String>,
     /// A shell command to run before connecting, or nothing to run.
     pub command: Option<String>,
+    /// Run the command only while the connection is selected.
+    pub command_while_selected: bool,
     /// The IANA zone to show its points in time in, or nothing for UTC.
     pub time_zone: Option<String>,
 }
@@ -100,6 +102,7 @@ async fn save(
         label: input.label.trim(),
         config: &input.config,
         command: given(input.command.as_deref()),
+        command_while_selected: input.command_while_selected,
         time_zone: given(input.time_zone.as_deref()),
     };
     let mut tx = pool.begin().await?;
@@ -289,6 +292,7 @@ mod tests {
             config: postgres_config(),
             secret: secret.map(str::to_string),
             command: None,
+            command_while_selected: false,
             time_zone: None,
         }
     }
@@ -333,6 +337,7 @@ mod tests {
         let id = save(
             SaveConnectionInput {
                 command: Some("   ".into()),
+                command_while_selected: false,
                 time_zone: Some(" ".into()),
                 ..input(None, "Local", Some("hunter2"))
             },

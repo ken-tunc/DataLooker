@@ -15,6 +15,10 @@ secret: string | null,
  */
 command: string | null, 
 /**
+ * Run the command only while the connection is selected.
+ */
+command_while_selected: boolean, 
+/**
  * The IANA zone to show its points in time in, or nothing for UTC.
  */
 time_zone: string | null, };
