@@ -26,7 +26,7 @@ function Host() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   return (
     <>
-      <ConnectionRail selectedId={selectedId} onSelect={setSelectedId} />
+      <ConnectionRail selectedId={selectedId} onSelect={setSelectedId} onShowShortcuts={() => {}} />
       {selectedId && (
         <ConnectionHeader connectionId={selectedId} onRemoved={() => setSelectedId(null)} />
       )}

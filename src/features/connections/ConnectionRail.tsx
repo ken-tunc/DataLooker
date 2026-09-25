@@ -1,4 +1,4 @@
-import { CircleAlert, Plus } from "lucide-react";
+import { CircleAlert, Keyboard, Plus } from "lucide-react";
 import { type DragEvent, type KeyboardEvent, useState } from "react";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
@@ -12,10 +12,11 @@ import { useConnections, useReorderConnections } from "./hooks";
 type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onShowShortcuts: () => void;
 };
 
 /** For moving between connections; what can be done to one is in its header. */
-export function ConnectionRail({ selectedId, onSelect }: Props) {
+export function ConnectionRail({ selectedId, onSelect, onShowShortcuts }: Props) {
   const connections = useConnections();
   const reorder = useReorderConnections();
   const { show } = useToast();
@@ -135,7 +136,17 @@ export function ConnectionRail({ selectedId, onSelect }: Props) {
         </li>
       </ul>
 
-      <footer className="hairline flex w-full justify-center border-t py-2">
+      <footer className="hairline flex w-full flex-col items-center gap-1 border-t py-2">
+        <button
+          type="button"
+          className="btn btn-ghost btn-square"
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (⌘?)"
+          aria-keyshortcuts="Meta+Shift+/"
+          onClick={onShowShortcuts}
+        >
+          <Keyboard className="size-5" />
+        </button>
         <AgentAccess />
       </footer>
 
