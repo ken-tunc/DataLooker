@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod connection;
 pub mod history;
+pub mod template;
 
 use std::path::Path;
 

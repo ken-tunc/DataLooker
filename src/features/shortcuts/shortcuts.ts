@@ -20,6 +20,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     shortcuts: [
       { keys: ["⌘O"], what: "Find a table by name and open it" },
       { keys: ["⌘Y"], what: "Reopen a query that was run before" },
+      { keys: ["⌘J"], what: "Open a query template" },
       { keys: ["⌘T"], what: "New SQL tab" },
     ],
   },

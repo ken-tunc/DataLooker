@@ -1,5 +1,6 @@
 import type { PreviewRequest } from "../bindings/PreviewRequest";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
+import type { SaveTemplateInput } from "../bindings/SaveTemplateInput";
 import type { TableEdits } from "../bindings/TableEdits";
 import { invoke } from "./invoke";
 
@@ -44,6 +45,19 @@ export function checkSyntax(sql: string) {
 
 export function queryHistory(connectionId: string) {
   return invoke("query_history", { connection_id: connectionId });
+}
+
+export function listTemplates() {
+  return invoke("list_templates");
+}
+
+/** Resolves to the template's id. */
+export function saveTemplate(input: SaveTemplateInput) {
+  return invoke("save_template", input);
+}
+
+export function deleteTemplate(templateId: string) {
+  return invoke("delete_template", { template_id: templateId });
 }
 
 /** Schemas and their tables, without columns. */

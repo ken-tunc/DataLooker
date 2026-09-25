@@ -16,8 +16,10 @@ import type { LanguageServerMessageArgs } from "./LanguageServerMessageArgs";
 import type { LanguageServerState } from "./LanguageServerState";
 import type { PreviewRequest } from "./PreviewRequest";
 import type { QueryResult } from "./QueryResult";
+import type { QueryTemplate } from "./QueryTemplate";
 import type { ReorderConnectionsArgs } from "./ReorderConnectionsArgs";
 import type { SaveConnectionInput } from "./SaveConnectionInput";
+import type { SaveTemplateInput } from "./SaveTemplateInput";
 import type { SchemaTree } from "./SchemaTree";
 import type { SyntaxError } from "./SyntaxError";
 import type { TableArgs } from "./TableArgs";
@@ -25,8 +27,9 @@ import type { TableDefinition } from "./TableDefinition";
 import type { TableEdits } from "./TableEdits";
 import type { TablePage } from "./TablePage";
 import type { TableShape } from "./TableShape";
+import type { TemplateArgs } from "./TemplateArgs";
 
 /**
  * Every command the window may invoke, by name.
  */
-export type Commands = { list_connections: Call<null, Array<ConnectionRecord>>, save_connection: Call<SaveConnectionInput, string>, reorder_connections: Call<ReorderConnectionsArgs, null>, delete_connection: Call<ConnectionArgs, null>, test_connection: Call<ConnectionArgs, number>, execute_query: Call<ExecuteQueryArgs, QueryResult>, cancel_query: Call<CancelQueryArgs, null>, check_syntax: Call<CheckSyntaxArgs, Array<SyntaxError>>, query_history: Call<ConnectionArgs, Array<HistoryEntry>>, schema_tree: Call<ConnectionArgs, SchemaTree>, table_columns: Call<TableArgs, Array<Column>>, table_definition: Call<TableArgs, TableDefinition>, preview_table: Call<PreviewRequest, TablePage>, table_shape: Call<TableArgs, TableShape>, commit_table_edits: Call<TableEdits, number>, run_connection_command: Call<ConnectionArgs, null>, stop_connection_command: Call<ConnectionArgs, null>, running_connection_commands: Call<null, Array<string>>, complete: Call<CompleteArgs, Completion>, start_language_server: Call<ConnectionArgs, Capabilities>, send_to_language_server: Call<LanguageServerMessageArgs, null>, stop_language_server: Call<ConnectionArgs, null>, language_server_state: Call<ConnectionArgs, LanguageServerState>, install_language_server: Call<ConnectionArgs, null>, agent_access: Call<null, AgentAccess>, set_agent_access: Call<AgentAccessArgs, AgentAccess>, };
+export type Commands = { list_connections: Call<null, Array<ConnectionRecord>>, save_connection: Call<SaveConnectionInput, string>, reorder_connections: Call<ReorderConnectionsArgs, null>, delete_connection: Call<ConnectionArgs, null>, test_connection: Call<ConnectionArgs, number>, execute_query: Call<ExecuteQueryArgs, QueryResult>, cancel_query: Call<CancelQueryArgs, null>, check_syntax: Call<CheckSyntaxArgs, Array<SyntaxError>>, query_history: Call<ConnectionArgs, Array<HistoryEntry>>, list_templates: Call<null, Array<QueryTemplate>>, save_template: Call<SaveTemplateInput, string>, delete_template: Call<TemplateArgs, null>, schema_tree: Call<ConnectionArgs, SchemaTree>, table_columns: Call<TableArgs, Array<Column>>, table_definition: Call<TableArgs, TableDefinition>, preview_table: Call<PreviewRequest, TablePage>, table_shape: Call<TableArgs, TableShape>, commit_table_edits: Call<TableEdits, number>, run_connection_command: Call<ConnectionArgs, null>, stop_connection_command: Call<ConnectionArgs, null>, running_connection_commands: Call<null, Array<string>>, complete: Call<CompleteArgs, Completion>, start_language_server: Call<ConnectionArgs, Capabilities>, send_to_language_server: Call<LanguageServerMessageArgs, null>, stop_language_server: Call<ConnectionArgs, null>, language_server_state: Call<ConnectionArgs, LanguageServerState>, install_language_server: Call<ConnectionArgs, null>, agent_access: Call<null, AgentAccess>, set_agent_access: Call<AgentAccessArgs, AgentAccess>, };
