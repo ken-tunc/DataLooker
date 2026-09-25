@@ -32,10 +32,13 @@ impl App {
     }
 
     /// Returns once the command is gone, so a command started next can take
-    /// the port it held.
+    /// the port it held. The run stays registered until then, so a start in
+    /// the meantime finds it rather than racing it for the port, and a second
+    /// stop waits for it too.
     pub async fn stop_command(&self, connection_id: &str) {
-        if let Some(run) = self.shells.remove(connection_id) {
+        if let Some(run) = self.shells.get(connection_id) {
             run.stop().await;
+            self.shells.remove_run(connection_id, &run.id);
         }
     }
 
@@ -160,6 +163,20 @@ mod tests {
         let exit = exits.recv().await.unwrap();
         assert!(exit.stopped, "nothing ended it but us");
         assert!(app.running_commands().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_start_while_stopping_starts_nothing_beside_what_is_dying() {
+        let (app, id) = connection_running(Some("sleep 120")).await;
+        app.run_command(&id).await.unwrap();
+
+        let ((), started) = tokio::join!(app.stop_command(&id), app.run_command(&id));
+
+        started.unwrap();
+        assert!(
+            app.running_commands().is_empty(),
+            "a second run would race the first for its port"
+        );
     }
 
     #[tokio::test]

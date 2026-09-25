@@ -9,7 +9,6 @@ import {
 } from "../../lib/commands";
 import { subscribe } from "../../lib/events";
 import { describeError } from "../../lib/invoke";
-import { useConnections } from "../connections/hooks";
 import { connectionKeys } from "../connections/keys";
 import { commandKeys } from "./keys";
 
@@ -45,27 +44,28 @@ export function useStopCommand() {
  * run across the rail does not leave a tunnel up behind it.
  */
 export function useCommandsFollowSelection() {
-  const connections = useConnections();
+  const queryClient = useQueryClient();
   const run = useRunCommand();
   const stop = useStopCommand();
   const { show } = useToast();
   const queue = useRef(Promise.resolve());
 
+  // Read when the step runs, not when it was queued: the connection may have
+  // been edited while an earlier step waited.
   function following(id: string | null): ConnectionRecord | undefined {
-    const connection = connections.data?.find((each) => each.id === id);
+    const connections = queryClient.getQueryData<ConnectionRecord[]>(connectionKeys.list());
+    const connection = connections?.find((each) => each.id === id);
     return connection?.command && connection.command_while_selected ? connection : undefined;
   }
 
   return function follow(from: string | null, to: string) {
     if (from === to) return;
-    const left = following(from);
-    const entered = following(to);
-    if (!left && !entered) return;
     queue.current = queue.current.then(async () => {
-      for (const [connection, mutation] of [
-        [left, stop],
-        [entered, run],
+      for (const [id, mutation] of [
+        [from, stop],
+        [to, run],
       ] as const) {
+        const connection = following(id);
         if (!connection) continue;
         try {
           await mutation.mutateAsync(connection.id);

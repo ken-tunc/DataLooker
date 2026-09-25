@@ -20,6 +20,10 @@ impl ShellRegistry {
         self.running.lock().unwrap().contains_key(connection_id)
     }
 
+    pub fn get(&self, connection_id: &str) -> Option<Arc<ShellRun>> {
+        self.running.lock().unwrap().get(connection_id).cloned()
+    }
+
     /// `false` when the connection already has a run. The caller should kill
     /// the rejected run's group: dropping it reaps only the shell.
     pub fn insert(&self, run: Arc<ShellRun>) -> bool {
@@ -29,11 +33,6 @@ impl ShellRegistry {
         }
         running.insert(run.connection_id.clone(), run);
         true
-    }
-
-    /// Stopping the run is the caller's to do.
-    pub fn remove(&self, connection_id: &str) -> Option<Arc<ShellRun>> {
-        self.running.lock().unwrap().remove(connection_id)
     }
 
     /// Only if it is still the one registered, so a run that ended does not
@@ -69,17 +68,20 @@ mod tests {
         let registry = ShellRegistry::default();
         assert!(registry.insert(ShellRun::for_registry_test("c1")));
         assert!(registry.is_running("c1"));
+        assert!(registry.get("c1").is_some());
+        assert!(registry.get("c2").is_none());
         assert!(!registry.insert(ShellRun::for_registry_test("c1")));
     }
 
     #[test]
     fn removing_leaves_nothing_running() {
         let registry = ShellRegistry::default();
-        registry.insert(ShellRun::for_registry_test("c1"));
+        let run = ShellRun::for_registry_test("c1");
+        registry.insert(run.clone());
 
-        assert!(registry.remove("c1").is_some());
+        assert!(registry.remove_run("c1", &run.id).is_some());
         assert!(!registry.is_running("c1"));
-        assert!(registry.remove("c1").is_none());
+        assert!(registry.remove_run("c1", &run.id).is_none());
     }
 
     #[test]
@@ -87,7 +89,7 @@ mod tests {
         let registry = ShellRegistry::default();
         let first = ShellRun::for_registry_test("c1");
         registry.insert(first.clone());
-        registry.remove("c1");
+        registry.remove_run("c1", &first.id);
         let second = ShellRun::for_registry_test("c1");
         registry.insert(second.clone());
 
