@@ -459,6 +459,29 @@ describe("AppShell", () => {
       ]);
     });
 
+    it("starts nothing after the one before would not stop", async () => {
+      const { ipc, screen } = await shell({
+        list_connections: [
+          tunnel(local, "ssh -N -L 5432:a:5432 bastion", true),
+          tunnel(staging, "ssh -N -L 5432:b:5432 bastion", true),
+        ],
+        run_connection_command: null,
+        stop_connection_command: () => {
+          throw { kind: "Shell", message: "the app is going away" };
+        },
+      });
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+      await expect.poll(() => commands(ipc)).toEqual(["run_connection_command id-1"]);
+
+      await screen.getByRole("button", { name: "Staging", exact: true }).click();
+
+      await expect.element(screen.getByText("Local: the app is going away")).toBeVisible();
+      expect(commands(ipc)).toEqual([
+        "run_connection_command id-1",
+        "stop_connection_command id-1",
+      ]);
+    });
+
     it("is left alone when the connection runs it by hand", async () => {
       const { ipc, screen } = await shell({
         list_connections: [tunnel(local, "ssh -N bastion", false), staging],

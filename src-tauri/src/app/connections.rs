@@ -14,7 +14,13 @@ impl App {
 
     pub async fn save_connection(&self, input: SaveConnectionInput) -> Result<String, AppError> {
         let edited = input.id.clone();
+        let commandless = given(input.command.as_deref()).is_none();
         let saved = save(input, &self.pool, self.secrets.as_ref()).await;
+        // Its stop button goes with its command. Any other edit leaves it
+        // running: renaming a connection is no reason to drop a tunnel.
+        if let (Ok(id), true) = (&saved, commandless) {
+            self.stop_command(id).await;
+        }
         // A failed save may still have changed the password, so the session
         // goes either way.
         if let Some(id) = saved.as_ref().ok().or(edited.as_ref()) {
@@ -44,8 +50,7 @@ impl App {
         self.sessions.close(id);
         self.stop_language_server(id);
         self.catalogs.forget(id);
-        // Its stop button is going with the row. A save leaves it running:
-        // renaming a connection is no reason to drop a tunnel.
+        // Its stop button is going with the row.
         self.stop_command(id).await;
         deleted
     }

@@ -71,6 +71,8 @@ export function useCommandsFollowSelection() {
           await mutation.mutateAsync(connection.id);
         } catch (error) {
           show(`${connection.label}: ${describeError(error)}`, "error");
+          // What failed to stop may still hold the port the next would take.
+          if (mutation === stop) return;
         }
       }
     });

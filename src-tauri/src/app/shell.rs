@@ -153,6 +153,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn taking_the_command_away_stops_it() {
+        let (app, id) = connection_running(Some("sleep 120")).await;
+        let mut exits = app.command_exits();
+        app.run_command(&id).await.unwrap();
+        let edited = |command: Option<&str>| SaveConnectionInput {
+            id: Some(id.clone()),
+            label: "Local".into(),
+            config: DriverConfig::Postgres {
+                host: "localhost".into(),
+                port: 5432,
+                database: "datalooker".into(),
+                username: "admin".into(),
+            },
+            secret: None,
+            command: command.map(str::to_string),
+            command_while_selected: false,
+            time_zone: None,
+        };
+
+        // Renaming it, or changing what it would run next time, leaves it up.
+        app.save_connection(edited(Some("sleep 60"))).await.unwrap();
+        assert_eq!(app.running_commands(), [id.as_str()]);
+
+        app.save_connection(edited(Some("  "))).await.unwrap();
+
+        assert!(exits.recv().await.unwrap().stopped);
+        assert!(app.running_commands().is_empty());
+    }
+
+    #[tokio::test]
     async fn everything_running_can_be_killed_at_once() {
         let (app, id) = connection_running(Some("sleep 120")).await;
         let mut exits = app.command_exits();
