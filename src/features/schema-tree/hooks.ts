@@ -24,26 +24,29 @@ export function useColumnsOf(
   connectionId: string,
   tables: readonly NamedTable[],
 ): Map<string, ColumnsState> {
-  const results = useQueries({
+  // Combined inside `useQueries`, which hands back the same map until a result
+  // changes: the tree is laid out again whenever it gets a new one, and the
+  // window re-renders it on every keystroke in the editor.
+  return useQueries({
     queries: tables.map(({ schema, table }) => ({
       queryKey: schemaKeys.columns(connectionId, schema, table),
       queryFn: () => tableColumns(connectionId, schema, table),
       staleTime: STALE_TIME,
     })),
+    combine: (results) =>
+      new Map(
+        tables.map((named, at) => {
+          const result = results[at];
+          const state: ColumnsState =
+            !result || result.isPending
+              ? { status: "reading" }
+              : result.isError
+                ? { status: "failed", message: describeError(result.error) }
+                : { status: "read", columns: result.data };
+          return [tableRowId(named.schema, named.table), state];
+        }),
+      ),
   });
-
-  return new Map(
-    tables.map((named, at) => {
-      const result = results[at];
-      const state: ColumnsState =
-        !result || result.isPending
-          ? { status: "reading" }
-          : result.isError
-            ? { status: "failed", message: describeError(result.error) }
-            : { status: "read", columns: result.data };
-      return [tableRowId(named.schema, named.table), state];
-    }),
-  );
 }
 
 export function useRefreshSchemaTree(connectionId: string) {
