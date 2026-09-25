@@ -73,11 +73,18 @@ function Blanks({
   }
 
   return (
-    <dialog ref={dialog} className="modal backdrop-blur-sm" onClose={onClose}>
+    <dialog
+      ref={dialog}
+      className="modal backdrop-blur-sm"
+      aria-labelledby={`${fieldId}-title`}
+      onClose={onClose}
+    >
       <div className="modal-box w-11/12 max-w-2xl">
         <form onSubmit={handleSubmit}>
           <fieldset className="fieldset">
-            <legend className="fieldset-legend text-lg">{template.name}</legend>
+            <legend id={`${fieldId}-title`} className="fieldset-legend text-lg">
+              {template.name}
+            </legend>
 
             {/* The value before its type: the dialog opens on the first value,
                 which is what is typed far more often than a type is changed. */}

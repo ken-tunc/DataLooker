@@ -53,7 +53,7 @@ function blanks(sql: string, driver: DriverKind): Blank[] {
       at = closing(rest.slice(0, 3), true);
     } else if (char === "'" || char === '"' || char === "`") {
       // A backquote is BigQuery's quoted name, and not PostgreSQL at all.
-      at = closing(char, bigQuery || char === "`");
+      at = closing(char, bigQuery || char === "`" || escapeString(sql, at));
     } else if (!bigQuery && DOLLAR_TAG.test(rest)) {
       const tag = (DOLLAR_TAG.exec(rest) as RegExpExecArray)[0];
       const close = sql.indexOf(tag, at + tag.length);
@@ -87,6 +87,15 @@ function blanks(sql: string, driver: DriverKind): Blank[] {
     }
   }
   return found;
+}
+
+/** PostgreSQL's `E'…'`, whose backslashes escape; `name'…'` is no such thing. */
+function escapeString(sql: string, quote: number): boolean {
+  return (
+    sql[quote] === "'" &&
+    /[Ee]/.test(sql[quote - 1] ?? "") &&
+    !/[A-Za-z0-9_$]/.test(sql[quote - 2] ?? "")
+  );
 }
 
 /** Each blank once, in the order the statement first uses it. */
@@ -125,8 +134,11 @@ function written(value: Value, driver: DriverKind): string {
   switch (value.type) {
     case "text":
       return literal(value.text, driver);
-    case "number":
-      return value.text.trim();
+    case "number": {
+      const number = value.text.trim();
+      // Written after a minus, `-5` would start a `--` comment.
+      return /^[+-]/.test(number) ? `(${number})` : number;
+    }
     case "boolean":
       return value.text === "false" ? "FALSE" : "TRUE";
     case "null":
@@ -167,6 +179,12 @@ if (import.meta.vitest) {
       expect(variablesIn("SELECT 'it\\'s @a', @b", "bigquery")).toEqual(["b"]);
       // In PostgreSQL the backslash is a character, and the next quote closes.
       expect(variablesIn("SELECT 'a\\', @b", "postgres")).toEqual(["b"]);
+    });
+
+    it("reads a backslash as an escape in PostgreSQL's E'' strings only", () => {
+      expect(variablesIn("SELECT E'it\\'s @a', e'\\' @b', @c", "postgres")).toEqual(["c"]);
+      // A name ending in e is not the prefix.
+      expect(variablesIn("SELECT name'a\\', @b", "postgres")).toEqual(["b"]);
     });
 
     it("skips PostgreSQL's dollar quotes, tagged or not", () => {
@@ -229,6 +247,12 @@ if (import.meta.vitest) {
       const value: Value = { type: "text", text: "it's C:\\\nnext" };
       expect(filledIn("@v", "postgres", { v: value })).toBe("'it''s C:\\\nnext'");
       expect(filledIn("@v", "bigquery", { v: value })).toBe("'it\\'s C:\\\\\\nnext'");
+    });
+
+    it("keeps a signed number from running into the sign before it", () => {
+      const values: Record<string, Value> = { d: { type: "number", text: "-5" } };
+      // `base--5` would be `base` and a comment.
+      expect(filledIn("base-@d", "postgres", values)).toBe("base-(-5)");
     });
 
     it("writes the other types as they are", () => {

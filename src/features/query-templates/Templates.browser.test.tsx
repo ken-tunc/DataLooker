@@ -67,7 +67,7 @@ describe("query templates", () => {
     await userEvent.keyboard("{Meta>}j{/Meta}");
     await screen.getByRole("option", { name: /Orders of a customer/ }).click();
 
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", { name: "Orders of a customer" });
     await dialog.getByRole("combobox", { name: "Type of @id" }).selectOptions("Number");
     await dialog.getByRole("textbox", { name: "@id" }).fill("42");
     await dialog.getByRole("textbox", { name: "@note" }).fill("it's");
@@ -131,9 +131,15 @@ describe("query templates", () => {
     await form.getByLabelText("Name").fill("Every order");
     await screen.getByRole("button", { name: "Save", exact: true }).click();
 
+    const name = form.getByLabelText("Name");
     await expect
-      .element(screen.getByRole("alert").getByText("a template is already called Every order"))
-      .toBeVisible();
+      .element(name)
+      .toHaveAccessibleDescription("a template is already called Every order");
+    await expect.element(name).toHaveAttribute("aria-invalid", "true");
+
+    // Gone once the reader changes what it was about.
+    await name.fill("Every order again");
+    await expect.element(form.getByRole("alert")).not.toBeInTheDocument();
   });
 
   it("goes back to the list when the form over it is closed", async () => {

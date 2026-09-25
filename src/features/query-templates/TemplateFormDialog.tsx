@@ -68,7 +68,12 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
               id={`${fieldId}-name`}
               className="input w-full"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? `${fieldId}-error` : undefined}
+              onChange={(event) => {
+                setName(event.target.value);
+                setError(null);
+              }}
             />
 
             <label className="label" htmlFor={`${fieldId}-sql`}>
@@ -79,7 +84,12 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
               className="textarea h-48 w-full font-mono text-xs"
               spellCheck={false}
               value={sql}
-              onChange={(event) => setSql(event.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? `${fieldId}-error` : undefined}
+              onChange={(event) => {
+                setSql(event.target.value);
+                setError(null);
+              }}
             />
             <p className="label mt-0">
               Write <code>@name</code> where a value goes. It is asked for each time the template is
@@ -87,7 +97,11 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
             </p>
 
             {error && (
-              <div role="alert" className="alert alert-soft alert-error mt-2 text-sm">
+              <div
+                id={`${fieldId}-error`}
+                role="alert"
+                className="alert alert-soft alert-error mt-2 text-sm"
+              >
                 <span>{error}</span>
               </div>
             )}
