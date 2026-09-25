@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
 import { describeError, IpcError } from "../../lib/invoke";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
+import { TemplateFormDialog } from "../query-templates/TemplateFormDialog";
 import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
 import { ResultGrid } from "./ResultGrid";
@@ -38,6 +39,7 @@ export function QueryTabPane({
   const [editorHeight] = usePaneSize(EDITOR);
   const { show } = useToast();
   const tree = useSchemaTree(connectionId);
+  const [saving, setSaving] = useState(false);
   const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
 
   function submit() {
@@ -83,6 +85,14 @@ export function QueryTabPane({
         <span className="text-base-content/60 text-xs">
           <kbd className="kbd kbd-xs">⌘</kbd> <kbd className="kbd kbd-xs">Enter</kbd>
         </span>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost"
+          disabled={sql.trim() === ""}
+          onClick={() => setSaving(true)}
+        >
+          Save as template
+        </button>
         <span className="grow" />
         <Status
           pending={run.isPending}
@@ -111,6 +121,8 @@ export function QueryTabPane({
       </div>
 
       <Splitter pane={EDITOR} axis="y" label="Resize the editor" />
+
+      {saving && <TemplateFormDialog template={null} sql={sql} onClose={() => setSaving(false)} />}
 
       <div className="min-h-24 flex-1 basis-0">
         {run.isSuccess && run.data.columns.length > 0 ? (

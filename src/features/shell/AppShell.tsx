@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { QueryTemplate } from "../../bindings/QueryTemplate";
 import { Splitter } from "../../components/Splitter";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
 import { useCommandsFollowSelection } from "../connection-command/hooks";
@@ -6,6 +7,9 @@ import { ConnectionHeader } from "../connections/ConnectionHeader";
 import { ConnectionRail } from "../connections/ConnectionRail";
 import { useConnections } from "../connections/hooks";
 import { QueryHistoryPalette } from "../query-history/QueryHistoryPalette";
+import { FillTemplateDialog } from "../query-templates/FillTemplateDialog";
+import { TemplatePalette } from "../query-templates/TemplatePalette";
+import { TemplatesDialog } from "../query-templates/TemplatesDialog";
 import { Workspace } from "../workspace/Workspace";
 import { SchemaTree } from "../schema-tree/SchemaTree";
 import { isHelpKey } from "../shortcuts/shortcuts";
@@ -19,6 +23,9 @@ const SIDEBAR: Pane = { key: "datalooker.sidebar-width", initial: 288, min: 200,
 type Modal =
   | { kind: "tables"; query?: string }
   | { kind: "history" }
+  | { kind: "templates" }
+  | { kind: "fill"; template: QueryTemplate }
+  | { kind: "manage-templates" }
   | { kind: "shortcuts" }
   | null;
 
@@ -60,6 +67,11 @@ export function AppShell() {
       if (event.key === "y" && event.metaKey) {
         event.preventDefault();
         setModal({ kind: "history" });
+        return;
+      }
+      if (event.key === "j" && event.metaKey) {
+        event.preventDefault();
+        setModal({ kind: "templates" });
         return;
       }
       if (event.key === "Tab" && event.ctrlKey) {
@@ -116,6 +128,27 @@ export function AppShell() {
           onClose={() => setModal(null)}
         />
       )}
+
+      {selectedId && modal?.kind === "templates" && (
+        <TemplatePalette
+          connectionId={selectedId}
+          onOpenQuery={(title, sql) => tabs.open(selectedId, sql, title)}
+          onFill={(template) => setModal({ kind: "fill", template })}
+          onManage={() => setModal({ kind: "manage-templates" })}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {selectedId && modal?.kind === "fill" && (
+        <FillTemplateDialog
+          connectionId={selectedId}
+          template={modal.template}
+          onFill={(sql) => tabs.open(selectedId, sql, modal.template.name)}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal?.kind === "manage-templates" && <TemplatesDialog onClose={() => setModal(null)} />}
 
       {modal?.kind === "shortcuts" && <ShortcutsDialog onClose={() => setModal(null)} />}
 

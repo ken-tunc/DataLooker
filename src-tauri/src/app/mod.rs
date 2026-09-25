@@ -10,6 +10,7 @@ mod query;
 mod schema;
 pub mod shell;
 pub mod syntax;
+pub mod templates;
 
 use std::path::PathBuf;
 use std::sync::Arc;

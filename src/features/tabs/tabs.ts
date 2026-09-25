@@ -36,11 +36,17 @@ function opened(state: TabsState | undefined, tab: Tab): TabsState {
   return { tabs: [...(state?.tabs ?? []), tab], activeId: tab.id };
 }
 
-export function openSqlTab(state: TabsState | undefined, id: string, sql = ""): TabsState {
+/** `title` names what the statement came from, such as a template. */
+export function openSqlTab(
+  state: TabsState | undefined,
+  id: string,
+  sql = "",
+  title?: string,
+): TabsState {
   return opened(state, {
     kind: "sql",
     id,
-    title: nextQueryTitle(state?.tabs ?? []),
+    title: title ?? nextQueryTitle(state?.tabs ?? []),
     sql,
   });
 }
@@ -151,6 +157,12 @@ if (import.meta.vitest) {
 
     it("starts with the statement it was handed", () => {
       expect(openSqlTab(undefined, "a", "SELECT 1").tabs[0]).toMatchObject({ sql: "SELECT 1" });
+    });
+
+    it("takes the title it was handed, and leaves the numbering to the others", () => {
+      const named = openSqlTab(undefined, "a", "SELECT 1", "Orders");
+      expect(named.tabs[0]).toMatchObject({ title: "Orders" });
+      expect(openSqlTab(named, "b").tabs[1]).toMatchObject({ title: "Query 1" });
     });
 
     it("numbers a new tab after the ones still open", () => {

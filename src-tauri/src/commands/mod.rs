@@ -11,6 +11,7 @@ pub mod preview;
 pub mod query;
 pub mod schema;
 pub mod shell;
+pub mod template;
 
 use std::future::Future;
 use std::sync::Arc;
@@ -25,9 +26,11 @@ use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
 use crate::app::preview::PreviewRequest;
 use crate::app::syntax::SyntaxError;
+use crate::app::templates::SaveTemplateInput;
 use crate::app::App;
 use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
+use crate::db::template::QueryTemplate;
 use crate::drivers::{Column, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape};
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -98,6 +101,9 @@ commands! {
     query::cancel_query(CancelQueryArgs) -> ();
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
+    template::list_templates() -> Vec<QueryTemplate>;
+    template::save_template(SaveTemplateInput) -> String;
+    template::delete_template(TemplateArgs) -> ();
     schema::schema_tree(ConnectionArgs) -> SchemaTree;
     schema::table_columns(TableArgs) -> Vec<Column>;
     schema::table_definition(TableArgs) -> TableDefinition;
@@ -122,6 +128,12 @@ commands! {
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct ConnectionArgs {
     pub connection_id: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TemplateArgs {
+    pub template_id: String,
 }
 
 /// Every connection, in the order the rail is to show them.

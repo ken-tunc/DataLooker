@@ -20,6 +20,9 @@ PostgreSQL and BigQuery.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
   indexes and triggers. PostgreSQL tables with a primary key can be edited in place.
 - **History** — every statement run is logged and can be reopened.
+- **Templates** — statements kept under a name, with `@name` blanks. Using one asks for
+  each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the
+  statement it makes in a new tab.
 - **Agents** — an optional MCP server on localhost, behind a token, lets your own agents
   list connections, read schemas and run read-only statements. Their runs are logged and
   marked.
@@ -33,6 +36,7 @@ Press ⌘? for this list in the app.
 | ⌘?                | Show these shortcuts                  |
 | ⌘O                | Find a table by name and open it      |
 | ⌘Y                | Reopen a query that was run before    |
+| ⌘J                | Open a query template                 |
 | ⌘T                | New SQL tab                           |
 | ⌃Tab, ⌃⇧Tab       | Next / previous tab                   |
 | Delete, Backspace | Close the focused tab                 |

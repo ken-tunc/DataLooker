@@ -8,6 +8,7 @@ import {
   testConnection,
 } from "../../lib/commands";
 import { schemaKeys } from "../schema-tree/keys";
+import type { DriverKind } from "./driver";
 import { connectionKeys } from "./keys";
 
 export function useConnections() {
@@ -17,6 +18,11 @@ export function useConnections() {
 /** The IANA zone a connection's points in time are shown in. */
 export function useTimeZone(connectionId: string): string {
   return useConnections().data?.find(({ id }) => id === connectionId)?.time_zone ?? "UTC";
+}
+
+/** Unknown until the list has arrived. */
+export function useDriver(connectionId: string): DriverKind | undefined {
+  return useConnections().data?.find(({ id }) => id === connectionId)?.config.kind;
 }
 
 export function useSaveConnection() {
