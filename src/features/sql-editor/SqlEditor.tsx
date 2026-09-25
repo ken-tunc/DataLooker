@@ -147,7 +147,17 @@ export default function SqlEditor({
     if (instance && instance.getValue() !== value) instance.setValue(value);
   }, [value]);
 
+  // The check is PostgreSQL's grammar, which refuses GoogleSQL such as a
+  // backquoted `project.dataset.table`. The kind is a dependency so that marks
+  // made before the connections were read are cleared once it is known.
+  const kind = config?.kind;
   useEffect(() => {
+    if (kind === "bigquery") {
+      const model = editor.current?.getModel();
+      if (model) monaco.setModelMarkers(model, SYNTAX, []);
+      return;
+    }
+
     let live = true;
     const timer = setTimeout(async () => {
       // A later keystroke starts this over.
@@ -160,7 +170,7 @@ export default function SqlEditor({
       live = false;
       clearTimeout(timer);
     };
-  }, [value]);
+  }, [value, kind]);
 
   useEffect(() => {
     const instance = editor.current;

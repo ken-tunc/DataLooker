@@ -377,6 +377,64 @@ function bigquery(connectionId: string): ConnectionRecord[] {
   ];
 }
 
+describe("SqlEditor on BigQuery", () => {
+  it("leaves GoogleSQL unmarked by PostgreSQL's parser", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        // What PostgreSQL's parser says about a backquoted name.
+        check_syntax: [
+          {
+            message: 'syntax error at or near "`"',
+            start_line: 1,
+            start_column: 1,
+            end_line: 1,
+            end_column: 23,
+          },
+        ],
+        list_connections: bigquery(connectionId),
+      },
+      "SELECT * FROM `p.ds.t`",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+
+    // Past the settle, when a check would have landed.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(made.markers()).toEqual([]);
+    expect(made.ipc.calls.map((call) => call.command)).not.toContain("check_syntax");
+  });
+
+  it("clears what was marked before the connection was known to be BigQuery", async () => {
+    const connectionId = crypto.randomUUID();
+    let known: (connections: ConnectionRecord[]) => void = () => {};
+    const made = await editor(
+      {
+        check_syntax: [
+          {
+            message: 'syntax error at or near "`"',
+            start_line: 1,
+            start_column: 1,
+            end_line: 1,
+            end_column: 23,
+          },
+        ],
+        list_connections: () => new Promise((resolve) => (known = resolve)),
+      },
+      "SELECT * FROM `p.ds.t`",
+      connectionId,
+    );
+
+    // Until the connections are read, the tab is checked as PostgreSQL.
+    await vi.waitFor(() => expect(made.markers()).toHaveLength(1), { timeout: 3000 });
+
+    known(bigquery(connectionId));
+    await vi.waitFor(() => expect(made.markers()).toEqual([]));
+  });
+});
+
 describe("SqlEditor completion of BigQuery", () => {
   it("offers what the analyzer says can go at the cursor", async () => {
     const connectionId = crypto.randomUUID();

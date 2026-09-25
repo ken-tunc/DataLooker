@@ -18,7 +18,8 @@ pub struct SyntaxError {
 
 impl App {
     /// What PostgreSQL would refuse to parse, using libpg_query's grammar, so
-    /// no connection is needed. Only for PostgreSQL connections.
+    /// no connection is needed. Only for PostgreSQL connections: the editor
+    /// does not ask for a BigQuery one.
     pub fn check_syntax(&self, sql: &str) -> Vec<SyntaxError> {
         check(sql)
     }
