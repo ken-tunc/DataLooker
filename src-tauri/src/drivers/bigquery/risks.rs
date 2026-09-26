@@ -59,6 +59,8 @@ fn hazards(words: &[String]) -> Vec<Hazard> {
             }
             "DROP" if !words[..at].iter().any(|word| word == "ALTER") => Some(Hazard::Drop),
             "TRUNCATE" => Some(Hazard::Truncate),
+            // What it runs is a string, which says nothing until it runs.
+            "EXECUTE" => Some(Hazard::Dynamic),
             _ => None,
         };
         if let Some(hazard) = hazard.filter(|hazard| !found.contains(hazard)) {
@@ -291,6 +293,21 @@ mod tests {
                     vec![]
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn sql_run_from_a_string_asks_since_it_cannot_be_read() {
+        let dynamic = "EXECUTE IMMEDIATE 'DROP TABLE shop.users'";
+
+        assert!(suspect(dynamic));
+        assert_eq!(
+            said(risks(dynamic, &planned("SCRIPT", None), false)),
+            [(dynamic.into(), Hazard::Dynamic, vec![])]
+        );
+        assert_eq!(
+            said(risks(dynamic, &planned("SCRIPT", None), true)),
+            [(dynamic.into(), Hazard::Dynamic, vec![])]
         );
     }
 
