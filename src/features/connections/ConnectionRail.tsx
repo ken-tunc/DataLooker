@@ -189,10 +189,15 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       type="button"
       aria-label={connection.label}
       aria-current={selected ? "true" : undefined}
-      title={`${connection.label}\n${describeConnection(connection.config)}`}
+      title={`${connection.label}\n${describeConnection(connection.config)}${
+        connection.production ? "\nProduction" : ""
+      }`}
+      aria-description={connection.production ? "Production" : undefined}
       // What moves it up or down the rail, besides dragging.
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-      className={`flex flex-col items-center gap-1 px-1 ${selected ? "menu-active" : ""}`}
+      className={`flex flex-col items-center gap-1 px-1 ${selected ? "menu-active" : ""} ${
+        connection.production ? "ring-error ring-1 ring-inset" : ""
+      }`}
       onClick={onSelect}
     >
       <div className={`avatar ${running ? "avatar-online" : ""}`}>
@@ -200,7 +205,11 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       </div>
       {/* Two lines hold most names; the title has the rest. Always two lines tall, so every
           tile is one size, which dragging relies on. */}
-      <span className="line-clamp-2 h-[2lh] w-full text-center text-xs wrap-anywhere">
+      <span
+        className={`line-clamp-2 h-[2lh] w-full text-center text-xs wrap-anywhere ${
+          connection.production ? "text-error" : ""
+        }`}
+      >
         {connection.label}
       </span>
       {running && (

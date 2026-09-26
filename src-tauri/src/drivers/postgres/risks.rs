@@ -9,9 +9,12 @@ use crate::drivers::{Hazard, Risk};
 /// of one — counts, since it runs all the same; one a plain `EXPLAIN` only
 /// plans does not.
 ///
+/// On a `production` connection, a statement that writes and has nothing
+/// worse to say is asked about too.
+///
 /// Text that does not parse has nothing to ask about: PostgreSQL parses the
 /// whole of it before running any, and refuses it too.
-pub fn risks(sql: &str) -> Vec<Risk> {
+pub fn risks(sql: &str, production: bool) -> Vec<Risk> {
     let Ok(parsed) = pg_query::parse(sql) else {
         return Vec::new();
     };
@@ -27,10 +30,17 @@ pub fn risks(sql: &str) -> Vec<Risk> {
             if only_plans(node) {
                 return Vec::new();
             }
-            prepared(node)
+            let node = prepared(node);
+            let mut found: Vec<(Hazard, Vec<String>)> = node
                 .nodes()
                 .into_iter()
                 .filter_map(|(node, ..)| hazard(node))
+                .collect();
+            if production && found.is_empty() && !reads(node) {
+                found.push((Hazard::Write, written(node)));
+            }
+            found
+                .into_iter()
                 .map(|(hazard, targets)| Risk {
                     statement: statement.to_string(),
                     hazard,
@@ -39,6 +49,72 @@ pub fn risks(sql: &str) -> Vec<Risk> {
                 .collect()
         })
         .collect()
+}
+
+/// Named rather than ruled out, so a statement this does not know — a `CALL`,
+/// a `DO`, an `EXECUTE` — is taken to write. A function a `SELECT` calls may
+/// write too, and is not asked about: this guards against slips, and a
+/// statement that means to write says so.
+fn reads(node: &NodeEnum) -> bool {
+    let alone = match node {
+        NodeEnum::SelectStmt(select) => select.into_clause.is_none(),
+        NodeEnum::CopyStmt(copy) => !copy.is_from,
+        NodeEnum::ExplainStmt(_)
+        | NodeEnum::VariableShowStmt(_)
+        | NodeEnum::VariableSetStmt(_)
+        | NodeEnum::TransactionStmt(_)
+        | NodeEnum::DeclareCursorStmt(_)
+        | NodeEnum::FetchStmt(_)
+        | NodeEnum::ClosePortalStmt(_)
+        | NodeEnum::ListenStmt(_)
+        | NodeEnum::UnlistenStmt(_) => true,
+        _ => false,
+    };
+    alone && (only_plans(node) || !node.nodes().into_iter().any(|(node, ..)| writes(node)))
+}
+
+/// What writes from inside a statement that otherwise reads: a `WITH` or an
+/// `EXPLAIN ANALYZE`.
+fn writes(node: NodeRef<'_>) -> bool {
+    match node {
+        NodeRef::InsertStmt(_)
+        | NodeRef::UpdateStmt(_)
+        | NodeRef::DeleteStmt(_)
+        | NodeRef::MergeStmt(_)
+        | NodeRef::CreateTableAsStmt(_) => true,
+        NodeRef::SelectStmt(select) => select.into_clause.is_some(),
+        _ => false,
+    }
+}
+
+/// The tables a write names, each once; none for a write that names none.
+fn written(node: &NodeEnum) -> Vec<String> {
+    let mut tables: Vec<String> = Vec::new();
+    for (node, ..) in node.nodes() {
+        let table = match node {
+            NodeRef::InsertStmt(insert) => insert.relation.as_ref(),
+            NodeRef::UpdateStmt(update) => update.relation.as_ref(),
+            NodeRef::DeleteStmt(delete) => delete.relation.as_ref(),
+            NodeRef::MergeStmt(merge) => merge.relation.as_ref(),
+            NodeRef::CreateStmt(create) => create.relation.as_ref(),
+            NodeRef::AlterTableStmt(alter) => alter.relation.as_ref(),
+            NodeRef::CreateTableAsStmt(create) => {
+                create.into.as_ref().and_then(|into| into.rel.as_ref())
+            }
+            NodeRef::SelectStmt(select) => select
+                .into_clause
+                .as_ref()
+                .and_then(|into| into.rel.as_ref()),
+            NodeRef::CopyStmt(copy) if copy.is_from => copy.relation.as_ref(),
+            _ => None,
+        };
+        if let Some(table) = table.map(relation) {
+            if !tables.contains(&table) {
+                tables.push(table);
+            }
+        }
+    }
+    tables
 }
 
 fn hazard(node: NodeRef<'_>) -> Option<(Hazard, Vec<String>)> {
@@ -165,7 +241,7 @@ mod tests {
     use super::*;
 
     fn hazards(sql: &str) -> Vec<(Hazard, Vec<String>)> {
-        risks(sql)
+        risks(sql, false)
             .into_iter()
             .map(|risk| (risk.hazard, risk.targets))
             .collect()
@@ -280,7 +356,7 @@ mod tests {
 
     #[test]
     fn each_statement_is_checked_and_named_on_its_own() {
-        let found = risks("SELECT 1;\nDELETE FROM users;\nTRUNCATE orders");
+        let found = risks("SELECT 1;\nDELETE FROM users;\nTRUNCATE orders", false);
 
         let statements: Vec<&str> = found.iter().map(|risk| risk.statement.as_str()).collect();
         assert_eq!(statements, ["DELETE FROM users", "TRUNCATE orders"]);
@@ -288,9 +364,81 @@ mod tests {
 
     #[test]
     fn reading_and_text_that_does_not_parse_ask_nothing() {
-        assert!(risks("SELECT * FROM users").is_empty());
-        assert!(risks("INSERT INTO users VALUES (1)").is_empty());
-        assert!(risks("DELETE FROM").is_empty());
-        assert!(risks("").is_empty());
+        assert!(hazards("SELECT * FROM users").is_empty());
+        assert!(hazards("INSERT INTO users VALUES (1)").is_empty());
+        assert!(hazards("DELETE FROM").is_empty());
+        assert!(hazards("").is_empty());
+    }
+
+    fn on_production(sql: &str) -> Vec<(Hazard, Vec<String>)> {
+        risks(sql, true)
+            .into_iter()
+            .map(|risk| (risk.hazard, risk.targets))
+            .collect()
+    }
+
+    #[test]
+    fn on_production_every_write_asks_and_names_its_tables() {
+        assert_eq!(
+            on_production("INSERT INTO public.users VALUES (1)"),
+            one(Hazard::Write, &["public.users"])
+        );
+        assert_eq!(
+            on_production("UPDATE users SET name = 'x' WHERE id = 1"),
+            one(Hazard::Write, &["users"])
+        );
+        assert_eq!(
+            on_production(
+                "WITH moved AS (INSERT INTO archive SELECT 1 RETURNING *) SELECT * FROM moved"
+            ),
+            one(Hazard::Write, &["archive"])
+        );
+        assert_eq!(
+            on_production("SELECT * INTO copy FROM users"),
+            one(Hazard::Write, &["copy"])
+        );
+        assert_eq!(
+            on_production("CREATE TABLE t (id int)"),
+            one(Hazard::Write, &["t"])
+        );
+        assert_eq!(on_production("CALL refresh()"), one(Hazard::Write, &[]));
+        assert_eq!(
+            on_production("EXPLAIN ANALYZE CREATE TABLE t AS SELECT 1"),
+            one(Hazard::Write, &["t"])
+        );
+    }
+
+    #[test]
+    fn on_production_what_only_reads_asks_nothing() {
+        for sql in [
+            "SELECT * FROM users",
+            "SELECT * FROM users FOR UPDATE",
+            "SHOW search_path",
+            "SET search_path = sales",
+            "BEGIN",
+            "COMMIT",
+            "COPY users TO STDOUT",
+            "EXPLAIN INSERT INTO users VALUES (1)",
+            "EXPLAIN ANALYZE SELECT 1",
+        ] {
+            assert!(on_production(sql).is_empty(), "{sql} asked");
+        }
+    }
+
+    #[test]
+    fn on_production_a_prepare_asks_as_what_it_will_run_does() {
+        assert_eq!(
+            on_production("PREPARE add AS INSERT INTO users VALUES ($1)"),
+            one(Hazard::Write, &["users"])
+        );
+        assert!(on_production("PREPARE find AS SELECT * FROM users").is_empty());
+    }
+
+    #[test]
+    fn on_production_a_worse_hazard_is_asked_about_instead() {
+        assert_eq!(
+            on_production("DELETE FROM users"),
+            one(Hazard::DeleteWithoutWhere, &["users"])
+        );
     }
 }
