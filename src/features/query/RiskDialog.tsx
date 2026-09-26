@@ -13,6 +13,7 @@ type Props = {
 export function RiskDialog({ risks, onRun, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const statements = byStatement(risks);
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -27,14 +28,14 @@ export function RiskDialog({ risks, onRun, onClose }: Props) {
     >
       <div className="modal-box max-w-2xl">
         <h3 id={heading} className="text-lg font-semibold">
-          Run {risks.length === 1 ? "this statement" : "these statements"}?
+          Run {statements.length === 1 ? "this statement" : "these statements"}?
         </h3>
         <ul className="flex max-h-96 flex-col gap-3 overflow-y-auto py-4">
-          {byStatement(risks).map(([statement, hazards]) => (
+          {statements.map(([statement, sentences]) => (
             <li key={statement} className="flex flex-col gap-1">
-              {hazards.map((risk) => (
-                <p key={`${risk.hazard} ${risk.targets.join()}`} className="text-sm">
-                  {sentence(risk)}
+              {sentences.map((said) => (
+                <p key={said} className="text-sm">
+                  {said}
                 </p>
               ))}
               <SqlText className="max-h-32">{statement}</SqlText>
@@ -69,13 +70,17 @@ export function RiskDialog({ risks, onRun, onClose }: Props) {
   );
 }
 
-/** A statement with two hazards is shown once. */
-function byStatement(risks: Risk[]): [string, Risk[]][] {
-  const grouped = new Map<string, Risk[]>();
+/**
+ * What each statement would do, said once: the same statement run twice, or
+ * two `DELETE`s of one table in a `WITH`, need not be read twice.
+ */
+function byStatement(risks: Risk[]): [string, string[]][] {
+  const grouped = new Map<string, Set<string>>();
   for (const risk of risks) {
-    grouped.set(risk.statement, [...(grouped.get(risk.statement) ?? []), risk]);
+    const said = grouped.get(risk.statement) ?? new Set();
+    grouped.set(risk.statement, said.add(sentence(risk)));
   }
-  return [...grouped];
+  return [...grouped].map(([statement, said]) => [statement, [...said]]);
 }
 
 const VERBS: Record<Hazard, [named: string, unnamed: string]> = {
@@ -119,9 +124,15 @@ if (import.meta.vitest) {
       const third = { ...first, hazard: "update_without_where" as const, targets: ["b"] };
 
       expect(byStatement([first, second, third])).toEqual([
-        [first.statement, [first, third]],
-        [second.statement, [second]],
+        [first.statement, ["Deletes every row of a.", "Updates every row of b."]],
+        [second.statement, ["Drops c."]],
       ]);
+    });
+
+    it("says what a statement run twice would do once", () => {
+      const twice = risk("DELETE FROM t", "delete_without_where", ["t"]);
+
+      expect(byStatement([twice, twice])).toEqual([[twice.statement, ["Deletes every row of t."]]]);
     });
   });
 }
