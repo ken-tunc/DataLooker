@@ -44,13 +44,13 @@ export function TemplatesDialog({ onClose }: { onClose: () => void }) {
 
           <div className="mt-3 min-h-0 overflow-y-auto">
             {templates.isPending ? (
-              <p className="text-base-content/60 text-sm">Reading the templates…</p>
+              <p className="text-faint text-sm">Reading the templates…</p>
             ) : templates.isError ? (
               <div role="alert" className="alert alert-soft alert-error text-sm">
                 <span>{describeError(templates.error)}</span>
               </div>
             ) : templates.data.length === 0 ? (
-              <p className="text-base-content/60 text-sm">No templates yet.</p>
+              <p className="text-faint text-sm">No templates yet.</p>
             ) : (
               <ul className="list">
                 {templates.data.map((template) => (
@@ -97,9 +97,7 @@ function Row({ template, onEdit }: { template: QueryTemplate; onEdit: () => void
     <li className="list-row items-center py-2">
       <div className="list-col-grow min-w-0">
         <div className="truncate">{template.name}</div>
-        <div className="text-base-content/50 truncate font-mono text-xs">
-          {oneLine(template.sql)}
-        </div>
+        <div className="text-faint truncate font-mono text-xs">{oneLine(template.sql)}</div>
       </div>
       {confirming ? (
         <div className="flex items-center gap-1">

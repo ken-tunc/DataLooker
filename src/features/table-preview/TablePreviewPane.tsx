@@ -353,7 +353,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             )}
           </div>
 
-          <div className="text-base-content/60 flex items-center gap-3 text-sm">
+          <div className="text-muted flex items-center gap-3 text-sm">
             <button
               type="button"
               className="btn btn-sm"

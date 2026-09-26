@@ -19,7 +19,7 @@ export function TableStructure({ connectionId, schema, table, hidden }: Props) {
   const definition = useTableDefinition(connectionId, schema, table, !hidden);
 
   if (definition.isPending) {
-    return <p className="text-base-content/60 p-2 text-sm">Reading the definition…</p>;
+    return <p className="text-faint p-2 text-sm">Reading the definition…</p>;
   }
 
   if (definition.isError) {
@@ -42,9 +42,9 @@ export function TableStructure({ connectionId, schema, table, hidden }: Props) {
 function List({ title, items, empty }: { title: string; items: NamedDefinition[]; empty: string }) {
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-base-content/60 text-xs font-medium tracking-wide uppercase">{title}</h2>
+      <h2 className="section-title">{title}</h2>
       {items.length === 0 ? (
-        <p className="text-base-content/50 text-sm">{empty}</p>
+        <p className="text-faint text-sm">{empty}</p>
       ) : (
         items.map((item) => <SqlText key={item.name}>{`${item.definition};`}</SqlText>)
       )}

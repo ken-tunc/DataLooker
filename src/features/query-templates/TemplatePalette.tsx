@@ -43,13 +43,13 @@ export function TemplatePalette({ connectionId, onOpenQuery, onFill, onManage, o
       empty="No template matches."
       status={
         templates.isPending ? (
-          <p className="text-base-content/60 p-2 text-sm">Reading the templates…</p>
+          <p className="text-faint p-2 text-sm">Reading the templates…</p>
         ) : templates.isError ? (
           <div role="alert" className="alert alert-soft alert-error text-sm">
             <span className="truncate">{describeError(templates.error)}</span>
           </div>
         ) : templates.data.length === 0 ? (
-          <p className="text-base-content/60 p-2 text-sm">
+          <p className="text-faint p-2 text-sm">
             No templates yet. Save a statement as one from its SQL tab.
           </p>
         ) : null
@@ -65,9 +65,7 @@ export function TemplatePalette({ connectionId, onOpenQuery, onFill, onManage, o
       {(template) => (
         <>
           <span className="shrink-0">{template.name}</span>
-          <span className="text-base-content/50 truncate font-mono text-xs">
-            {oneLine(template.sql)}
-          </span>
+          <span className="text-faint truncate font-mono text-xs">{oneLine(template.sql)}</span>
         </>
       )}
     </Palette>

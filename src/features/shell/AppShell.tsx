@@ -171,7 +171,7 @@ export function AppShell() {
 function NothingInFront() {
   const connections = useConnections();
   return (
-    <div className="text-base-content/50 flex h-full items-center justify-center">
+    <div className="text-faint flex h-full items-center justify-center">
       {connections.data?.length === 0
         ? "Add a connection with + to start querying."
         : "Select a connection to start querying."}

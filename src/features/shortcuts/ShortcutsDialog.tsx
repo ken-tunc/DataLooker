@@ -23,9 +23,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-5">
           {SHORTCUT_GROUPS.map((group) => (
             <section key={group.title} aria-label={group.title}>
-              <h4 className="text-base-content/60 mb-1 text-xs font-semibold uppercase">
-                {group.title}
-              </h4>
+              <h4 className="section-title mb-1">{group.title}</h4>
               <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5 text-sm">
                 {group.shortcuts.map((shortcut) => (
                   <div key={shortcut.what} className="contents">

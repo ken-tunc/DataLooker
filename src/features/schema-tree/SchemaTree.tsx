@@ -83,7 +83,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
       )}
 
       {tree.data && rows.length === 0 && (
-        <p className="text-base-content/60 p-3 text-sm">
+        <p className="text-faint p-3 text-sm">
           {filter.trim() === "" ? "This database has no tables." : "No table matches the filter."}
         </p>
       )}
@@ -145,18 +145,14 @@ function Row({
   const indent = INDENTS[row.indent] ?? "pl-14";
 
   if (row.kind === "note") {
-    return (
-      <span className={`text-base-content/50 truncate py-0.5 pr-2 text-xs ${indent}`}>
-        {row.text}
-      </span>
-    );
+    return <span className={`text-faint truncate py-0.5 pr-2 text-xs ${indent}`}>{row.text}</span>;
   }
 
   if (row.kind === "column") {
     return (
       <span className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}>
         <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 truncate text-xs">
+        <span className="text-faint truncate text-xs">
           {row.dataType}
           {row.nullable ? "" : " not null"}
         </span>
@@ -180,7 +176,7 @@ function Row({
       >
         <Chevron expanded={row.expanded} />
         <span className="truncate">{name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">{beside}</span>
+        <span className="text-faint shrink-0 text-xs">{beside}</span>
       </button>
     );
   }
@@ -205,7 +201,7 @@ function Row({
         onClick={() => onOpenTable(row.schema, row.name)}
       >
         <span className="truncate">{row.name}</span>
-        <span className="text-base-content/50 shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
+        <span className="text-faint shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
       </button>
     </span>
   );
@@ -214,7 +210,7 @@ function Row({
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <ChevronRight
-      className={`text-base-content/50 size-3.5 shrink-0 self-center transition-transform ${expanded ? "rotate-90" : ""}`}
+      className={`text-faint size-3.5 shrink-0 self-center transition-transform ${expanded ? "rotate-90" : ""}`}
     />
   );
 }

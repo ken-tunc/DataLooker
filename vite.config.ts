@@ -16,7 +16,7 @@ export default defineConfig({
         test: {
           name: "node",
           // `.tsx` too, or a test in a component's file would silently never run.
-          includeSource: ["src/**/*.{ts,tsx}"],
+          includeSource: ["src/**/*.{ts,tsx}", "lint/**/*.ts"],
           exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/*.browser.test.tsx"],
         },
       },
@@ -82,12 +82,14 @@ export default defineConfig({
       typeAware: true,
       typeCheck: true,
     },
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }, "./lint/design.ts"],
     rules: {
       "vite-plus/prefer-vite-plus-imports": "error",
       "react/exhaustive-deps": "error",
       "react/rules-of-hooks": "error",
       "react/only-export-components": "warn",
+      // Faded text takes a named colour; see src/index.css.
+      "design/named-text-colours": "error",
       // The React Compiler memoizes for us; see CLAUDE.md.
       "no-restricted-imports": [
         "error",

@@ -32,7 +32,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
       empty="No table matches."
       status={
         tree.isPending ? (
-          <p className="text-base-content/60 p-2 text-sm">Reading the schema…</p>
+          <p className="text-faint p-2 text-sm">Reading the schema…</p>
         ) : tree.isError ? (
           <div role="alert" className="alert alert-soft alert-error text-sm">
             <span className="truncate">{describeError(tree.error)}</span>
@@ -41,7 +41,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
       }
       footer={(matches) =>
         matches.length === MATCH_LIMIT && (
-          <p className="text-base-content/50 px-2 text-xs">
+          <p className="text-muted px-2 text-xs">
             The first {MATCH_LIMIT} matches. Type more to narrow them.
           </p>
         )
@@ -60,7 +60,7 @@ export function TableSearchPalette({ connectionId, initial, onOpenTable, onClose
               ),
             )}
           </span>
-          <span className="text-base-content/50 shrink-0 text-xs">{KIND_LABELS[match.kind]}</span>
+          <span className="text-faint shrink-0 text-xs">{KIND_LABELS[match.kind]}</span>
         </>
       )}
     </Palette>
