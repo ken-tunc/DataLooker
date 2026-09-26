@@ -9,8 +9,8 @@ use crate::drivers::session::Whose;
 use crate::drivers::{QueryPlan, QueryResult};
 use crate::error::AppError;
 
-/// Lower than the reader's limit: a reader scrolls, an agent reads it all into
-/// its context.
+/// Only an agent's results are cut short: a reader scrolls, an agent reads it
+/// all into its context.
 const ROWS: usize = 1_000;
 
 /// The reader's statements have no limit because they can cancel; nobody is

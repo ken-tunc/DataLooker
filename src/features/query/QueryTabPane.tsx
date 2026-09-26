@@ -200,7 +200,6 @@ function Status({
         {result.rows.length} {result.rows.length === 1 ? "row" : "rows"}
       </span>
       <span>{result.elapsed_ms} ms</span>
-      {result.truncated && <span className="text-warning">first rows only</span>}
     </span>
   );
 }

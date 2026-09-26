@@ -46,13 +46,24 @@ pub async fn execute(
         .unwrap_or(i32::MAX)
         .saturating_add(1);
     let query = request(sql, location, wanted);
-    let page = start(client, project_id, location, query, wanted, cancel).await?;
+    let mut page = start(client, project_id, location, query, wanted, cancel).await?;
+    let fields = std::mem::take(&mut page.fields);
+    let total = page.total;
+    // BigQuery ends a page at its own size cap too, so the rows asked for may
+    // take several.
+    let mut rows = std::mem::take(&mut page.rows);
+    while rows.len() <= row_limit {
+        let (Some(token), Some(job)) = (page.next.clone(), page.job.clone()) else {
+            break;
+        };
+        page = more(client, project_id, location, &job, &token, cancel).await?;
+        rows.append(&mut page.rows);
+    }
 
-    let truncated = page.rows.len() > row_limit
+    let truncated = rows.len() > row_limit
         || page.next.is_some()
-        || page.total.is_some_and(|total| total > row_limit as u64);
-    let columns = page
-        .fields
+        || total.is_some_and(|total| total > row_limit as u64);
+    let columns = fields
         .iter()
         .map(|field| QueryColumn {
             name: field.name.clone(),
@@ -60,11 +71,10 @@ pub async fn execute(
             instant: holds_instants(field),
         })
         .collect();
-    let rows = page
-        .rows
+    let rows = rows
         .iter()
         .take(row_limit)
-        .map(|row| cells(row, &page.fields))
+        .map(|row| cells(row, &fields))
         .collect();
 
     Ok(QueryResult {
@@ -267,6 +277,26 @@ mod live {
     use crate::drivers::bigquery::testing::*;
 
     use crate::error::AppError;
+
+    /// About 20 MB, past what BigQuery sends in one page, and scanning no table.
+    #[tokio::test]
+    async fn rows_past_one_page_are_read_from_the_pages_after_it() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+
+        let result = session
+            .execute(
+                "SELECT n, REPEAT('x', 1000) AS pad FROM UNNEST(GENERATE_ARRAY(1, 20000)) AS n",
+                usize::MAX,
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("BigQuery ran the statement");
+
+        assert_eq!(result.rows.len(), 20_000);
+        assert!(!result.truncated);
+    }
 
     /// Everything a statement can be asked for in one query: a whole number past
     /// what JavaScript keeps, one it keeps, a repeated field and a record.
