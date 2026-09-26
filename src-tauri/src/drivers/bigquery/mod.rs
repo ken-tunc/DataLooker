@@ -1,5 +1,6 @@
 mod preview;
 mod query;
+mod risks;
 mod schema;
 #[cfg(test)]
 mod testing;
@@ -17,7 +18,7 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
-use crate::drivers::{Column, Preview, QueryResult, SchemaTree, TablePage};
+use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
 
 /// Bounds `test`: neither the OAuth exchange nor the job has a deadline.
@@ -25,6 +26,14 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Reads no table, so it is billed nothing.
 const NOTHING_AT_ALL: &str = "SELECT 1";
+
+/// What a dry run said of a statement.
+pub struct Planned {
+    /// Its `statementType`: `SELECT`, `INSERT`, `DROP_TABLE`, `SCRIPT`.
+    pub kind: String,
+    /// The table a DDL statement makes, changes or drops, as `dataset.table`.
+    pub target: Option<String>,
+}
 
 /// Every statement is a job of its own, so there is no session to hold; what
 /// is kept is the client, because building one is an OAuth exchange.
@@ -61,13 +70,10 @@ impl BigQuerySession {
             .await
     }
 
-    /// Asked of a dry run: this app has no parser for BigQuery's dialect, and
-    /// there is no read-only connection to hold a caller to.
-    pub async fn statement_kind(
-        &self,
-        sql: &str,
-        cancel: &CancellationToken,
-    ) -> Result<String, AppError> {
+    /// What BigQuery says `sql` is, asked of a dry run: this app has no parser
+    /// for BigQuery's dialect, and there is no read-only connection to hold a
+    /// caller to.
+    pub async fn plan(&self, sql: &str, cancel: &CancellationToken) -> Result<Planned, AppError> {
         let client = tokio::select! {
             client = self.client() => client?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -99,13 +105,28 @@ impl BigQuerySession {
         };
         let planned = planned.map_err(|e| AppError::Database(format!("BigQuery refused: {e}")))?;
 
-        planned
-            .statistics
-            .and_then(|statistics| statistics.query)
+        let query = planned.statistics.and_then(|statistics| statistics.query);
+        let target = query
+            .as_ref()
+            .and_then(|query| query.ddl_target_table.as_ref())
+            .map(|table| format!("{}.{}", table.dataset_id, table.table_id));
+        let kind = query
             .and_then(|query| query.statement_type)
             .ok_or_else(|| {
                 AppError::Database("BigQuery did not say what the statement is".to_string())
-            })
+            })?;
+        Ok(Planned { kind, target })
+    }
+
+    /// What to ask the reader about before `sql` runs. BigQuery is asked only
+    /// when the words look easy to regret, or on `production`, where every
+    /// write asks: most statements need not wait for a dry run.
+    pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
+        if !production && !risks::suspect(sql) {
+            return Ok(Vec::new());
+        }
+        let planned = self.plan(sql, &CancellationToken::new()).await?;
+        Ok(risks::risks(sql, &planned, production))
     }
 
     pub async fn execute(

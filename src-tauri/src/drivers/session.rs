@@ -9,7 +9,8 @@ use crate::db::connection::{self, DriverConfig};
 use crate::drivers::bigquery::BigQuerySession;
 use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
-    Column, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, Preview, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage,
+    TableShape,
 };
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -67,7 +68,7 @@ impl Session {
         match self {
             Session::Postgres(session) => session.execute_reading(sql, row_limit, cancel).await,
             Session::BigQuery(session) => {
-                let kind = session.statement_kind(sql, cancel).await?;
+                let kind = session.plan(sql, cancel).await?.kind;
                 if kind != "SELECT" {
                     return Err(AppError::Unsupported(format!(
                         "An agent may only read here, and BigQuery calls this a {kind} statement."
@@ -75,6 +76,14 @@ impl Session {
                 }
                 session.execute(sql, row_limit, cancel).await
             }
+        }
+    }
+
+    /// What to ask the reader about before `sql` runs.
+    pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
+        match self {
+            Session::Postgres(_) => Ok(crate::drivers::postgres::risks(sql, production)),
+            Session::BigQuery(session) => session.risks(sql, production).await,
         }
     }
 
