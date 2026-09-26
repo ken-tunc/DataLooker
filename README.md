@@ -21,7 +21,8 @@ PostgreSQL and BigQuery.
   while a transaction you have open stays as it was. An analyzed plan shows each node's
   own share of the time, estimates tenfold or more off, and what the plan states
   outright: a sort or hash on disk, a lossy bitmap, missing workers, a filter that throws
-  most rows away. Every key of a node is a click away.
+  most rows away. Every key of a node is a click away. The plan can also be drawn as a
+  graph, each line as wide as the rows it carries.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its

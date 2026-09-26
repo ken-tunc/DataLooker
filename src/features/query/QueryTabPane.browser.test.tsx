@@ -187,6 +187,106 @@ describe("explaining a statement", () => {
     await expect.element(last).toBeInViewport();
   });
 
+  it("draws the plan as a graph that shares its selection with the table", async () => {
+    const { screen } = await shell(postgres, { explain_query: analyzed });
+    await screen.getByRole("button", { name: "Analyze" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
+
+    const graph = screen.getByRole("tree", { name: "Plan graph" });
+    await expect.element(graph).toBeVisible();
+    const scan = graph.getByRole("treeitem", { name: /^Seq Scan, public\.orders o, 150 rows/ });
+    await scan.click();
+    const details = screen.getByRole("complementary", { name: "Node details" });
+    await expect.element(details).toHaveTextContent("(status = 'shipped')");
+    await expect.element(graph).toHaveAttribute("aria-activedescendant", scan.element().id);
+    // Two nodes, one line between them, as wide as the rows it carries.
+    expect(graph.element().querySelectorAll("path title")).toHaveLength(1);
+    expect(graph.element().querySelector("path title")?.textContent).toBe("150 rows");
+
+    await screen.getByRole("button", { name: "Table" }).click();
+    await expect
+      .element(screen.getByRole("row", { name: /Seq Scan/ }))
+      .toHaveAttribute("aria-selected", "true");
+
+    // The tab keeps the shape for the next plan it shows.
+    await screen.getByRole("button", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Analyze" }).click();
+    await expect.element(screen.getByRole("tree", { name: "Plan graph" })).toBeVisible();
+  });
+
+  it("keeps a node picked in the graph in view once its details open", async () => {
+    // Wider than any viewport at the smallest zoom: twenty scans under one append.
+    const scans = Array.from({ length: 20 }, (_, i) => ({
+      "Node Type": "Seq Scan",
+      "Relation Name": `part_${i}`,
+      "Plan Rows": 1,
+      "Total Cost": 1,
+    }));
+    const { screen } = await shell(postgres, {
+      explain_query: {
+        plan: { Plan: { "Node Type": "Append", "Plan Rows": 20, "Total Cost": 20, Plans: scans } },
+        elapsed_ms: 1,
+      },
+    });
+    await screen.getByRole("button", { name: "Explain" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
+    const graph = screen.getByRole("tree", { name: "Plan graph" });
+    const last = graph.getByRole("treeitem", { name: /^Seq Scan, part_19,/ });
+    const inside = () => {
+      const box = last.element().getBoundingClientRect();
+      const view = graph.element().getBoundingClientRect();
+      return box.left >= view.left && box.right <= view.right;
+    };
+    await expect.element(last).toBeInTheDocument();
+    expect(inside()).toBe(false);
+
+    (graph.element() as HTMLElement).focus();
+    await userEvent.keyboard("{Control>}p{/Control}");
+
+    await expect
+      .element(screen.getByRole("complementary", { name: "Node details" }))
+      .toHaveTextContent("part_19");
+    await expect.poll(inside).toBe(true);
+
+    // The reader's own pan takes it away again, and it stays away.
+    graph
+      .element()
+      .dispatchEvent(new WheelEvent("wheel", { deltaX: -2000, bubbles: true, cancelable: true }));
+    await expect.poll(inside).toBe(false);
+    await new Promise((settled) => setTimeout(settled, 200));
+    expect(inside()).toBe(false);
+  });
+
+  it("zooms the graph about the pointer and fits it back", async () => {
+    const { screen } = await shell(postgres, { explain_query: analyzed });
+    await screen.getByRole("button", { name: "Analyze" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
+    const graph = screen.getByRole("tree", { name: "Plan graph" });
+    await expect.element(graph).toBeVisible();
+    const drawn = () => graph.element().querySelector("svg > g")?.getAttribute("transform");
+    // Drawn once the viewport has been measured, and listened to a frame later.
+    await expect.poll(drawn).toBeTruthy();
+    await new Promise(requestAnimationFrame);
+    const fitted = drawn();
+
+    // A pinch, as macOS delivers one.
+    graph.element().dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -50,
+        ctrlKey: true,
+        clientX: 100,
+        clientY: 100,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(drawn).not.toBe(fitted);
+    expect(drawn()).toMatch(/scale\(1\.6/);
+
+    await screen.getByRole("button", { name: "Fit the plan" }).click();
+    await expect.poll(drawn).toBe(fitted);
+  });
+
   it("offers no plan for BigQuery", async () => {
     const { ipc, screen, editor } = await shell(bigquery);
 
