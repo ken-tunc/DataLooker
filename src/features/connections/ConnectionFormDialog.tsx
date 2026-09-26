@@ -103,10 +103,10 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                   beside the select and follows what it has chosen. A div
                   rather than daisyUI's label, which would name the select
                   a second time. */}
-              <div className="select w-full">
+              <div className="select select-sm w-full">
                 {/* daisyUI pulls the select a field's padding to its left, over
                     whatever sits beside it, so the mark keeps that much clear. */}
-                <DriverIcon kind={values.kind} className="me-3 size-6" />
+                <DriverIcon kind={values.kind} className="me-3 size-5" />
                 <select
                   id={`${fieldId}-kind`}
                   value={values.kind}
@@ -215,7 +215,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
               ) : (
                 <textarea
                   id={`${fieldId}-secret`}
-                  className={`${errors.secret ? "textarea textarea-error" : "textarea"} h-28 w-full font-mono text-xs`}
+                  className={`${errors.secret ? "textarea textarea-error" : "textarea"} h-28 w-full font-mono text-sm`}
                   spellCheck={false}
                   placeholder="The service account key, as the JSON file holds it"
                   value={values.secret}
@@ -258,7 +258,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
             >
               <select
                 id={`${fieldId}-time-zone`}
-                className="select w-full"
+                className="select select-sm w-full"
                 value={values.timeZone}
                 onChange={(event) => update("timeZone", event.target.value)}
               >
@@ -280,13 +280,13 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
           <div className="modal-action">
             <button
               type="button"
-              className="btn btn-ghost"
+              className="btn btn-sm btn-ghost"
               disabled={save.isPending}
               onClick={onClose}
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={save.isPending}>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={save.isPending}>
               {save.isPending && <span className="loading loading-spinner loading-xs" />}
               Save
             </button>
@@ -303,7 +303,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
 }
 
 function inputClass(error?: string) {
-  return error ? "input input-error w-full" : "input w-full";
+  return error ? "input input-sm input-error w-full" : "input input-sm w-full";
 }
 
 function Field({

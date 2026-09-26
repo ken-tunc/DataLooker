@@ -160,6 +160,9 @@ a tunnel holding its port.
   connection is first opened. It holds one theme for everything it draws, so it is set
   there once.
 - daisyUI's `dark` is the only theme; nothing follows the OS.
+- One density: a control is `sm` wherever the reader works — a pane, a panel, a dialog —
+  and text they read there is `text-sm`. `xs` is for what sits inside a line: a tab, a
+  list row, an alert, the title bar, the editor's status line, a control over a canvas.
 
 ## Build and release
 

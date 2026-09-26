@@ -66,7 +66,7 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
             </label>
             <input
               id={`${fieldId}-name`}
-              className="input w-full"
+              className="input input-sm w-full"
               value={name}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? `${fieldId}-error` : undefined}
@@ -81,7 +81,7 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
             </label>
             <textarea
               id={`${fieldId}-sql`}
-              className="textarea h-48 w-full font-mono text-xs"
+              className="textarea h-48 w-full font-mono text-sm"
               spellCheck={false}
               value={sql}
               aria-invalid={error ? true : undefined}
@@ -110,13 +110,13 @@ export function TemplateFormDialog({ template, sql: initialSql = "", onClose }: 
           <div className="modal-action">
             <button
               type="button"
-              className="btn btn-ghost"
+              className="btn btn-sm btn-ghost"
               disabled={save.isPending}
               onClick={() => dialog.current?.close()}
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={save.isPending}>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={save.isPending}>
               {save.isPending && <span className="loading loading-spinner loading-xs" />}
               Save
             </button>

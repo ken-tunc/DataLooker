@@ -359,7 +359,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
           <div className="text-base-content/60 flex items-center gap-3 text-sm">
             <button
               type="button"
-              className="btn btn-xs"
+              className="btn btn-sm"
               disabled={tab.page === 0 || preview.isFetching}
               onClick={() => onView({ page: tab.page - 1 })}
             >
@@ -367,7 +367,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             </button>
             <button
               type="button"
-              className="btn btn-xs"
+              className="btn btn-sm"
               // `truncated` means the page after this one has something in it.
               disabled={!page?.result.truncated || preview.isFetching}
               onClick={() => onView({ page: tab.page + 1 })}

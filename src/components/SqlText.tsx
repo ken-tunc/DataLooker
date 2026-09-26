@@ -10,7 +10,7 @@ async function colorize(sql: string): Promise<string> {
   return editor.colorize(sql, SQL_LANGUAGE, { tabSize: 4 });
 }
 
-const STYLE = "bg-base-200 overflow-x-auto rounded-box p-3 font-mono text-xs whitespace-pre";
+const STYLE = "bg-base-200 overflow-x-auto rounded-box p-3 font-mono text-sm whitespace-pre";
 
 export function SqlText({ children, className }: { children: string; className?: string }) {
   const [coloured, setColoured] = useState<string | null>(null);
