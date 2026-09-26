@@ -63,9 +63,8 @@ export function QueryTabPane({
       if (risks.length > 0) setAsking({ sql: statement, risks });
       else start({ sql: statement, explain: null });
     },
-    // What could not be read for its risks is run, so the reader sees why the
-    // database refuses it rather than why this app could not ask.
-    onError: (_, statement) => start({ sql: statement, explain: null }),
+    // Not run: what could not be asked about would go unasked. Text that does
+    // not parse has nothing to ask about rather than failing.
   });
   const busy = run.isPending || check.isPending;
 
@@ -79,7 +78,10 @@ export function QueryTabPane({
     if (explain !== null && !explains) return;
     if (sql.trim() === "" || busy || asking) return;
     if (explain === null) check.mutate(sql);
-    else start({ sql, explain });
+    else {
+      check.reset();
+      start({ sql, explain });
+    }
   }
 
   /** Several matches go to the palette: the search path decides, not the tree. */
@@ -154,8 +156,14 @@ export function QueryTabPane({
         <span className="grow" />
         <Status
           pending={busy}
-          cancelled={cancelled}
-          error={run.isError && !cancelled ? describeError(run.error) : null}
+          cancelled={cancelled && !check.isError}
+          error={
+            check.isError
+              ? describeError(check.error)
+              : run.isError && !cancelled
+                ? describeError(run.error)
+                : null
+          }
           outcome={outcome}
         />
       </div>

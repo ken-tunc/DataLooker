@@ -461,3 +461,19 @@ describe("running a statement that is easy to regret", () => {
     expect(ipc.sent("execute_query")).toMatchObject({ sql: deleting.statement });
   });
 });
+
+describe("a statement that cannot be asked about", () => {
+  it("says why and runs nothing", async () => {
+    const { ipc, screen } = await shell(postgres, {
+      statement_risks: () => {
+        throw { kind: "Database", message: "the connection could not be read" };
+      },
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    await expect.element(screen.getByText("the connection could not be read")).toBeVisible();
+    expect(ipc.sent("execute_query")).toBeUndefined();
+  });
+});
