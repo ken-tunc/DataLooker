@@ -151,6 +151,32 @@ describe("explaining a statement", () => {
     await expect.element(details).not.toBeInTheDocument();
   });
 
+  it("scrolls a node picked from the keyboard into view", async () => {
+    // A chain deep enough to overflow the results pane.
+    let deepest: Record<string, unknown> = {
+      "Node Type": "Seq Scan",
+      "Plan Rows": 1,
+      "Total Cost": 1,
+    };
+    for (let depth = 0; depth < 60; depth += 1) {
+      deepest = { "Node Type": "Materialize", "Plan Rows": 1, "Total Cost": 1, Plans: [deepest] };
+    }
+    const { screen } = await shell(postgres, {
+      explain_query: { plan: { Plan: deepest }, elapsed_ms: 1 },
+    });
+    await screen.getByRole("button", { name: "Explain" }).click();
+
+    const last = screen.getByRole("row", { name: /Seq Scan/ });
+    await expect.element(last).not.toBeInViewport();
+    // Focused rather than clicked: a click would land on a row and pick it.
+    (screen.getByRole("group", { name: "Plan" }).element() as HTMLElement).focus();
+    // Up from nothing selected is the last node.
+    await userEvent.keyboard("{Control>}p{/Control}");
+
+    await expect.element(last).toHaveAttribute("aria-selected", "true");
+    await expect.element(last).toBeInViewport();
+  });
+
   it("offers no plan for BigQuery", async () => {
     const { ipc, screen, editor } = await shell(bigquery);
 

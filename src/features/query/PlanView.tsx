@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { type KeyboardEvent, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { QueryPlan } from "../../bindings/QueryPlan";
 import { stepFor } from "../../lib/keys";
 import { type PlanNode, readPlan } from "./plan";
@@ -20,6 +20,13 @@ function ms(value: number) {
 
 export function PlanView({ plan }: { plan: QueryPlan }) {
   const [selected, setSelected] = useState<number | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  // The keys move the selection, not the focus, so nothing else brings the row into view.
+  useEffect(() => {
+    scroller.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
   const read = readPlan(plan.plan);
   // Not a shape this reads: what PostgreSQL said is still worth seeing.
   if (!read) {
@@ -70,6 +77,7 @@ export function PlanView({ plan }: { plan: QueryPlan }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <div
+          ref={scroller}
           role="group"
           aria-label="Plan"
           tabIndex={0}
@@ -140,7 +148,8 @@ function NodeRow({
   return (
     <tr
       aria-selected={selected}
-      className={`cursor-default ${selected ? "bg-base-300" : "hover:bg-base-200"} ${never ? "opacity-50" : ""}`}
+      // Clear of the pinned header when scrolled to from below.
+      className={`cursor-default scroll-mt-8 ${selected ? "bg-base-300" : "hover:bg-base-200"} ${never ? "opacity-50" : ""}`}
       onClick={onSelect}
     >
       <td style={{ paddingLeft: `${0.75 + depth * 1.25}rem` }}>
