@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { type KeyboardEvent, useId, useState } from "react";
 import type { QueryPlan } from "../../bindings/QueryPlan";
+import { ViewSwitch } from "../../components/ViewSwitch";
 import { stepFor } from "../../lib/keys";
 import { decimal, HEAVY, ms, percent } from "./format";
 import { PlanGraph } from "./PlanGraph";
@@ -8,6 +9,11 @@ import { PlanTable } from "./PlanTable";
 import { type PlanNode, readPlan } from "./plan";
 
 export type Shape = "table" | "graph";
+
+const SHAPES = [
+  { value: "table", label: "Table" },
+  { value: "graph", label: "Graph" },
+] as const satisfies readonly { value: Shape; label: string }[];
 
 type Row = { node: PlanNode; depth: number };
 
@@ -62,19 +68,7 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
   return (
     <div className="hairline flex h-full flex-col overflow-hidden rounded-box border">
       <div className="hairline text-base-content/70 flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-sm">
-        <div className="join" role="group" aria-label="Show the plan as">
-          {(["table", "graph"] as const).map((each) => (
-            <button
-              key={each}
-              type="button"
-              aria-pressed={shape === each}
-              className={`btn btn-sm join-item ${shape === each ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => onShapeChange(each)}
-            >
-              {each === "table" ? "Table" : "Graph"}
-            </button>
-          ))}
-        </div>
+        <ViewSwitch label="Show the plan as" views={SHAPES} shown={shape} onShow={onShapeChange} />
         <span>{analyzed ? "Analyzed" : "Estimated"}</span>
         {read.planningMs !== null && <span>Planning {ms(read.planningMs)}</span>}
         {read.executionMs !== null && <span>Execution {ms(read.executionMs)}</span>}

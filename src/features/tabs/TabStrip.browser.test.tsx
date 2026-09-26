@@ -28,8 +28,6 @@ function Strip({ count }: { count: number }) {
 
 async function strip(count = 3) {
   const screen = await renderApp(<Strip count={count} />);
-  // Through the strip's own tablist rather than every tab on the page: a table
-  // tab holds a second one, for the two ways of reading it.
   const tabs = () => [
     ...document.querySelectorAll<HTMLElement>(
       '[role="tablist"][aria-label="Open tabs"] [role="tab"]',

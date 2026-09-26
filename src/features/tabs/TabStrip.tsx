@@ -66,7 +66,6 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
     <div
       ref={strip}
       role="tablist"
-      // A table tab holds a tablist of its own.
       aria-label="Open tabs"
       className="tabs tabs-lift min-w-0 flex-1 self-end pl-1"
     >
