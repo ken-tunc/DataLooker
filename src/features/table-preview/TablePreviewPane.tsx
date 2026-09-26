@@ -1,6 +1,8 @@
 import { RotateCw } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
+import { EmptyState } from "../../components/EmptyState";
 import { SqlInput } from "../../components/SqlInput";
+import { ViewSwitch } from "../../components/ViewSwitch";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
 import { formatCell } from "../query/cell";
@@ -27,6 +29,11 @@ import {
   useTableShape,
 } from "./hooks";
 import { TableStructure } from "./TableStructure";
+
+const SHOWS = [
+  { value: "rows", label: "Rows" },
+  { value: "structure", label: "Structure" },
+] as const satisfies readonly { value: TableView["shows"]; label: string }[];
 
 /** The row "Remove row" acts on: a draft by its id, a stored row by its key. */
 type DeleteTarget =
@@ -201,20 +208,12 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
           {tab.schema}.{tab.table}
         </span>
 
-        <div role="tablist" className="tabs tabs-box tabs-xs shrink-0">
-          {(["rows", "structure"] as const).map((shows) => (
-            <button
-              key={shows}
-              type="button"
-              role="tab"
-              aria-selected={tab.shows === shows}
-              className={`tab ${tab.shows === shows ? "tab-active" : ""}`}
-              onClick={() => onView({ shows })}
-            >
-              {shows === "rows" ? "Rows" : "Structure"}
-            </button>
-          ))}
-        </div>
+        <ViewSwitch
+          label="Show the table as"
+          views={SHOWS}
+          shown={tab.shows}
+          onShow={(shows) => onView({ shows })}
+        />
 
         {structure && <span className="grow" />}
 
@@ -350,9 +349,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
                 connectionId={connectionId}
               />
             ) : (
-              <div className="hairline text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
-                {preview.isPending ? "Reading the table…" : "No rows match."}
-              </div>
+              <EmptyState>{preview.isPending ? "Reading the table…" : "No rows match."}</EmptyState>
             )}
           </div>
 

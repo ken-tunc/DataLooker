@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react";
+import { EmptyState } from "../../components/EmptyState";
 import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
 import { describeError, IpcError } from "../../lib/invoke";
@@ -165,9 +166,9 @@ export function QueryTabPane({
         ) : outcome && outcome.result.columns.length > 0 ? (
           <ResultGrid result={outcome.result} connectionId={connectionId} />
         ) : (
-          <div className="hairline text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
+          <EmptyState>
             {run.isSuccess ? "The statement returned no rows." : "Run a query to see its rows."}
-          </div>
+          </EmptyState>
         )}
       </div>
     </div>
