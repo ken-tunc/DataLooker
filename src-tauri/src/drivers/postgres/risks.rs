@@ -6,7 +6,8 @@ use crate::drivers::{Hazard, Risk};
 /// What in `sql` is easy to regret, read from libpg_query's parse tree rather
 /// than the text, so a word in a comment or a string is not mistaken for one.
 /// A statement inside another — a `DELETE` in a `WITH`, an `EXPLAIN ANALYZE`
-/// of one — counts, since it runs all the same.
+/// of one — counts, since it runs all the same; one a plain `EXPLAIN` only
+/// plans does not.
 ///
 /// Text that does not parse has nothing to ask about: PostgreSQL parses the
 /// whole of it before running any, and refuses it too.
@@ -23,6 +24,9 @@ pub fn risks(sql: &str) -> Vec<Risk> {
             let Some(node) = raw.stmt.as_ref().and_then(|stmt| stmt.node.as_ref()) else {
                 return Vec::new();
             };
+            if only_plans(node) {
+                return Vec::new();
+            }
             node.nodes()
                 .into_iter()
                 .filter_map(|(node, ..)| hazard(node))
@@ -76,6 +80,28 @@ fn hazard(node: NodeRef<'_>) -> Option<(Hazard, Vec<String>)> {
         }
         _ => None,
     }
+}
+
+/// An `EXPLAIN` without `ANALYZE`, which plans its statement without running it.
+fn only_plans(node: &NodeEnum) -> bool {
+    let NodeEnum::ExplainStmt(explain) = node else {
+        return false;
+    };
+    !explain
+        .options
+        .iter()
+        .any(|option| match option.node.as_ref() {
+            Some(NodeEnum::DefElem(option)) if option.defname == "analyze" => {
+                match option.arg.as_ref().and_then(|arg| arg.node.as_ref()) {
+                    None => true,
+                    Some(NodeEnum::Boolean(on)) => on.boolval,
+                    Some(NodeEnum::String(word)) => !matches!(word.sval.as_str(), "false" | "off"),
+                    Some(NodeEnum::Integer(number)) => number.ival != 0,
+                    Some(_) => true,
+                }
+            }
+            _ => false,
+        })
 }
 
 /// `stmt_len` is 0 for a statement that runs to the end of the text.
@@ -177,6 +203,17 @@ mod tests {
             hazards("EXPLAIN ANALYZE DELETE FROM users"),
             one(Hazard::DeleteWithoutWhere, &["users"])
         );
+        assert_eq!(
+            hazards("EXPLAIN (ANALYZE, BUFFERS) DELETE FROM users"),
+            one(Hazard::DeleteWithoutWhere, &["users"])
+        );
+    }
+
+    #[test]
+    fn a_statement_an_explain_only_plans_is_not_run() {
+        assert!(hazards("EXPLAIN DELETE FROM users").is_empty());
+        assert!(hazards("EXPLAIN (ANALYZE false) DELETE FROM users").is_empty());
+        assert!(hazards("EXPLAIN (ANALYZE off) DELETE FROM users").is_empty());
     }
 
     #[test]
