@@ -11,8 +11,11 @@ PostgreSQL and BigQuery.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
   keybindings.
-- **Results** — a virtualized grid with resizable columns, cell copy, and the whole of a
-  value the cell cuts short on hover, with documents indented. Points in time
+- **Results** — a virtualized grid with resizable columns, and the whole of a value the
+  cell cuts short on hover, with documents indented. A range of cells, dragged or
+  stretched with ⇧, is copied as a spreadsheet pastes it, or from the right-click menu
+  with its headers, as Markdown, as JSON, or, from a PostgreSQL table, as an `INSERT`.
+  Every row the grid holds can be saved as CSV or JSON. Points in time
   (`timestamptz`, BigQuery's `TIMESTAMP`) are shown in the connection's time zone, UTC
   unless it names another.
 - **Plans** — a PostgreSQL statement's plan as a tree, estimated, or analyzed: run
@@ -52,7 +55,10 @@ Press ⌘? for this list in the app.
 | ⌘E                | Show how PostgreSQL would run it      |
 | ⌘⇧E               | Run it read-only and time each step   |
 | ⌘⇧D, ⌘-click      | Open the table named under the cursor |
-| ⌘C                | Copy the selected cell                |
+| ⇧-click, ⇧↑↓←→    | Stretch the selection over a range    |
+| ⌘↑↓←→             | Go to the first / last row or column  |
+| ⌘A                | Select every cell                     |
+| ⌘C                | Copy the selected cells               |
 | Space             | Show the selected cell in full        |
 | ⌘Backspace        | Set the cell being edited to NULL     |
 | ↑, ↓, ⌃N, ⌃P      | Next / previous node in a plan        |

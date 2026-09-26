@@ -17,6 +17,10 @@ use secrets::KeyringStore;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Saving a result: the path the reader picks is the only one the
+        // window may then write, since the dialog adds it to the fs scope.
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;
