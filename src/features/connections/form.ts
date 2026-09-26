@@ -19,6 +19,7 @@ const shared = {
   commandWhileSelected: z.boolean(),
   // Picked from the zones the webview knows, or blank for UTC.
   timeZone: z.string(),
+  production: z.boolean(),
 };
 
 const postgres = z.object({
@@ -55,6 +56,7 @@ export type ConnectionFormValues = {
   command: string;
   commandWhileSelected: boolean;
   timeZone: string;
+  production: boolean;
 };
 
 export type FieldErrors = Partial<Record<keyof ConnectionFormValues, string>>;
@@ -73,6 +75,7 @@ export const EMPTY_FORM: ConnectionFormValues = {
   command: "",
   commandWhileSelected: false,
   timeZone: "",
+  production: false,
 };
 
 export const SECRET_LABELS: Record<DriverKind, string> = {
@@ -132,6 +135,7 @@ export function parseConnectionForm(
       command: parsed.data.command === "" ? null : parsed.data.command,
       command_while_selected: parsed.data.commandWhileSelected,
       time_zone: parsed.data.timeZone === "" ? null : parsed.data.timeZone,
+      production: parsed.data.production,
     },
   };
 }
@@ -146,6 +150,8 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
     commandWhileSelected: record.command_while_selected,
     // UTC is the blank choice, however it was stored.
     timeZone: record.time_zone === "UTC" ? "" : (record.time_zone ?? ""),
+    // A copy of production is production until the reader says otherwise.
+    production: record.production,
     ...(config.kind === "postgres"
       ? {
           host: config.host,
@@ -173,6 +179,7 @@ if (import.meta.vitest) {
     command: "ssh -L 5432:db:5432 bastion",
     command_while_selected: true,
     time_zone: "Asia/Tokyo",
+    production: true,
     created_at: "2026-09-20T00:00:00Z",
   };
 
@@ -212,6 +219,7 @@ if (import.meta.vitest) {
           command: null,
           command_while_selected: false,
           time_zone: null,
+          production: false,
         },
       });
     });
@@ -301,6 +309,7 @@ if (import.meta.vitest) {
         command: "ssh -L 5432:db:5432 bastion",
         commandWhileSelected: true,
         timeZone: "Asia/Tokyo",
+        production: true,
       });
       expect(formValuesFrom(record, "edit").label).toBe("Local");
     });
@@ -316,6 +325,7 @@ if (import.meta.vitest) {
           config: { kind: "bigquery", project_id: "looking", location: "EU" },
           command: null,
           time_zone: null,
+          production: false,
         },
         "edit",
       );

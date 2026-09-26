@@ -373,6 +373,7 @@ function bigquery(connectionId: string): ConnectionRecord[] {
       command: null,
       command_while_selected: false,
       time_zone: null,
+      production: false,
       created_at: "2026-09-23 00:00:00",
     },
   ];
@@ -574,6 +575,7 @@ describe("SqlEditor asked to format", () => {
       command: null,
       command_while_selected: false,
       time_zone: null,
+      production: false,
       created_at: "2026-09-23 00:00:00",
     };
     const made = await editor({ check_syntax: [], list_connections: [record] }, sql, connectionId);

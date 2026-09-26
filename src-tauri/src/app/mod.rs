@@ -129,6 +129,7 @@ pub mod tests {
                 secret: Some(password),
                 command: None,
                 command_while_selected: false,
+                production: false,
                 time_zone: None,
             })
             .await

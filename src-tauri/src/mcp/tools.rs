@@ -357,6 +357,7 @@ mod tests {
             config,
             command: None,
             command_while_selected: false,
+            production: false,
             time_zone: None,
             created_at: "2026-09-26T00:00:00Z".into(),
         }

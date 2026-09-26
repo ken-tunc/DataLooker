@@ -13,7 +13,8 @@ PostgreSQL and BigQuery.
   formatting in either dialect that keeps comments and keyword case, and vim keybindings.
   On PostgreSQL, an `UPDATE` or `DELETE` without a `WHERE`, a `DROP`, a `TRUNCATE` and an
   `ALTER TABLE ... DROP COLUMN` ask before they run, each statement read from its parse
-  tree.
+  tree. On a connection marked production, drawn in red, every statement that writes
+  asks.
 - **Results** — a virtualized grid with resizable columns, and the whole of a value the
   cell cuts short on hover, with documents indented. A range of cells, dragged or
   stretched with ⇧, is copied as a spreadsheet pastes it, or from the right-click menu

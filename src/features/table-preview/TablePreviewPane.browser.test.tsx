@@ -138,6 +138,7 @@ describe("TablePreviewPane", () => {
           command: null,
           command_while_selected: false,
           time_zone: "Asia/Tokyo",
+          production: false,
           created_at: "2026-09-20T00:00:00Z",
         },
       ],

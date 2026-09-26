@@ -13,4 +13,8 @@ command_while_selected: boolean,
 /**
  * The IANA zone its points in time are shown in; UTC when absent.
  */
-time_zone: string | null, created_at: string, };
+time_zone: string | null, 
+/**
+ * Marked as production: every statement that writes asks first.
+ */
+production: boolean, created_at: string, };
