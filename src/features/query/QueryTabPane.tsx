@@ -7,7 +7,7 @@ import { useDriver } from "../connections/hooks";
 import { TemplateFormDialog } from "../query-templates/TemplateFormDialog";
 import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
-import { PlanView } from "./PlanView";
+import { PlanView, type Shape } from "../query-plan/PlanView";
 import { ResultGrid } from "./ResultGrid";
 import { type Outcome, type Request, useQueryRunner } from "./hooks";
 
@@ -46,6 +46,7 @@ export function QueryTabPane({
   // Only PostgreSQL says how it would run a statement.
   const explains = useDriver(connectionId) === "postgres";
   const outcome = run.isSuccess ? run.data : null;
+  const [planShape, setPlanShape] = useState<Shape>("table");
 
   function submit(explain: Request["explain"] = null) {
     if (explain !== null && !explains) return;
@@ -155,7 +156,12 @@ export function QueryTabPane({
 
       <div className="min-h-24 flex-1 basis-0">
         {outcome?.kind === "plan" ? (
-          <PlanView key={run.submittedAt} plan={outcome.plan} />
+          <PlanView
+            key={run.submittedAt}
+            plan={outcome.plan}
+            shape={planShape}
+            onShapeChange={setPlanShape}
+          />
         ) : outcome && outcome.result.columns.length > 0 ? (
           <ResultGrid result={outcome.result} connectionId={connectionId} />
         ) : (
