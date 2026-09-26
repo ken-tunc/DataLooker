@@ -29,7 +29,7 @@ import "monaco-editor/features/wordPartOperations/register.js";
 import "monaco-editor/languages/definitions/pgsql/register.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 
-import { editor } from "monaco-editor/editor/editor.api.js";
+import { editor, KeyCode, KeyMod } from "monaco-editor/editor/editor.api.js";
 
 export {
   KeyCode,
@@ -39,6 +39,13 @@ export {
   editor,
   languages,
 } from "monaco-editor/editor/editor.api.js";
+
+// ⌘⇧F formats (`SqlEditor`), so Monaco's own key for the document alone is
+// taken away rather than left to do half of it.
+editor.addKeybindingRule({
+  keybinding: KeyMod.Shift | KeyMod.Alt | KeyCode.KeyF,
+  command: "-editor.action.formatDocument",
+});
 
 // Monaco holds one theme for everything it draws, so it is set here rather than
 // per editor; `colorize` outside an editor uses it too.

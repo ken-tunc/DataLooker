@@ -160,9 +160,9 @@ export default function SqlEditor({
     instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyD, () =>
       jumpAt(instance.getPosition()),
     );
-    // One key for either: Monaco's own ⇧⌥F formats the document even with a
-    // selection, and its ⌘K ⌘F for a selection is a chord few would guess.
-    instance.addCommand(KeyMod.Shift | KeyMod.Alt | KeyCode.KeyF, () =>
+    // One key for either, as BigQuery's console has it: Monaco's own keys are
+    // one for the document, even with a selection, and a chord for a selection.
+    instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF, () =>
       instance.trigger(
         "keyboard",
         instance.getSelection()?.isEmpty() === false

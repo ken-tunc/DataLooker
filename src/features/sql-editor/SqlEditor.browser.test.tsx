@@ -556,7 +556,7 @@ describe("SqlEditor completion of BigQuery", () => {
 
 describe("SqlEditor asked to format", () => {
   const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
-  const format = () => userEvent.keyboard("{Shift>}{Alt>}F{/Alt}{/Shift}");
+  const format = () => userEvent.keyboard(`{${CTRL_CMD}>}{Shift>}F{/Shift}{/${CTRL_CMD}}`);
 
   /** A tab of a PostgreSQL connection, once the connections have been read. */
   async function postgres(sql: string) {
@@ -583,7 +583,7 @@ describe("SqlEditor asked to format", () => {
     return made;
   }
 
-  it("lays the statement out on ⇧⌥F, and ⌘Z takes it back in one step", async () => {
+  it("lays the statement out on ⌘⇧F, and ⌘Z takes it back in one step", async () => {
     const made = await postgres("select a, b from t");
     const instance = monaco.getEditors()[0];
     instance?.focus();
@@ -593,6 +593,19 @@ describe("SqlEditor asked to format", () => {
     await vi.waitFor(() => expect(made.text()).toBe("select\n  a,\n  b\nfrom\n  t"));
     await userEvent.keyboard(`{${CTRL_CMD}>}z{/${CTRL_CMD}}`);
     expect(made.text()).toBe("select a, b from t");
+  });
+
+  it("leaves ⇧⌥F, Monaco's own key for the document, doing nothing", async () => {
+    const made = await postgres("select a from t");
+    monaco.getEditors()[0]?.focus();
+
+    // Monaco binds it only off Linux, so on CI this proves nothing; on a Mac
+    // it does.
+    await userEvent.keyboard("{Shift>}{Alt>}F{/Alt}{/Shift}");
+
+    // Long enough for a format to have landed.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(made.text()).toBe("select a from t");
   });
 
   it("offers the same from the context menu", async () => {
