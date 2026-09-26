@@ -27,7 +27,8 @@ pub fn risks(sql: &str) -> Vec<Risk> {
             if only_plans(node) {
                 return Vec::new();
             }
-            node.nodes()
+            prepared(node)
+                .nodes()
                 .into_iter()
                 .filter_map(|(node, ..)| hazard(node))
                 .map(|(hazard, targets)| Risk {
@@ -42,6 +43,8 @@ pub fn risks(sql: &str) -> Vec<Risk> {
 
 fn hazard(node: NodeRef<'_>) -> Option<(Hazard, Vec<String>)> {
     match node {
+        // A prepared statement, or a block's code, is not in the text to read.
+        NodeRef::ExecuteStmt(_) | NodeRef::DoStmt(_) => Some((Hazard::Dynamic, Vec::new())),
         NodeRef::DeleteStmt(delete) if delete.where_clause.is_none() => Some((
             Hazard::DeleteWithoutWhere,
             delete.relation.iter().map(relation).collect(),
@@ -79,6 +82,19 @@ fn hazard(node: NodeRef<'_>) -> Option<(Hazard, Vec<String>)> {
             (!columns.is_empty()).then_some((Hazard::DropColumn, columns))
         }
         _ => None,
+    }
+}
+
+/// What a `PREPARE` will run, asked about where it is written: the
+/// `EXECUTE` that runs it names it only.
+fn prepared(node: &NodeEnum) -> &NodeEnum {
+    match node {
+        NodeEnum::PrepareStmt(prepare) => prepare
+            .query
+            .as_ref()
+            .and_then(|query| query.node.as_ref())
+            .unwrap_or(node),
+        _ => node,
     }
 }
 
@@ -237,6 +253,29 @@ mod tests {
             one(Hazard::DropColumn, &["users.email"])
         );
         assert!(hazards("ALTER TABLE users ADD COLUMN age int").is_empty());
+    }
+
+    #[test]
+    fn what_a_prepare_will_run_is_asked_about_where_it_is_written() {
+        assert_eq!(
+            hazards("PREPARE purge AS DELETE FROM users"),
+            one(Hazard::DeleteWithoutWhere, &["users"])
+        );
+        assert!(hazards("PREPARE find AS SELECT * FROM users WHERE id = $1").is_empty());
+    }
+
+    #[test]
+    fn sql_this_cannot_read_asks() {
+        assert_eq!(hazards("EXECUTE purge"), one(Hazard::Dynamic, &[]));
+        assert_eq!(
+            hazards("EXPLAIN ANALYZE EXECUTE purge"),
+            one(Hazard::Dynamic, &[])
+        );
+        assert_eq!(
+            hazards("DO $$ BEGIN EXECUTE 'DROP TABLE users'; END $$"),
+            one(Hazard::Dynamic, &[])
+        );
+        assert!(hazards("EXPLAIN EXECUTE purge").is_empty());
     }
 
     #[test]

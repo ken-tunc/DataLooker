@@ -53,6 +53,9 @@ pub enum Hazard {
     Drop,
     Truncate,
     DropColumn,
+    /// SQL this app cannot read before it runs: a prepared statement's
+    /// `EXECUTE`, a `DO` block's code.
+    Dynamic,
 }
 
 /// What PostgreSQL's `EXPLAIN (FORMAT JSON)` said, left as it said it: a node
