@@ -60,6 +60,9 @@ const analyzed: QueryPlan = {
   elapsed_ms: 4,
 };
 
+/** Monaco's `CtrlCmd`, which is ⌘ only on a Mac: CI runs on Linux. */
+const mod = navigator.userAgent.includes("Macintosh") ? "Meta" : "Control";
+
 async function shell(connection: ConnectionRecord, replies: Replies = {}) {
   const ipc = stubIpc({
     list_connections: [connection],
@@ -106,7 +109,7 @@ describe("explaining a statement", () => {
     const { ipc, screen, editor } = await shell(postgres, { explain_query: analyzed });
 
     editor.focus();
-    await userEvent.keyboard("{Meta>}{Shift>}e{/Shift}{/Meta}");
+    await userEvent.keyboard(`{${mod}>}{Shift>}e{/Shift}{/${mod}}`);
 
     await expect.element(screen.getByText("Execution 3 ms")).toBeVisible();
     await expect
@@ -124,7 +127,7 @@ describe("explaining a statement", () => {
     await expect.element(screen.getByRole("button", { name: "Run" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Explain" }).query()).toBeNull();
     editor.focus();
-    await userEvent.keyboard("{Meta>}e{/Meta}");
+    await userEvent.keyboard(`{${mod}>}e{/${mod}}`);
     expect(ipc.sent("explain_query")).toBeUndefined();
   });
 });
