@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::app::App;
 use crate::db::history::{HistoryEntry, Source};
 use crate::drivers::session::Whose;
-use crate::drivers::QueryResult;
+use crate::drivers::{QueryPlan, QueryResult};
 use crate::error::AppError;
 
 /// Lower than the reader's limit: a reader scrolls, an agent reads it all into
@@ -42,6 +42,38 @@ impl App {
             sql,
             started.elapsed(),
             crate::app::history::rows_returned(&result),
+            Source::Agent,
+        )
+        .await;
+        result
+    }
+
+    /// Read-only as the reader's Explain is, and logged as the `EXPLAIN` that
+    /// ran.
+    pub async fn explain_agent_query(
+        &self,
+        connection_id: &str,
+        sql: &str,
+        analyze: bool,
+    ) -> Result<QueryPlan, AppError> {
+        let session = self.session_for(connection_id, Whose::Agent).await?;
+        let statement = session.explain_statement(sql, analyze)?;
+        let started = Instant::now();
+
+        let result = self
+            .within(
+                connection_id,
+                Whose::Agent,
+                session.explain(&statement, &CancellationToken::new()),
+            )
+            .await;
+
+        self.record_run(
+            connection_id,
+            &statement,
+            started.elapsed(),
+            // `EXPLAIN` answers with one row.
+            result.as_ref().map(|_| 1),
             Source::Agent,
         )
         .await;
@@ -187,6 +219,42 @@ mod tests {
 
         assert_eq!(ran("SELECT 2"), Source::Agent);
         assert_eq!(ran("SELECT 3"), Source::Reader);
+    }
+
+    #[tokio::test]
+    async fn explains_for_an_agent_and_analyzes_only_what_reads() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+
+        let plan = app
+            .explain_agent_query(&id, "SELECT 1", true)
+            .await
+            .expect("a statement that reads");
+        assert_eq!(plan.plan["Plan"]["Actual Loops"], 1);
+
+        app.execute_query(
+            &id,
+            "CREATE TABLE IF NOT EXISTS agent_explain_target (n int)",
+            "q1",
+        )
+        .await
+        .expect("the reader writes");
+        let written = app
+            .explain_agent_query(&id, "INSERT INTO agent_explain_target VALUES (1)", true)
+            .await
+            .expect_err("a statement that writes");
+        assert!(
+            written.to_string().contains("read-only"),
+            "{written} does not say why"
+        );
+
+        let log = app.query_history(&id).await.unwrap();
+        let ran = log
+            .iter()
+            .find(|entry| entry.sql.ends_with(" SELECT 1") && entry.sql.starts_with("EXPLAIN"))
+            .expect("the EXPLAIN that ran is in the log");
+        assert_eq!(ran.source, Source::Agent);
     }
 
     #[tokio::test]

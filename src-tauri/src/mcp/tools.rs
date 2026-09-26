@@ -95,6 +95,28 @@ pub struct Statement {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct Explain {
+    /// The id of a connection, as `list_connections` gives it. PostgreSQL only.
+    pub connection_id: String,
+    /// The statement to explain.
+    pub sql: String,
+    /// Carry the statement out to measure each step, rather than only
+    /// estimate. It runs in a read-only transaction that is rolled back, so a
+    /// statement that writes is refused.
+    #[serde(default)]
+    pub analyze: bool,
+}
+
+/// PostgreSQL's plan, as `EXPLAIN (FORMAT JSON)` writes it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Planned {
+    /// Holds `Plan`, the tree of nodes, and when analyzed `Planning Time` and
+    /// `Execution Time` in milliseconds. A node's `Actual Total Time` and
+    /// `Actual Rows` are per loop: multiply by `Actual Loops`.
+    pub plan: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Of {
     /// The id of a connection, as `list_connections` gives it.
     pub connection_id: String,
@@ -200,6 +222,28 @@ impl Agent {
                 .collect(),
             rows: result.rows,
             truncated: result.truncated,
+        }))
+    }
+
+    #[tool(
+        name = "explain_query",
+        description = "How PostgreSQL would run a statement: its plan, estimated, or with analyze measured by running it read-only. Use it to find why a query is slow."
+    )]
+    async fn explain_query(
+        &self,
+        Parameters(Explain {
+            connection_id,
+            sql,
+            analyze,
+        }): Parameters<Explain>,
+    ) -> Result<Json<Planned>, ErrorData> {
+        let explained = self
+            .app
+            .explain_agent_query(&connection_id, &sql, analyze)
+            .await
+            .map_err(refused)?;
+        Ok(Json(Planned {
+            plan: explained.plan,
         }))
     }
 

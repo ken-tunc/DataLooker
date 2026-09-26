@@ -397,6 +397,7 @@ mod tests {
         assert!(names.contains(&"list_tables"), "{names:?}");
         assert!(names.contains(&"describe_table"), "{names:?}");
         assert!(names.contains(&"run_query"), "{names:?}");
+        assert!(names.contains(&"explain_query"), "{names:?}");
         assert!(names.contains(&"query_history"), "{names:?}");
 
         server.stop().await;

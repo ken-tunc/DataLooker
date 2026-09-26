@@ -31,7 +31,7 @@ PostgreSQL and BigQuery.
   each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the
   statement it makes in a new tab.
 - **Agents** — an optional MCP server on localhost, behind a token, lets your own agents
-  list connections, read schemas and run read-only statements. Their runs are logged and
+  list connections, read schemas, run read-only statements and read their plans. Their runs are logged and
   marked.
 
 ## Keyboard
