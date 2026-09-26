@@ -275,6 +275,16 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 ))}
               </select>
             </Field>
+
+            <label className="label mt-1 cursor-pointer">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-sm checkbox-error"
+                checked={values.production}
+                onChange={(event) => update("production", event.target.checked)}
+              />
+              Production: every statement that writes asks first
+            </label>
           </fieldset>
 
           <div className="modal-action">

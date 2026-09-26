@@ -35,6 +35,8 @@ pub struct ConnectionRecord {
     pub command_while_selected: bool,
     /// The IANA zone its points in time are shown in; UTC when absent.
     pub time_zone: Option<String>,
+    /// Marked as production: every statement that writes asks first.
+    pub production: bool,
     pub created_at: String,
 }
 
@@ -44,11 +46,12 @@ pub struct ConnectionFields<'a> {
     pub command: Option<&'a str>,
     pub command_while_selected: bool,
     pub time_zone: Option<&'a str>,
+    pub production: bool,
 }
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, label, config, command, command_while_selected, time_zone, created_at FROM connections
+        "SELECT id, label, config, command, command_while_selected, time_zone, production, created_at FROM connections
          ORDER BY position, created_at, id",
     )
     .fetch_all(pool)
@@ -58,7 +61,7 @@ pub async fn list_all(pool: &SqlitePool) -> Result<Vec<ConnectionRecord>, AppErr
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ConnectionRecord>, AppError> {
     let row = sqlx::query(
-        "SELECT id, label, config, command, command_while_selected, time_zone, created_at FROM connections WHERE id = ?1",
+        "SELECT id, label, config, command, command_while_selected, time_zone, production, created_at FROM connections WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -73,8 +76,8 @@ pub async fn insert<'e>(
 ) -> Result<(), AppError> {
     // A new connection goes to the end of the rail.
     sqlx::query(
-        "INSERT INTO connections (id, label, config, command, command_while_selected, time_zone, position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(position) + 1, 0) FROM connections))",
+        "INSERT INTO connections (id, label, config, command, command_while_selected, time_zone, production, position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT COALESCE(MAX(position) + 1, 0) FROM connections))",
     )
     .bind(id)
     .bind(fields.label)
@@ -82,6 +85,7 @@ pub async fn insert<'e>(
     .bind(fields.command)
     .bind(fields.command_while_selected)
     .bind(fields.time_zone)
+    .bind(fields.production)
     .execute(executor)
     .await?;
     Ok(())
@@ -118,7 +122,8 @@ pub async fn update<'e>(
 ) -> Result<bool, AppError> {
     let result = sqlx::query(
         "UPDATE connections
-         SET label = ?2, config = ?3, command = ?4, command_while_selected = ?5, time_zone = ?6
+         SET label = ?2, config = ?3, command = ?4, command_while_selected = ?5, time_zone = ?6,
+             production = ?7
          WHERE id = ?1",
     )
     .bind(id)
@@ -127,6 +132,7 @@ pub async fn update<'e>(
     .bind(fields.command)
     .bind(fields.command_while_selected)
     .bind(fields.time_zone)
+    .bind(fields.production)
     .execute(executor)
     .await?;
     Ok(result.rows_affected() > 0)
@@ -156,6 +162,7 @@ fn row_to_record(row: &sqlx::sqlite::SqliteRow) -> Result<ConnectionRecord, AppE
         command: row.try_get("command")?,
         command_while_selected: row.try_get("command_while_selected")?,
         time_zone: row.try_get("time_zone")?,
+        production: row.try_get("production")?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -180,6 +187,7 @@ mod tests {
             config,
             command: None,
             command_while_selected: false,
+            production: false,
             time_zone: None,
         }
     }
