@@ -6,9 +6,10 @@ use crate::app::syntax::SyntaxError;
 use crate::app::App;
 use crate::commands::{
     CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, ExecuteQueryArgs, ExplainQueryArgs,
+    StatementRisksArgs,
 };
 use crate::db::history::HistoryEntry;
-use crate::drivers::{QueryPlan, QueryResult};
+use crate::drivers::{QueryPlan, QueryResult, Risk};
 use crate::error::AppError;
 
 #[tauri::command]
@@ -50,6 +51,14 @@ pub async fn check_syntax(
     app: State<'_, Arc<App>>,
 ) -> Result<Vec<SyntaxError>, AppError> {
     Ok(app.check_syntax(&args.sql))
+}
+
+#[tauri::command]
+pub async fn statement_risks(
+    args: StatementRisksArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<Vec<Risk>, AppError> {
+    app.statement_risks(&args.connection_id, &args.sql).await
 }
 
 #[tauri::command]

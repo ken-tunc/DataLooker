@@ -7,6 +7,7 @@ pub mod history;
 pub mod lsp;
 pub mod preview;
 mod query;
+mod risks;
 mod schema;
 pub mod shell;
 pub mod syntax;

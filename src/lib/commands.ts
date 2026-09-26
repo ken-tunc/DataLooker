@@ -53,6 +53,11 @@ export function checkSyntax(sql: string) {
   return invoke("check_syntax", { sql });
 }
 
+/** What to ask the reader about before `sql` runs; empty when nothing is. */
+export function statementRisks(connectionId: string, sql: string) {
+  return invoke("statement_risks", { connection_id: connectionId, sql });
+}
+
 export function queryHistory(connectionId: string) {
   return invoke("query_history", { connection_id: connectionId });
 }
