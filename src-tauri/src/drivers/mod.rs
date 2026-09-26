@@ -31,6 +31,16 @@ pub struct QueryResult {
     pub elapsed_ms: u32,
 }
 
+/// What PostgreSQL's `EXPLAIN (FORMAT JSON)` said, left as it said it: a node
+/// carries whichever of dozens of keys its type has, and all of them are shown.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct QueryPlan {
+    #[ts(type = "unknown")]
+    pub plan: serde_json::Value,
+    pub elapsed_ms: u32,
+}
+
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct SchemaTree {

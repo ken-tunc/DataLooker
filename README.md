@@ -15,6 +15,10 @@ PostgreSQL and BigQuery.
   value the cell cuts short on hover, with documents indented. Points in time
   (`timestamptz`, BigQuery's `TIMESTAMP`) are shown in the connection's time zone, UTC
   unless it names another.
+- **Plans** — a PostgreSQL statement's plan as a tree, estimated, or analyzed: run
+  inside a read-only transaction and rolled back, so the server refuses a write and
+  nothing the run did is kept, not even the table an analyzed `CREATE TABLE AS` makes,
+  while a transaction you have open stays as it was.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
@@ -41,6 +45,8 @@ Press ⌘? for this list in the app.
 | ⌃Tab, ⌃⇧Tab       | Next / previous tab                   |
 | Delete, Backspace | Close the focused tab                 |
 | ⌘Enter            | Run the editor's query                |
+| ⌘E                | Show how PostgreSQL would run it      |
+| ⌘⇧E               | Run it read-only and time each step   |
 | ⌘⇧D, ⌘-click      | Open the table named under the cursor |
 | ⌘C                | Copy the selected cell                |
 | Space             | Show the selected cell in full        |

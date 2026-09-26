@@ -3,11 +3,13 @@ import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
 import { describeError, IpcError } from "../../lib/invoke";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
+import { useDriver } from "../connections/hooks";
 import { TemplateFormDialog } from "../query-templates/TemplateFormDialog";
 import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
+import { PlanView } from "./PlanView";
 import { ResultGrid } from "./ResultGrid";
-import { useQueryRunner } from "./hooks";
+import { type Outcome, type Request, useQueryRunner } from "./hooks";
 
 // Monaco is by far the heaviest thing here, so it loads on first use.
 const SqlEditor = lazy(() => import("../sql-editor/SqlEditor"));
@@ -41,9 +43,13 @@ export function QueryTabPane({
   const tree = useSchemaTree(connectionId);
   const [saving, setSaving] = useState(false);
   const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
+  // Only PostgreSQL says how it would run a statement.
+  const explains = useDriver(connectionId) === "postgres";
+  const outcome = run.isSuccess ? run.data : null;
 
-  function submit() {
-    if (sql.trim() !== "" && !run.isPending) run.mutate(sql);
+  function submit(explain: Request["explain"] = null) {
+    if (explain !== null && !explains) return;
+    if (sql.trim() !== "" && !run.isPending) run.mutate({ sql, explain });
   }
 
   /** Several matches go to the palette: the search path decides, not the tree. */
@@ -77,7 +83,7 @@ export function QueryTabPane({
             type="button"
             className="btn btn-sm btn-primary"
             disabled={sql.trim() === ""}
-            onClick={submit}
+            onClick={() => submit()}
           >
             Run
           </button>
@@ -85,6 +91,28 @@ export function QueryTabPane({
         <span className="text-base-content/60 text-xs">
           <kbd className="kbd kbd-xs">⌘</kbd> <kbd className="kbd kbd-xs">Enter</kbd>
         </span>
+        {explains && (
+          <div className="join">
+            <button
+              type="button"
+              className="btn btn-sm join-item"
+              disabled={sql.trim() === "" || run.isPending}
+              title="How PostgreSQL would run it (⌘E)"
+              onClick={() => submit("plan")}
+            >
+              Explain
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm join-item"
+              disabled={sql.trim() === "" || run.isPending}
+              title="Run it read-only and time each step (⌘⇧E)"
+              onClick={() => submit("analyze")}
+            >
+              Analyze
+            </button>
+          </div>
+        )}
         <button
           type="button"
           className="btn btn-sm btn-ghost"
@@ -98,7 +126,7 @@ export function QueryTabPane({
           pending={run.isPending}
           cancelled={cancelled}
           error={run.isError && !cancelled ? describeError(run.error) : null}
-          result={run.isSuccess ? run.data : null}
+          outcome={outcome}
         />
       </div>
 
@@ -114,7 +142,8 @@ export function QueryTabPane({
             tabId={tabId}
             value={sql}
             onChange={onSqlChange}
-            onSubmit={submit}
+            onSubmit={() => submit()}
+            onExplain={(analyze) => submit(analyze ? "analyze" : "plan")}
             onJump={jump}
           />
         </Suspense>
@@ -125,8 +154,10 @@ export function QueryTabPane({
       {saving && <TemplateFormDialog template={null} sql={sql} onClose={() => setSaving(false)} />}
 
       <div className="min-h-24 flex-1 basis-0">
-        {run.isSuccess && run.data.columns.length > 0 ? (
-          <ResultGrid result={run.data} connectionId={connectionId} />
+        {outcome?.kind === "plan" ? (
+          <PlanView plan={outcome.plan} />
+        ) : outcome && outcome.result.columns.length > 0 ? (
+          <ResultGrid result={outcome.result} connectionId={connectionId} />
         ) : (
           <div className="hairline text-base-content/50 flex h-full items-center justify-center rounded-box border border-dashed text-sm">
             {run.isSuccess ? "The statement returned no rows." : "Run a query to see its rows."}
@@ -141,17 +172,21 @@ function Status({
   pending,
   cancelled,
   error,
-  result,
+  outcome,
 }: {
   pending: boolean;
   cancelled: boolean;
   error: string | null;
-  result: { rows: unknown[][]; elapsed_ms: number; truncated: boolean } | null;
+  outcome: Outcome | null;
 }) {
   if (pending) return <span className="loading loading-spinner loading-xs" />;
   if (cancelled) return <span className="text-base-content/60 text-sm">Cancelled</span>;
   if (error) return <span className="text-error truncate font-mono text-sm">{error}</span>;
-  if (!result) return null;
+  if (!outcome) return null;
+  if (outcome.kind === "plan") {
+    return <span className="text-base-content/60 text-sm">{outcome.plan.elapsed_ms} ms</span>;
+  }
+  const { result } = outcome;
   return (
     <span className="text-base-content/60 flex gap-3 text-sm">
       <span>

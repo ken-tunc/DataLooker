@@ -5,7 +5,7 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
-use crate::drivers::QueryResult;
+use crate::drivers::{QueryPlan, QueryResult};
 use crate::error::AppError;
 
 /// A careless `SELECT *` must not pull a whole table into the webview.
@@ -39,6 +39,37 @@ impl App {
             sql,
             started.elapsed(),
             crate::app::history::rows_returned(&result),
+            crate::db::history::Source::Reader,
+        )
+        .await;
+        result
+    }
+
+    /// Logged as the `EXPLAIN` that ran, so that it comes back from the history
+    /// as what it was.
+    pub async fn explain_query(
+        &self,
+        connection_id: &str,
+        sql: &str,
+        analyze: bool,
+        query_id: &str,
+    ) -> Result<QueryPlan, AppError> {
+        let cancel = self.queries.register(query_id)?;
+        let _registration = Registration {
+            registry: &self.queries,
+            query_id,
+        };
+        let session = self.session(connection_id).await?;
+        let statement = session.explain_statement(sql, analyze)?;
+
+        let started = Instant::now();
+        let result = session.explain(&statement, &cancel).await;
+        self.record_run(
+            connection_id,
+            &statement,
+            started.elapsed(),
+            // `EXPLAIN` answers with one row.
+            result.as_ref().map(|_| 1),
             crate::db::history::Source::Reader,
         )
         .await;

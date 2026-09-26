@@ -4,9 +4,11 @@ use tauri::State;
 
 use crate::app::syntax::SyntaxError;
 use crate::app::App;
-use crate::commands::{CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, ExecuteQueryArgs};
+use crate::commands::{
+    CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, ExecuteQueryArgs, ExplainQueryArgs,
+};
 use crate::db::history::HistoryEntry;
-use crate::drivers::QueryResult;
+use crate::drivers::{QueryPlan, QueryResult};
 use crate::error::AppError;
 
 #[tauri::command]
@@ -23,6 +25,15 @@ pub async fn execute_query(
     app: State<'_, Arc<App>>,
 ) -> Result<QueryResult, AppError> {
     app.execute_query(&args.connection_id, &args.sql, &args.query_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn explain_query(
+    args: ExplainQueryArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<QueryPlan, AppError> {
+    app.explain_query(&args.connection_id, &args.sql, args.analyze, &args.query_id)
         .await
 }
 

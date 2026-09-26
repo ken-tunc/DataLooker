@@ -41,6 +41,8 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  /** ⌘E asks for the plan, ⌘⇧E for it measured. */
+  onExplain: (analyze: boolean) => void;
   /** What ⌘⇧D and ⌘-click ask about: the name under the cursor. */
   onJump: (name: QualifiedName) => void;
 };
@@ -51,6 +53,7 @@ export default function SqlEditor({
   value,
   onChange,
   onSubmit,
+  onExplain,
   onJump,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -60,9 +63,9 @@ export default function SqlEditor({
   // Monaco keeps the callbacks it was handed at mount, so they go through a
   // ref, updated in a layout effect: writing it during render could publish a
   // discarded render's handlers, and a passive effect would run too late.
-  const handlers = useRef({ onChange, onSubmit, onJump });
+  const handlers = useRef({ onChange, onSubmit, onExplain, onJump });
   useLayoutEffect(() => {
-    handlers.current = { onChange, onSubmit, onJump };
+    handlers.current = { onChange, onSubmit, onExplain, onJump };
   });
 
   // BigQuery is completed by the analyzer, anything else by its language
@@ -111,6 +114,11 @@ export default function SqlEditor({
       client.wrote(uri.toString(), instance.getValue());
     });
     instance.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, () => handlers.current.onSubmit());
+    // Takes ⌘E from Monaco's "find with the selection", which ⌘F covers.
+    instance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyE, () => handlers.current.onExplain(false));
+    instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyE, () =>
+      handlers.current.onExplain(true),
+    );
 
     function jumpAt(position: { lineNumber: number; column: number } | null) {
       const line = position && instance.getModel()?.getLineContent(position.lineNumber);

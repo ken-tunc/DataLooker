@@ -1,5 +1,6 @@
 mod ddl;
 mod edit;
+mod explain;
 mod preview;
 mod query;
 mod schema;
@@ -15,8 +16,10 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 pub use crate::drivers::postgres::edit::{Edits, Plan};
+pub use crate::drivers::postgres::explain::statement as explain_statement;
 use crate::drivers::{
-    Column, DriverError, Preview, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, DriverError, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage,
+    TableShape,
 };
 use crate::error::AppError;
 
@@ -110,6 +113,25 @@ impl PostgresSession {
                     Err(e) => format!("{e}, and the transaction would not end: {ending}"),
                 })),
             }
+        })
+        .await
+    }
+
+    /// `statement` is an `EXPLAIN`; see `explain_statement`. It runs on the
+    /// reader's session, so the plan is the one their `SET` and temporary
+    /// tables make.
+    pub async fn explain(
+        &self,
+        statement: &str,
+        cancel: &CancellationToken,
+    ) -> Result<QueryPlan, AppError> {
+        let started = Instant::now();
+        self.with_connection(cancel, async |conn| {
+            let plan = explain::run(conn, statement).await?;
+            Ok(QueryPlan {
+                plan,
+                elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u32::MAX),
+            })
         })
         .await
     }

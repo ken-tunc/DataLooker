@@ -31,7 +31,9 @@ use crate::app::App;
 use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
 use crate::db::template::QueryTemplate;
-use crate::drivers::{Column, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape};
+use crate::drivers::{
+    Column, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+};
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
 use crate::shell::ShellExit;
@@ -98,6 +100,7 @@ commands! {
     connection::delete_connection(ConnectionArgs) -> ();
     query::test_connection(ConnectionArgs) -> u32;
     query::execute_query(ExecuteQueryArgs) -> QueryResult;
+    query::explain_query(ExplainQueryArgs) -> QueryPlan;
     query::cancel_query(CancelQueryArgs) -> ();
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
@@ -159,6 +162,17 @@ pub struct TableArgs {
 pub struct ExecuteQueryArgs {
     pub connection_id: String,
     pub sql: String,
+    pub query_id: String,
+}
+
+/// `analyze` carries the statement out to time it; it is cancelled like a
+/// query, by `query_id`.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct ExplainQueryArgs {
+    pub connection_id: String,
+    pub sql: String,
+    pub analyze: bool,
     pub query_id: String,
 }
 
