@@ -8,8 +8,10 @@ use crate::app::App;
 use crate::drivers::{QueryPlan, QueryResult};
 use crate::error::AppError;
 
-/// A careless `SELECT *` must not pull a whole table into the webview.
-const ROW_LIMIT: usize = 5_000;
+/// Every row: a result cut short cannot be told from a whole one at a glance,
+/// and a statement that runs too long is the reader's to cancel. A table
+/// preview is paged instead.
+const ROW_LIMIT: usize = usize::MAX;
 
 impl App {
     /// Resolves to how long reaching the server took, in milliseconds.
@@ -180,5 +182,26 @@ mod tests {
     #[test]
     fn cancelling_a_query_that_already_finished_does_nothing() {
         QueryRegistry::default().cancel("q1");
+    }
+}
+
+/// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
+#[cfg(test)]
+mod live {
+    use crate::app::tests::app_reaching_postgres;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_reader_gets_every_row_of_a_statement() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+
+        let result = app
+            .execute_query(&id, "SELECT n FROM generate_series(1, 5001) AS n", "q1")
+            .await
+            .unwrap();
+
+        assert_eq!(result.rows.len(), 5_001);
+        assert!(!result.truncated);
     }
 }

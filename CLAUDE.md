@@ -139,7 +139,7 @@ a parser here: a PostgreSQL statement runs inside `BEGIN READ ONLY`, which the s
 cannot undo, and is rolled back rather than committed, since `EXPLAIN ANALYZE` carries out
 `CREATE TABLE AS` without the read-only check. The reader's Explain is held the same way.
 A BigQuery statement is dry-run first and runs only if BigQuery calls it a `SELECT`. An
-agent has its own sessions, a lower row cap and a deadline, since nobody is watching to
+agent has its own sessions, a row cap and a deadline, since nobody is watching to
 cancel it. Its runs are logged beside the reader's and marked.
 
 ## Processes
