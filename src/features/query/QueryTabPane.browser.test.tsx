@@ -257,6 +257,32 @@ describe("explaining a statement", () => {
     expect(inside()).toBe(false);
   });
 
+  it("counts a node's rows over its loops as a whole number", async () => {
+    const { screen } = await shell(postgres, {
+      explain_query: {
+        plan: {
+          Plan: {
+            "Node Type": "Index Scan",
+            "Plan Rows": 2,
+            "Total Cost": 1,
+            "Actual Rows": 2.55,
+            "Actual Loops": 389,
+            "Actual Total Time": 0.001,
+          },
+          "Execution Time": 1,
+        },
+        elapsed_ms: 1,
+      },
+    });
+    await screen.getByRole("button", { name: "Analyze" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
+
+    // 2.55 rows a loop is an average: 389 loops of it came to 992 rows, not 991.95.
+    await expect
+      .element(screen.getByRole("treeitem", { name: /^Index Scan/ }))
+      .toHaveTextContent("992 rows");
+  });
+
   it("zooms the graph about the pointer and fits it back", async () => {
     const { screen } = await shell(postgres, { explain_query: analyzed });
     await screen.getByRole("button", { name: "Analyze" }).click();

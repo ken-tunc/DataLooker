@@ -135,7 +135,7 @@ export function PlanGraph({ root, nodes, whole, selected, onSelect, onKeyDown, s
                   className="stroke-base-content/35 fill-none"
                   strokeWidth={1 + (WIDEST - 1) * Math.sqrt(rows / busiest)}
                 >
-                  <title>{`${decimal.format(rows)} rows`}</title>
+                  <title>{`${integer.format(rows)} rows`}</title>
                 </path>
               );
             })}
@@ -229,7 +229,8 @@ function Node({
   const measured = actual
     ? never
       ? "never executed"
-      : `${decimal.format(actual.rows * actual.loops)} rows · ${percent(share)}`
+      : // Rows per loop are an average, so their total is whole only once rounded.
+        `${integer.format(actual.rows * actual.loops)} rows · ${percent(share)}`
     : `~${decimal.format(node.estimatedRows)} rows · cost ${integer.format(node.cost)}`;
 
   return (
