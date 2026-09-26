@@ -163,13 +163,7 @@ impl Agent {
                     schema.tables.into_iter().map(move |table| Table {
                         schema: schema.name.clone(),
                         name: table.name,
-                        kind: match table.kind {
-                            TableKind::Table => "table",
-                            TableKind::View => "view",
-                            TableKind::MaterializedView => "materialized_view",
-                            TableKind::ForeignTable => "foreign_table",
-                        }
-                        .to_string(),
+                        kind: kind_name(table.kind).to_string(),
                     })
                 })
                 .collect(),
@@ -336,6 +330,16 @@ impl From<crate::db::connection::ConnectionRecord> for Connection {
     }
 }
 
+/// As `Table::kind` documents it.
+fn kind_name(kind: TableKind) -> &'static str {
+    match kind {
+        TableKind::Table => "table",
+        TableKind::View => "view",
+        TableKind::MaterializedView => "materialized_view",
+        TableKind::ForeignTable => "foreign_table",
+    }
+}
+
 /// The app's own message, which an agent reads the way a reader reads a toast.
 fn refused(e: AppError) -> ErrorData {
     ErrorData::internal_error(e.to_string(), None)
@@ -375,6 +379,21 @@ mod tests {
         }));
         assert_eq!(bigquery.driver, "bigquery");
         assert_eq!(bigquery.reaches, "analytics in EU");
+    }
+
+    #[test]
+    fn names_each_kind_of_table_as_documented() {
+        let named = [
+            TableKind::Table,
+            TableKind::View,
+            TableKind::MaterializedView,
+            TableKind::ForeignTable,
+        ]
+        .map(kind_name);
+        assert_eq!(
+            named,
+            ["table", "view", "materialized_view", "foreign_table"]
+        );
     }
 
     #[tokio::test]
