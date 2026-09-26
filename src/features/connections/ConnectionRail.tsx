@@ -6,6 +6,7 @@ import { describeError } from "../../lib/invoke";
 import { AgentAccess } from "../agents/AgentAccess";
 import { useCommandExits, useRunningCommands } from "../connection-command/hooks";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
+import { DriverIcon } from "./DriverIcon";
 import { describeConnection } from "./driver";
 import { useConnections, useReorderConnections } from "./hooks";
 
@@ -81,7 +82,7 @@ export function ConnectionRail({ selectedId, onSelect, onShowShortcuts }: Props)
       >
         {connections.isPending &&
           ["one", "two", "three"].map((tile) => (
-            <li key={tile} className="skeleton mx-auto size-9 rounded-field" />
+            <li key={tile} className="skeleton mx-auto h-14 w-16 rounded-field" />
           ))}
 
         {connections.isError && (
@@ -190,14 +191,17 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       title={`${connection.label}\n${describeConnection(connection.config)}`}
       // What moves it up or down the rail, besides dragging.
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-      className={`justify-center ${selected ? "menu-active" : ""}`}
+      className={`flex flex-col items-center gap-1 px-1 ${selected ? "menu-active" : ""}`}
       onClick={onSelect}
     >
-      <div className={`avatar avatar-placeholder ${running ? "avatar-online" : ""}`}>
-        <div className="bg-base-content/10 rounded-field w-9">
-          <span className="text-xs font-semibold">{initials(connection.label)}</span>
-        </div>
+      <div className={`avatar ${running ? "avatar-online" : ""}`}>
+        <DriverIcon kind={connection.config.kind} className="size-7" />
       </div>
+      {/* Two lines hold most names; the title has the rest. Always two lines tall, so every
+          tile is one size, which dragging relies on. */}
+      <span className="line-clamp-2 h-[2lh] w-full text-center text-xs wrap-anywhere">
+        {connection.label}
+      </span>
       {running && (
         <span role="status" className="sr-only">
           Command running
@@ -205,23 +209,6 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       )}
     </button>
   );
-}
-
-/** Two letters to tell tiles apart by: a word's first letter each, or a lone word's first two. */
-function initials(label: string): string {
-  const words = label
-    .split(/[\s_.-]+/)
-    .filter(Boolean)
-    .map(letters);
-  const [first = ["?"], second] = words;
-  const picked = second ? [first[0], second[0]] : first.slice(0, 2);
-  return picked.join("").toUpperCase();
-}
-
-// So an accent or an emoji is not cut in half.
-const segmenter = new Intl.Segmenter();
-function letters(word: string): string[] {
-  return Array.from(segmenter.segment(word), ({ segment }) => segment);
 }
 
 if (import.meta.vitest) {
@@ -232,26 +219,6 @@ if (import.meta.vitest) {
       expect(moved(["a", "b", "c"], "a", 2)).toEqual(["b", "c", "a"]);
       expect(moved(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
       expect(moved(["a", "b", "c"], "b", 1)).toEqual(["a", "b", "c"]);
-    });
-  });
-
-  describe("initials", () => {
-    it("takes the first letter of the first two words", () => {
-      expect(initials("local postgres")).toBe("LP");
-      expect(initials("staging_db replica")).toBe("SD");
-    });
-
-    it("takes the first two letters of a lone word", () => {
-      expect(initials("analytics")).toBe("AN");
-    });
-
-    it("keeps a letter made of more than one code point whole", () => {
-      expect(initials("e\u0301cole")).toBe("E\u0301C");
-      expect(initials("👩‍💻 dev")).toBe("👩‍💻D");
-    });
-
-    it("has something to show for a name that is all separators", () => {
-      expect(initials("--")).toBe("?");
     });
   });
 }
