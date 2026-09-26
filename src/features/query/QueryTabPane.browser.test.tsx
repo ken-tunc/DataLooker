@@ -333,3 +333,75 @@ describe("explaining a statement", () => {
     expect(ipc.sent("explain_query")).toBeUndefined();
   });
 });
+
+describe("going to the table a name means", () => {
+  const table = (name: string) => ({ name, kind: "table" as const });
+
+  /** ⌘⇧D with the cursor in `orders`, which `shell` writes. */
+  async function jump(replies: Replies) {
+    const { screen, editor } = await shell(postgres, replies);
+    editor.focus();
+    editor.setPosition({ lineNumber: 1, column: "SELECT * FROM or".length });
+    await userEvent.keyboard(`{${mod}>}{Shift>}d{/Shift}{/${mod}}`);
+    return screen;
+  }
+
+  /** A message is all that happens: no table opens and no chooser. */
+  function wentNowhere(screen: Awaited<ReturnType<typeof jump>>) {
+    expect(screen.getByRole("tab", { name: /orders/ }).query()).toBeNull();
+    expect(screen.getByPlaceholder("Find a table").query()).toBeNull();
+  }
+
+  it("opens the structure of the one table it names", async () => {
+    const screen = await jump({
+      schema_tree: { schemas: [{ name: "public", tables: [table("orders"), table("items")] }] },
+    });
+
+    await expect
+      .element(screen.getByRole("tab", { name: "public.orders" }))
+      .toHaveAttribute("aria-selected", "true");
+  });
+
+  it("lets the reader choose when the name is in several schemas", async () => {
+    const screen = await jump({
+      schema_tree: {
+        schemas: [
+          { name: "public", tables: [table("orders")] },
+          { name: "archive", tables: [table("orders")] },
+        ],
+      },
+    });
+
+    await expect.element(screen.getByPlaceholder("Find a table")).toHaveValue("orders");
+    expect(screen.getByRole("tab", { name: /orders/ }).query()).toBeNull();
+  });
+
+  it("says so when no table has the name", async () => {
+    const screen = await jump({
+      schema_tree: { schemas: [{ name: "public", tables: [table("items")] }] },
+    });
+
+    await expect.element(screen.getByText("No table here is called orders.")).toBeVisible();
+    wentNowhere(screen);
+  });
+
+  it("claims nothing while the schema is still being read", async () => {
+    const screen = await jump({ schema_tree: () => new Promise(() => {}) });
+
+    await expect.element(screen.getByText("The schema is still being read.")).toBeVisible();
+    wentNowhere(screen);
+  });
+
+  it("says why no name can be looked up when the schema could not be read", async () => {
+    const screen = await jump({
+      schema_tree: () => {
+        throw { kind: "Database", message: "permission denied for schema public" };
+      },
+    });
+
+    await expect
+      .element(screen.getByText(/permission denied for schema public — no name can be looked up/))
+      .toBeVisible();
+    wentNowhere(screen);
+  });
+});
