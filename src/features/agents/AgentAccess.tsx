@@ -87,7 +87,7 @@ function AgentAccessDialog({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="modal-action">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
             Close
           </button>
         </div>

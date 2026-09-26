@@ -46,7 +46,11 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         <div className="modal-action">
           {/* Closed natively rather than unmounted open: closing is what
               hands focus back to whatever held it before the dialog. */}
-          <button type="button" className="btn btn-ghost" onClick={() => dialog.current?.close()}>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => dialog.current?.close()}
+          >
             Close
           </button>
         </div>

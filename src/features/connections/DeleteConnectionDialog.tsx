@@ -30,10 +30,20 @@ export function DeleteConnectionDialog({ connection, pending, onConfirm, onClose
         <h3 className="text-lg font-semibold">Delete {connection.label}?</h3>
         <p className="py-4">Its password is removed from the keychain as well.</p>
         <div className="modal-action">
-          <button type="button" className="btn btn-ghost" disabled={pending} onClick={onClose}>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            disabled={pending}
+            onClick={onClose}
+          >
             Cancel
           </button>
-          <button type="button" className="btn btn-error" disabled={pending} onClick={onConfirm}>
+          <button
+            type="button"
+            className="btn btn-sm btn-error"
+            disabled={pending}
+            onClick={onConfirm}
+          >
             {pending && <span className="loading loading-spinner loading-xs" />}
             Delete
           </button>

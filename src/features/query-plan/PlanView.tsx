@@ -32,7 +32,7 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
   // Not a shape this reads: what PostgreSQL said is still worth seeing.
   if (!read) {
     return (
-      <pre className="hairline h-full overflow-auto rounded-box border p-3 font-mono text-xs">
+      <pre className="hairline h-full overflow-auto rounded-box border p-3 font-mono text-sm">
         {JSON.stringify(plan.plan, null, 2)}
       </pre>
     );
@@ -61,14 +61,14 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
 
   return (
     <div className="hairline flex h-full flex-col overflow-hidden rounded-box border">
-      <div className="hairline text-base-content/70 flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
+      <div className="hairline text-base-content/70 flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-sm">
         <div className="join" role="group" aria-label="Show the plan as">
           {(["table", "graph"] as const).map((each) => (
             <button
               key={each}
               type="button"
               aria-pressed={shape === each}
-              className={`btn btn-xs join-item ${shape === each ? "btn-primary" : "btn-ghost"}`}
+              className={`btn btn-sm join-item ${shape === each ? "btn-primary" : "btn-ghost"}`}
               onClick={() => onShapeChange(each)}
             >
               {each === "table" ? "Table" : "Graph"}
@@ -115,7 +115,7 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
         {chosen && (
           <aside
             aria-label="Node details"
-            className="hairline w-80 shrink-0 overflow-auto border-l px-3 py-2 text-xs"
+            className="hairline w-80 shrink-0 overflow-auto border-l px-3 py-2 text-sm"
           >
             <Details
               node={chosen}
@@ -160,7 +160,7 @@ function Details({ node, onClose }: { node: PlanNode; onClose: () => void }) {
         </div>
         <button
           type="button"
-          className="btn btn-ghost btn-xs btn-square"
+          className="btn btn-ghost btn-sm btn-square"
           aria-label="Close the details"
           onClick={onClose}
         >

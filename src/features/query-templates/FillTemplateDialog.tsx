@@ -148,10 +148,14 @@ function Blanks({
           </fieldset>
 
           <div className="modal-action">
-            <button type="button" className="btn btn-ghost" onClick={() => dialog.current?.close()}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => dialog.current?.close()}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary">
+            <button type="submit" className="btn btn-sm btn-primary">
               Open in a new tab
             </button>
           </div>
