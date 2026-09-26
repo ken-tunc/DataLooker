@@ -31,6 +31,30 @@ pub struct QueryResult {
     pub elapsed_ms: u32,
 }
 
+/// A statement to ask about before it runs. A guard against slips, not a
+/// permission: what the reader may do is still the role's to decide.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Risk {
+    /// The statement as the reader wrote it.
+    pub statement: String,
+    pub hazard: Hazard,
+    /// What it acts on, as written: `public.users`, or `users.email` for a
+    /// column. Empty when the statement names it in a way not worth repeating.
+    pub targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum Hazard {
+    DeleteWithoutWhere,
+    UpdateWithoutWhere,
+    Drop,
+    Truncate,
+    DropColumn,
+}
+
 /// What PostgreSQL's `EXPLAIN (FORMAT JSON)` said, left as it said it: a node
 /// carries whichever of dozens of keys its type has, and all of them are shown.
 #[derive(Debug, Serialize, TS)]
