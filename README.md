@@ -65,10 +65,10 @@ Download `DataLooker.app.tar.gz` from a Release, unpack it and move `DataLooker.
 `/Applications`. The app is self-signed, so the first launch needs **right-click → Open**
 (or **System Settings → Privacy & Security → Open Anyway**).
 
-Every merge to `main` that changes more than Markdown builds the app. If its version is
-already released, the build replaces the draft Release **DataLooker (unreleased)**;
-otherwise it is published as `v<version>`, so bumping `version` in `package.json` is how a
-release is cut. See `.github/workflows/release.yml`.
+Every merge to `main` refreshes the notes of the draft Release **DataLooker (unreleased)**.
+A release is cut by running the Release workflow on `main` with the part of the version to
+raise: it bumps `version` in `package.json`, builds the app, commits the bump to `main` and
+publishes `v<version>`. See `.github/workflows/release.yml`.
 
 ## Development
 

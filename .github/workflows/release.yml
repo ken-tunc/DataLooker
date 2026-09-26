@@ -1,42 +1,90 @@
 name: Release
 
-# Every push to `main` that changes more than Markdown builds the app. If the
-# `v<version>` tag for package.json's version exists, the build replaces the
-# rolling draft "DataLooker (unreleased)"; if not, it is published as
-# `v<version>`. So cutting a release is bumping `version` and merging it.
+# A push to `main` only refreshes the draft Release "DataLooker (unreleased)",
+# which gathers the notes of what the next release will carry. Nothing is
+# built for it: nobody installs a draft.
 #
-# The tag, not the Release, says a version is out: it is made at the moment of
-# publishing, so a publish that died halfway does not hide the version from the
-# next push.
+# Running this workflow by hand cuts a release. It raises `version` in
+# package.json by the part asked for, builds the app at that version, commits
+# the bump to `main` and publishes `v<version>` at that commit. Run on another
+# branch, it builds and stops there.
 #
 # Building and publishing are separate jobs so that the token that can write
-# tags and Releases is never present while the repository's own code runs.
+# `main`, tags and Releases is never present while the repository's own code
+# runs. So the build job bumps its checkout without committing, and the publish
+# job makes the commit; the tree it commits is checked to be the one built.
 
 on:
   push:
     branches: [main]
-    # A version bump touches package.json, so a release is never skipped.
-    paths-ignore:
-      - "**.md"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: The part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions: {}
 
-# Queued, not cancelled: a publish must not be killed by the merge behind it,
-# and the default queue drops all but the newest, which could lose a bump.
+# Queued, not cancelled: a publish must not be killed by the merge behind it.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
   queue: max
 
 jobs:
+  draft:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Nothing is checked out for `gh` to read the repository from.
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Recreated rather than edited, and every `unreleased` Release is swept:
+      # if someone pressed "Publish release" on the draft, a real `unreleased`
+      # tag exists too and the next create would fail. The notes are anchored
+      # at the newest release by name, since GitHub cannot order `unreleased`
+      # against anything.
+      - name: Refresh the unreleased draft
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.tag_name == "unreleased") | .id' |
+            while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+            done
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/unreleased" > /dev/null 2>&1 || true
+
+          prev="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2> /dev/null || true)"
+          {
+            echo "> What \`main\` holds at ${GITHUB_SHA} beyond the latest release."
+            echo "> Run the Release workflow on \`main\` to publish it."
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="unreleased" \
+              -f target_commitish="$GITHUB_SHA" \
+              ${prev:+-f previous_tag_name="$prev"} \
+              --jq .body || echo "_The notes could not be written._"
+          } > release-notes.md
+
+          gh release create unreleased \
+            --target "$GITHUB_SHA" \
+            --draft \
+            --title "DataLooker (unreleased)" \
+            --notes-file release-notes.md
+
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     permissions:
       contents: read
     outputs:
-      version: ${{ steps.mode.outputs.version }}
-      mode: ${{ steps.mode.outputs.mode }}
+      version: ${{ steps.bump.outputs.version }}
+      tree: ${{ steps.bump.outputs.tree }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -44,31 +92,52 @@ jobs:
           persist-credentials: false
 
       # `git ls-remote --exit-code` answers 2 for a missing ref; anything else
-      # is a failure to reach the remote.
-      - name: Say whether this build is a release
-        id: mode
+      # is a failure to reach the remote. `npm pkg set` runs no package
+      # script and rewrites nothing but the field.
+      - name: Raise the version
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
-          if [[ -z "$version" || "$version" == "undefined" ]]; then
-            echo "package.json has no version to build (read '$version')" >&2
+          current="$(node -p "require('./package.json').version")"
+          if [[ ! "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "package.json's version '$current' is not major.minor.patch" >&2
             exit 1
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "v$version is released already — refreshing the unreleased draft."
-            mode=draft
-          else
-            rc=$?
-            if [[ "$rc" -ne 2 ]]; then
-              echo "git ls-remote failed (exit $rc)" >&2
-              exit "$rc"
-            fi
-            echo "There is no v$version tag — publishing it."
-            mode=release
+          major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
+          case "$BUMP" in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+
+          tagged() {
+            local rc=0
+            git ls-remote --exit-code --tags origin "refs/tags/v$1" > /dev/null || rc=$?
+            case "$rc" in
+              0) return 0 ;;
+              2) return 1 ;;
+              *) echo "git ls-remote failed (exit $rc)" >&2; exit "$rc" ;;
+            esac
+          }
+          # An untagged current version is a bump that reached `main` without
+          # its Release; raising it again would skip that version.
+          if ! tagged "$current"; then
+            echo "v$current is not released, yet package.json says it; release it by hand first." >&2
+            exit 1
           fi
+          if tagged "$version"; then
+            echo "v$version is released already, yet package.json says $current." >&2
+            exit 1
+          fi
+
+          npm pkg set version="$version"
+          git add package.json
+          echo "Building v$version, raised from $current."
           {
             echo "version=$version"
-            echo "mode=$mode"
+            echo "tree=$(git write-tree)"
           } >> "$GITHUB_OUTPUT"
 
       - uses: voidzero-dev/setup-vp@v1.21.0
@@ -109,7 +178,6 @@ jobs:
 
   publish:
     needs: build
-    # A dispatch can name any branch; only `main` is released.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -118,68 +186,67 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.build.outputs.version }}
     steps:
+      - uses: actions/checkout@v7.0.1
+
       - uses: actions/download-artifact@v8.0.1
         with:
           name: app
+          path: ${{ runner.temp }}/app
+
+      # The commit's dates are the dispatched commit's, so re-running this job
+      # makes the same commit, and a push refused because `main` has since
+      # moved past it is fine. Any other refusal means `main` moved since the
+      # dispatch, which the build did not see.
+      # A push by this token starts no workflow, so CI and the draft do not
+      # run for the bump.
+      - name: Commit the version to main
+        id: commit
+        env:
+          TREE: ${{ needs.build.outputs.tree }}
+        run: |
+          set -euo pipefail
+          npm pkg set version="$VERSION"
+          git add package.json
+          if [[ "$(git write-tree)" != "$TREE" ]]; then
+            echo "The bump here differs from the one the build made." >&2
+            exit 1
+          fi
+
+          GIT_AUTHOR_DATE="$(git log -1 --format=%cI)"
+          export GIT_AUTHOR_DATE GIT_COMMITTER_DATE="$GIT_AUTHOR_DATE"
+          export GIT_AUTHOR_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          git commit -m "Release v$VERSION"
+          if ! git push origin HEAD:refs/heads/main; then
+            git fetch --quiet origin main
+            if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+              echo "main moved since the dispatch; run the workflow again." >&2
+              exit 1
+            fi
+            echo "main already holds this commit."
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # A draft for this version is a publish that died halfway; it is dropped
       # rather than stacked beside. Created as a draft and then published, so
-      # it is never seen without the app; publishing makes the tag.
+      # it is never seen without the app; publishing makes the tag. The
+      # unreleased draft now holds nothing, and the next merge recreates it.
       - name: Publish the release
-        if: needs.build.outputs.mode == 'release'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq '.[] | select(.draft and .tag_name == ("v" + env.VERSION)) | .id' |
+            --jq '.[] | select(.draft and (.tag_name == ("v" + env.VERSION) or .tag_name == "unreleased")) | .id' |
             while read -r id; do
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
             done
 
           gh release create "v$VERSION" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "$SHA" \
             --title "DataLooker v$VERSION" \
             --generate-notes \
             --draft \
-            DataLooker.app.tar.gz
-          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
-
-      # Both modes want this. If someone pressed "Publish release" on the
-      # draft, a real `unreleased` tag exists too and every refresh would fail,
-      # so it is swept; a 404 is the ordinary answer.
-      - name: Drop the unreleased draft
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq '.[] | select(.tag_name == "unreleased") | .id' |
-            while read -r id; do
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
-            done
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/unreleased" > /dev/null 2>&1 || true
-
-      # Recreated rather than edited, so old assets cannot pile up. The notes
-      # are anchored at the newest release by name, since GitHub cannot order
-      # `unreleased` against anything.
-      - name: Refresh the unreleased draft
-        if: needs.build.outputs.mode == 'draft'
-        run: |
-          set -euo pipefail
-          prev="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2> /dev/null || true)"
-          {
-            echo "> A build of \`main\` at ${GITHUB_SHA} ($(date -u +%Y-%m-%dT%H:%MZ))."
-            echo "> Bump \`version\` in package.json to publish what is in it."
-            echo
-            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-              -f tag_name="unreleased" \
-              -f target_commitish="$GITHUB_SHA" \
-              ${prev:+-f previous_tag_name="$prev"} \
-              --jq .body || echo "_The notes for this build could not be written._"
-          } > release-notes.md
-
-          gh release create unreleased \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --draft \
-            --title "DataLooker (unreleased)" \
-            --notes-file release-notes.md \
-            DataLooker.app.tar.gz
+            "$RUNNER_TEMP/app/DataLooker.app.tar.gz"
+          gh release edit "v$VERSION" --draft=false
