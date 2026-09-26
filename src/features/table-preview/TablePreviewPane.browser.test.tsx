@@ -284,7 +284,7 @@ describe("TablePreviewPane showing the structure", () => {
   it("asks for the structure when the switch is used", async () => {
     const { screen, onView } = await preview();
 
-    await screen.getByRole("tab", { name: "Structure" }).click();
+    await screen.getByRole("button", { name: "Structure" }).click();
 
     expect(onView).toHaveBeenCalledWith({ shows: "structure" });
   });

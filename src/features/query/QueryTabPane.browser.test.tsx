@@ -190,7 +190,7 @@ describe("explaining a statement", () => {
   it("draws the plan as a graph that shares its selection with the table", async () => {
     const { screen } = await shell(postgres, { explain_query: analyzed });
     await screen.getByRole("button", { name: "Analyze" }).click();
-    await screen.getByRole("tab", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
 
     const graph = screen.getByRole("tree", { name: "Plan graph" });
     await expect.element(graph).toBeVisible();
@@ -203,13 +203,13 @@ describe("explaining a statement", () => {
     expect(graph.element().querySelectorAll("path title")).toHaveLength(1);
     expect(graph.element().querySelector("path title")?.textContent).toBe("150 rows");
 
-    await screen.getByRole("tab", { name: "Table" }).click();
+    await screen.getByRole("button", { name: "Table" }).click();
     await expect
       .element(screen.getByRole("row", { name: /Seq Scan/ }))
       .toHaveAttribute("aria-selected", "true");
 
     // The tab keeps the shape for the next plan it shows.
-    await screen.getByRole("tab", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
     await screen.getByRole("button", { name: "Analyze" }).click();
     await expect.element(screen.getByRole("tree", { name: "Plan graph" })).toBeVisible();
   });
@@ -229,7 +229,7 @@ describe("explaining a statement", () => {
       },
     });
     await screen.getByRole("button", { name: "Explain" }).click();
-    await screen.getByRole("tab", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
     const graph = screen.getByRole("tree", { name: "Plan graph" });
     const last = graph.getByRole("treeitem", { name: /^Seq Scan, part_19,/ });
     const inside = () => {
@@ -285,7 +285,7 @@ describe("explaining a statement", () => {
       },
     });
     await screen.getByRole("button", { name: "Analyze" }).click();
-    await screen.getByRole("tab", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
 
     // 2.55 rows a loop is an average: 389 loops of it came to 992 rows, not 991.95.
     await expect
@@ -296,7 +296,7 @@ describe("explaining a statement", () => {
   it("zooms the graph about the pointer and fits it back", async () => {
     const { screen } = await shell(postgres, { explain_query: analyzed });
     await screen.getByRole("button", { name: "Analyze" }).click();
-    await screen.getByRole("tab", { name: "Graph" }).click();
+    await screen.getByRole("button", { name: "Graph" }).click();
     const graph = screen.getByRole("tree", { name: "Plan graph" });
     await expect.element(graph).toBeVisible();
     const drawn = () => graph.element().querySelector("svg > g")?.getAttribute("transform");

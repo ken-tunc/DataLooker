@@ -63,8 +63,7 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
       <AppShell />
     </div>,
   );
-  // A table tab holds a tablist of its own, and a hidden connection keeps its
-  // strip, so only the visible "Open tabs" strip is read.
+  // A hidden connection keeps its strip, so only the visible one is read.
   const tabs = () =>
     [
       ...document.querySelectorAll<HTMLElement>(
@@ -264,7 +263,7 @@ describe("AppShell", () => {
     await userEvent.keyboard("{Meta>}o{/Meta}");
     await screen.getByRole("option", { name: /shop\.people/ }).click();
     if (shows === "structure") {
-      await screen.getByRole("tab", { name: "Structure" }).click();
+      await screen.getByRole("button", { name: "Structure" }).click();
       await expect.element(screen.getByText("No trigger.")).toBeVisible();
     } else {
       await expect.element(screen.getByText("4242", { exact: true })).toBeVisible();
