@@ -93,19 +93,24 @@ pub fn plan(
     Ok(Plan(statements))
 }
 
+/// Whether the reader left a transaction open on this session. sqlx only knows
+/// about transactions it began, so the server is asked: inside a transaction
+/// `now()` is when it began. A simple query, because the extended protocol's
+/// Bind and Execute are two instants apart even outside a transaction. A
+/// failed transaction refuses the question with the complaint the reader needs
+/// to see.
+pub async fn in_transaction(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
+    sqlx::raw_sql("SELECT now() <> statement_timestamp()")
+        .fetch_one(&mut *conn)
+        .await?
+        .try_get(0)
+}
+
 /// One transaction: a save must not half happen.
 pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverError> {
     // The reader may have left a transaction open on this session, and this
-    // save's COMMIT would end it. sqlx only knows about transactions it began,
-    // so the server is asked: inside a transaction `now()` is when it began.
-    // A simple query, because the extended protocol's Bind and Execute are two
-    // instants apart even outside a transaction. A failed transaction refuses
-    // the question with the complaint the reader needs to see.
-    let inside: bool = sqlx::raw_sql("SELECT now() <> statement_timestamp()")
-        .fetch_one(&mut *conn)
-        .await?
-        .try_get(0)?;
-    if inside {
+    // save's COMMIT would end it.
+    if in_transaction(conn).await? {
         return Err(DriverError::Refused(
             "a transaction is open in the editor, so nothing was saved; commit or roll it back first"
                 .into(),

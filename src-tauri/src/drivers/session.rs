@@ -9,7 +9,7 @@ use crate::db::connection::{self, DriverConfig};
 use crate::drivers::bigquery::BigQuerySession;
 use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
-    Column, Preview, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -75,6 +75,27 @@ impl Session {
                 }
                 session.execute(sql, row_limit, cancel).await
             }
+        }
+    }
+
+    /// The statement that asks for `sql`'s plan, and with `analyze` carries it
+    /// out to time it.
+    pub fn explain_statement(&self, sql: &str, analyze: bool) -> Result<String, AppError> {
+        match self {
+            Session::Postgres(_) => Ok(crate::drivers::postgres::explain_statement(sql, analyze)),
+            Session::BigQuery(_) => Err(not_yet("explain a query")),
+        }
+    }
+
+    /// Runs what `explain_statement` made, where it can change nothing.
+    pub async fn explain(
+        &self,
+        statement: &str,
+        cancel: &CancellationToken,
+    ) -> Result<QueryPlan, AppError> {
+        match self {
+            Session::Postgres(session) => session.explain(statement, cancel).await,
+            Session::BigQuery(_) => Err(not_yet("explain a query")),
         }
     }
 

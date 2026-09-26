@@ -34,6 +34,16 @@ export function executeQuery(connectionId: string, sql: string, queryId: string)
   return invoke("execute_query", { connection_id: connectionId, sql, query_id: queryId });
 }
 
+/** Asks for the plan; `analyze` carries the statement out, where it can change nothing. */
+export function explainQuery(connectionId: string, sql: string, analyze: boolean, queryId: string) {
+  return invoke("explain_query", {
+    connection_id: connectionId,
+    sql,
+    analyze,
+    query_id: queryId,
+  });
+}
+
 export function cancelQuery(queryId: string) {
   return invoke("cancel_query", { query_id: queryId });
 }

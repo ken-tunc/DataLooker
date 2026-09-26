@@ -35,6 +35,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     title: "Editor",
     shortcuts: [
       { keys: ["⌘Enter"], what: "Run the editor's query" },
+      { keys: ["⌘E"], what: "Show how PostgreSQL would run it" },
+      { keys: ["⌘⇧E"], what: "Run it read-only and time each step" },
       { keys: ["⌘⇧D", "⌘-click"], what: "Open the table named under the cursor" },
     ],
   },

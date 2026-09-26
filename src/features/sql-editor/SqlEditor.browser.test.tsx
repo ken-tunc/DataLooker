@@ -35,6 +35,7 @@ async function editor(
         value={sql}
         onChange={onChange}
         onSubmit={() => {}}
+        onExplain={() => {}}
         onJump={onJump}
       />
     </div>,
