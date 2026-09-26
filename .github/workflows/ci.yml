@@ -99,6 +99,14 @@ jobs:
         working-directory: .
         run: docker compose up -d --wait
 
+      # The live language-server tests skip without `sqls`. The module is the
+      # one the app pins, read from where it pins it.
+      - name: Build sqls
+        run: |
+          module=$(grep -o 'github.com/sqls-server/sqls@v[0-9.]*' src/lsp/install.rs)
+          GOBIN="$RUNNER_TEMP/bin" go install "$module"
+          echo "DATALOOKER_SQLS_BIN=$RUNNER_TEMP/bin/sqls" >> "$GITHUB_ENV"
+
       # The cache brings back a previous run's counters, so they are cleaned.
       - run: |
           cargo llvm-cov clean --workspace
