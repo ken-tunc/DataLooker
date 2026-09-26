@@ -553,3 +553,125 @@ describe("SqlEditor completion of BigQuery", () => {
     expect(page.getByRole("option").elements()).toEqual([]);
   });
 });
+
+describe("SqlEditor asked to format", () => {
+  const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
+  const format = () => userEvent.keyboard("{Shift>}{Alt>}F{/Alt}{/Shift}");
+
+  /** A tab of a PostgreSQL connection, once the connections have been read. */
+  async function postgres(sql: string) {
+    const connectionId = crypto.randomUUID();
+    const record: ConnectionRecord = {
+      id: connectionId,
+      label: "Local",
+      config: {
+        kind: "postgres",
+        host: "localhost",
+        port: 5432,
+        database: "shop",
+        username: "reader",
+      },
+      command: null,
+      command_while_selected: false,
+      time_zone: null,
+      created_at: "2026-09-23 00:00:00",
+    };
+    const made = await editor({ check_syntax: [], list_connections: [record] }, sql, connectionId);
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+    return made;
+  }
+
+  it("lays the statement out on ⇧⌥F, and ⌘Z takes it back in one step", async () => {
+    const made = await postgres("select a, b from t");
+    const instance = monaco.getEditors()[0];
+    instance?.focus();
+
+    await format();
+
+    await vi.waitFor(() => expect(made.text()).toBe("select\n  a,\n  b\nfrom\n  t"));
+    await userEvent.keyboard(`{${CTRL_CMD}>}z{/${CTRL_CMD}}`);
+    expect(made.text()).toBe("select a, b from t");
+  });
+
+  it("offers the same from the context menu", async () => {
+    await postgres("select 1");
+
+    // What the menu lists is the actions whose condition holds.
+    expect(monaco.getEditors()[0]?.getAction("editor.action.formatDocument")?.isSupported()).toBe(
+      true,
+    );
+  });
+
+  it("formats only the selection when there is one", async () => {
+    const made = await postgres("select a, b from t;\nselect c, d from u");
+    const instance = monaco.getEditors()[0];
+    instance?.focus();
+    instance?.setSelection({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 19,
+    });
+
+    await format();
+
+    await vi.waitFor(() =>
+      expect(made.text()).toBe("select a, b from t;\nselect\n  c,\n  d\nfrom\n  u"),
+    );
+  });
+
+  it("leaves a statement it cannot read as it is, and says so", async () => {
+    const made = await postgres("select 1;\nselect (( from t");
+    const instance = monaco.getEditors()[0];
+    const node = instance?.getDomNode();
+    if (!instance || !node) throw new Error("the editor did not mount");
+    instance.focus();
+
+    await format();
+
+    // Drawn at the cursor. Monaco also writes it to a hidden alert for a
+    // screen reader, which is why the search keeps to the editor.
+    await expect
+      .element(page.elementLocator(node).getByText(/^Left unformatted: Parse error/))
+      .toBeVisible();
+    expect(made.text()).toBe("select 1;\nselect (( from t");
+  });
+
+  it("guesses no grammar before the connections are read", async () => {
+    const made = await editor(
+      { check_syntax: [], list_connections: () => new Promise(() => {}) },
+      "select @x",
+    );
+    const instance = monaco.getEditors()[0];
+    const node = instance?.getDomNode();
+    if (!instance || !node) throw new Error("the editor did not mount");
+    instance.focus();
+
+    await format();
+
+    await expect
+      .element(page.elementLocator(node).getByText(/^Left unformatted: the connection/))
+      .toBeVisible();
+    expect(made.text()).toBe("select @x");
+  });
+
+  it("reads a BigQuery connection's statement as GoogleSQL", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      { check_syntax: [], list_connections: bigquery(connectionId) },
+      "select * from `p.ds.t`",
+      connectionId,
+    );
+    await vi.waitFor(() =>
+      expect(made.ipc.calls.map((call) => call.command)).toContain("list_connections"),
+    );
+    monaco.getEditors()[0]?.focus();
+
+    // PostgreSQL's grammar has no backquoted names.
+    await format();
+
+    await vi.waitFor(() => expect(made.text()).toBe("select\n  *\nfrom\n  `p.ds.t`"));
+  });
+});

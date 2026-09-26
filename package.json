@@ -20,6 +20,7 @@
     "monaco-vim": "^0.4.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "sql-formatter": "^15.9.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -7,11 +7,15 @@ import "monaco-editor/features/contextmenu/register.js";
 import "monaco-editor/features/cursorUndo/register.js";
 import "monaco-editor/features/find/register.js";
 import "monaco-editor/features/folding/register.js";
+// Format Document and Format Selection, with their keys and context menu items.
+import "monaco-editor/features/format/register.js";
 import "monaco-editor/features/gotoLine/register.js";
 // Reads out a syntax error where it is marked.
 import "monaco-editor/features/hover/register.js";
 import "monaco-editor/features/indentation/register.js";
 import "monaco-editor/features/linesOperations/register.js";
+// Says in the editor why a statement was left unformatted.
+import "monaco-editor/editor/contrib/message/browser/messageController.js";
 import "monaco-editor/features/multicursor/register.js";
 import "monaco-editor/features/smartSelect/register.js";
 import "monaco-editor/features/snippet/register.js";
