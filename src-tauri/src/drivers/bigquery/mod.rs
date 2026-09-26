@@ -21,8 +21,9 @@ use yup_oauth2::ServiceAccountKey;
 use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
 
-/// Bounds `test`: neither the OAuth exchange nor the job has a deadline.
-const TEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// Bounds `test` and the dry run before a statement: neither the OAuth
+/// exchange nor the job has a deadline.
+const UNWATCHED: Duration = Duration::from_secs(20);
 
 /// Reads no table, so it is billed nothing.
 const NOTHING_AT_ALL: &str = "SELECT 1";
@@ -125,7 +126,10 @@ impl BigQuerySession {
         if !production && !risks::suspect(sql) {
             return Ok(Vec::new());
         }
-        let planned = self.plan(sql, &CancellationToken::new()).await?;
+        // Nobody holds this to cancel it, so it has a deadline.
+        let planned = tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
+            .await
+            .map_err(|_| AppError::Timeout)??;
         Ok(risks::risks(sql, &planned, production))
     }
 
@@ -204,7 +208,7 @@ impl BigQuerySession {
                 .map_err(|e| AppError::Database(e.to_string()))?;
             Ok(())
         };
-        tokio::time::timeout(TEST_TIMEOUT, attempt)
+        tokio::time::timeout(UNWATCHED, attempt)
             .await
             .map_err(|_| AppError::Timeout)?
     }

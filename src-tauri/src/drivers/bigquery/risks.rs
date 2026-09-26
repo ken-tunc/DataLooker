@@ -335,7 +335,8 @@ mod tests {
         assert!(suspect("select 1; truncate table t"));
         assert!(!suspect("SELECT 'DROP TABLE t'"));
         assert!(!suspect("SELECT \"\"\"\nDROP TABLE t\n\"\"\""));
-        assert!(!suspect("SELECT r'\\' AS `drop` -- DROP TABLE t"));
+        assert!(!suspect("SELECT r'\\d' AS `drop` -- DROP TABLE t"));
+        assert!(suspect("SELECT r'\\d'; DROP TABLE t"));
         assert!(!suspect("SELECT 1 # DROP TABLE t"));
         assert!(!suspect("SELECT 1 /* DROP TABLE t */"));
         assert!(!suspect("SELECT drop_count FROM t"));
