@@ -61,7 +61,13 @@ describe("the connection rail", () => {
     await expect.element(screen.getByRole("button", { name: "Local", exact: true })).toBeVisible();
     // A tile shows the driver's mark over the name.
     await expect.element(screen.getByText("Staging", { exact: true })).toBeVisible();
-    await expect.element(screen.getByRole("img", { name: "PostgreSQL" }).first()).toBeVisible();
+    await expect
+      .element(
+        screen
+          .getByRole("button", { name: "Staging", exact: true })
+          .getByRole("img", { name: "PostgreSQL" }),
+      )
+      .toBeVisible();
 
     await screen.getByRole("button", { name: "Staging", exact: true }).click();
 
