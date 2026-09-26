@@ -82,7 +82,8 @@ export function ConnectionRail({ selectedId, onSelect, onShowShortcuts }: Props)
       >
         {connections.isPending &&
           ["one", "two", "three"].map((tile) => (
-            <li key={tile} className="skeleton mx-auto h-14 w-16 rounded-field" />
+            // As tall as a tile, so the rail does not shift when they arrive.
+            <li key={tile} className="skeleton mx-auto h-19 w-16 rounded-field" />
           ))}
 
         {connections.isError && (
