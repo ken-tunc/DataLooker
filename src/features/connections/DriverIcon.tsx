@@ -1,12 +1,13 @@
-import { siGooglebigquery, siPostgresql, type SimpleIcon } from "simple-icons";
 import { DRIVER_LABELS, type DriverKind } from "./driver";
+// Each mark is the file its owner publishes, byte for byte, and shown as a file
+// rather than redrawn: PostgreSQL's trademark policy allows the logo only
+// unmodified. PostgreSQL's is the three-colour logo from
+// wiki.postgresql.org/wiki/Logo, BigQuery's the product icon from
+// cloud.google.com/icons.
+import bigquery from "./bigquery.svg";
+import postgresql from "./postgresql.svg";
 
-// Each mark sits on the tile its colour reads against: PostgreSQL's blue is
-// too dark for the theme's background, and BigQuery's too light for a white one.
-const MARKS: Record<DriverKind, { icon: SimpleIcon; tile: string }> = {
-  postgres: { icon: siPostgresql, tile: "bg-base-content" },
-  bigquery: { icon: siGooglebigquery, tile: "bg-base-300" },
-};
+const MARKS: Record<DriverKind, string> = { postgres: postgresql, bigquery };
 
 /** The driver's own mark, so a list of connections says which is which before it is read. */
 export function DriverIcon({
@@ -16,16 +17,14 @@ export function DriverIcon({
   kind: DriverKind;
   className?: string;
 }) {
-  const { icon, tile } = MARKS[kind];
   return (
-    <svg
-      role="img"
-      viewBox="0 0 24 24"
-      className={`${tile} ${className} shrink-0 rounded-md p-0.5`}
-      fill={`#${icon.hex}`}
-      aria-label={DRIVER_LABELS[kind]}
-    >
-      <path d={icon.path} />
-    </svg>
+    <img
+      src={MARKS[kind]}
+      alt={DRIVER_LABELS[kind]}
+      // An image is draggable by default, which would take a press on a rail tile's mark
+      // from the tile's own drag and carry the image's address to wherever it is dropped.
+      draggable={false}
+      className={`bg-base-300 ${className} shrink-0 rounded-md object-contain p-0.5`}
+    />
   );
 }
