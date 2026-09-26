@@ -155,7 +155,7 @@ export function QueryTabPane({
 
       <div className="min-h-24 flex-1 basis-0">
         {outcome?.kind === "plan" ? (
-          <PlanView plan={outcome.plan} />
+          <PlanView key={run.submittedAt} plan={outcome.plan} />
         ) : outcome && outcome.result.columns.length > 0 ? (
           <ResultGrid result={outcome.result} connectionId={connectionId} />
         ) : (

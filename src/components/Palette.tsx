@@ -1,13 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
-
-/** ⌃N and ⌃P, as in any macOS text field, besides the arrows. */
-function stepFor(event: KeyboardEvent): number {
-  if (event.ctrlKey && (event.key === "n" || event.key === "p")) return event.key === "n" ? 1 : -1;
-  if (event.ctrlKey || event.metaKey || event.altKey) return 0;
-  if (event.key === "ArrowDown") return 1;
-  if (event.key === "ArrowUp") return -1;
-  return 0;
-}
+import { stepFor } from "../lib/keys";
 
 type Props<T> = {
   /** Names the dialog. */

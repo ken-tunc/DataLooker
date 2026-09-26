@@ -39,6 +39,7 @@ const analyzed: QueryPlan = {
       "Actual Rows": 4,
       "Actual Loops": 1,
       "Actual Total Time": 2.5,
+      "Hash Cond": "(o.customer_id = c.id)",
       Plans: [
         {
           "Node Type": "Seq Scan",
@@ -47,9 +48,12 @@ const analyzed: QueryPlan = {
           Alias: "o",
           "Plan Rows": 10,
           "Total Cost": 1.5,
-          "Actual Rows": 10,
+          "Actual Rows": 150,
           "Actual Loops": 1,
           "Actual Total Time": 0.3,
+          "Actual Startup Time": 0.004,
+          Filter: "(status = 'shipped')",
+          "Rows Removed by Filter": 9000,
         },
       ],
     },
@@ -97,7 +101,7 @@ describe("explaining a statement", () => {
     await screen.getByRole("button", { name: "Explain" }).click();
 
     await expect.element(screen.getByText("Estimated")).toBeVisible();
-    await expect.element(screen.getByRole("cell", { name: "Seq Scan" })).toBeVisible();
+    await expect.element(screen.getByRole("gridcell", { name: "Seq Scan" })).toBeVisible();
     expect(ipc.sent("explain_query")).toMatchObject({
       connection_id: "c1",
       sql: "SELECT * FROM orders o",
@@ -114,11 +118,73 @@ describe("explaining a statement", () => {
     await expect.element(screen.getByText("Execution 3 ms")).toBeVisible();
     await expect
       .element(screen.getByRole("row", { name: /Hash Left Join/ }))
-      .toHaveTextContent(/Hash Left Join\s*4\s*5\s*1\s*2\.5 ms\s*9/);
+      // Self time, its share of the run, rows, estimated, loops, cost.
+      .toHaveTextContent(/Hash Left Join\s*2\.2 ms\s*73%\s*4\s*5\s*1\s*9/);
     await expect
       .element(screen.getByRole("row", { name: /Seq Scan/ }))
       .toHaveTextContent("public.orders o");
     expect(ipc.sent("explain_query")?.analyze).toBe(true);
+  });
+
+  it("flags what went wrong and shows a node in full, picked by key or by click", async () => {
+    const { screen } = await shell(postgres, { explain_query: analyzed });
+    await screen.getByRole("button", { name: "Analyze" }).click();
+
+    const scan = screen.getByRole("row", { name: /Seq Scan/ });
+    await expect.element(scan).toHaveTextContent("Filter discarded 98%");
+    await expect.element(scan).toHaveTextContent("↑15×");
+    const details = screen.getByRole("complementary", { name: "Node details" });
+    expect(details.query()).toBeNull();
+
+    await screen.getByRole("grid", { name: "Plan" }).click();
+    await userEvent.keyboard("{Control>}n{/Control}{Control>}n{/Control}");
+    await expect.element(scan).toHaveAttribute("aria-selected", "true");
+    await expect.element(details).toHaveTextContent("Rows Removed by Filter");
+    // Once: it is a count, so not among the conditions.
+    expect(details.element().textContent?.split("Rows Removed by Filter")).toHaveLength(2);
+    await expect.element(details).toHaveTextContent("(status = 'shipped')");
+    // To the microsecond, as PostgreSQL wrote it.
+    await expect.element(details).toHaveTextContent(/Actual Startup Time\s*0\.004/);
+    const plan = screen.getByRole("grid", { name: "Plan" });
+    await expect.element(plan).toHaveAttribute("aria-activedescendant", scan.element().id);
+
+    await screen.getByRole("row", { name: /Hash Left Join/ }).click();
+    await expect.element(details).toHaveTextContent("(o.customer_id = c.id)");
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(scan).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(details).not.toBeInTheDocument();
+
+    await scan.click();
+    await details.getByRole("button", { name: "Close the details" }).click();
+    await expect.element(details).not.toBeInTheDocument();
+    await expect.element(plan).toHaveFocus();
+  });
+
+  it("scrolls a node picked from the keyboard into view", async () => {
+    // A chain deep enough to overflow the results pane.
+    let deepest: Record<string, unknown> = {
+      "Node Type": "Seq Scan",
+      "Plan Rows": 1,
+      "Total Cost": 1,
+    };
+    for (let depth = 0; depth < 60; depth += 1) {
+      deepest = { "Node Type": "Materialize", "Plan Rows": 1, "Total Cost": 1, Plans: [deepest] };
+    }
+    const { screen } = await shell(postgres, {
+      explain_query: { plan: { Plan: deepest }, elapsed_ms: 1 },
+    });
+    await screen.getByRole("button", { name: "Explain" }).click();
+
+    const last = screen.getByRole("row", { name: /Seq Scan/ });
+    await expect.element(last).not.toBeInViewport();
+    // Focused rather than clicked: a click would land on a row and pick it.
+    (screen.getByRole("grid", { name: "Plan" }).element() as HTMLElement).focus();
+    // Up from nothing selected is the last node.
+    await userEvent.keyboard("{Control>}p{/Control}");
+
+    await expect.element(last).toHaveAttribute("aria-selected", "true");
+    await expect.element(last).toBeInViewport();
   });
 
   it("offers no plan for BigQuery", async () => {
