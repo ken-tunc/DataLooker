@@ -118,9 +118,12 @@ describe("ResultGrid", () => {
       const screen = await grid();
 
       await screen.getByText(/^\{"customer"/).click();
-      await userEvent.keyboard("{Control>}c{/Control}");
-
-      expect(written).toHaveBeenCalledWith(JSON.stringify(document));
+      // ⌘C on a Mac, and Control-C everywhere else.
+      for (const key of ["Meta", "Control"]) {
+        written.mockClear();
+        await userEvent.keyboard(`{${key}>}c{/${key}}`);
+        expect(written).toHaveBeenCalledWith(JSON.stringify(document));
+      }
     } finally {
       written.mockRestore();
     }
