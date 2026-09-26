@@ -13,6 +13,7 @@ use crate::app::App;
 
 use crate::db::connection::DriverConfig;
 use crate::drivers::session::Whose;
+use crate::drivers::TableKind;
 use crate::error::AppError;
 
 /// An agent wants what was run lately, not the whole log.
@@ -162,7 +163,7 @@ impl Agent {
                     schema.tables.into_iter().map(move |table| Table {
                         schema: schema.name.clone(),
                         name: table.name,
-                        kind: format!("{:?}", table.kind).to_lowercase(),
+                        kind: kind_name(table.kind).to_string(),
                     })
                 })
                 .collect(),
@@ -329,7 +330,263 @@ impl From<crate::db::connection::ConnectionRecord> for Connection {
     }
 }
 
+/// As `Table::kind` documents it.
+fn kind_name(kind: TableKind) -> &'static str {
+    match kind {
+        TableKind::Table => "table",
+        TableKind::View => "view",
+        TableKind::MaterializedView => "materialized_view",
+        TableKind::ForeignTable => "foreign_table",
+    }
+}
+
 /// The app's own message, which an agent reads the way a reader reads a toast.
 fn refused(e: AppError) -> ErrorData {
     ErrorData::internal_error(e.to_string(), None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::connection::ConnectionRecord;
+
+    fn record(config: DriverConfig) -> ConnectionRecord {
+        ConnectionRecord {
+            id: "c1".into(),
+            label: "Warehouse".into(),
+            config,
+            command: None,
+            command_while_selected: false,
+            time_zone: None,
+            created_at: "2026-09-26T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn says_what_a_connection_reaches_without_its_user() {
+        let postgres = Connection::from(record(DriverConfig::Postgres {
+            host: "db.internal".into(),
+            port: 5433,
+            database: "shop".into(),
+            username: "reader".into(),
+        }));
+        assert_eq!(postgres.driver, "postgres");
+        assert_eq!(postgres.reaches, "db.internal:5433/shop");
+
+        let bigquery = Connection::from(record(DriverConfig::BigQuery {
+            project_id: "analytics".into(),
+            location: "EU".into(),
+        }));
+        assert_eq!(bigquery.driver, "bigquery");
+        assert_eq!(bigquery.reaches, "analytics in EU");
+    }
+
+    #[test]
+    fn names_each_kind_of_table_as_documented() {
+        let named = [
+            TableKind::Table,
+            TableKind::View,
+            TableKind::MaterializedView,
+            TableKind::ForeignTable,
+        ]
+        .map(kind_name);
+        assert_eq!(
+            named,
+            ["table", "view", "materialized_view", "foreign_table"]
+        );
+    }
+
+    #[tokio::test]
+    async fn passes_on_the_app_s_own_refusal() {
+        let agent = Agent::new(Arc::new(crate::app::tests::app().await));
+        let Err(refusal) = agent
+            .list_tables(Parameters(Of {
+                connection_id: "nowhere".into(),
+            }))
+            .await
+        else {
+            panic!("a connection that does not exist was listed");
+        };
+        assert!(refusal.message.contains("nowhere"), "{}", refusal.message);
+    }
+}
+
+#[cfg(test)]
+mod live {
+    use super::*;
+    use crate::app::tests::app_reaching_postgres;
+
+    /// A schema of its own, so that runs sharing the database do not see each
+    /// other's tables.
+    async fn agent_with_a_schema() -> Option<(Agent, String, String)> {
+        let (app, id) = app_reaching_postgres().await?;
+        let schema = format!("mcp_{}", uuid::Uuid::new_v4().simple());
+        for statement in [
+            format!("CREATE SCHEMA {schema}"),
+            format!("CREATE TABLE {schema}.orders (id integer PRIMARY KEY, note text)"),
+            format!("CREATE VIEW {schema}.notes AS SELECT note FROM {schema}.orders"),
+            format!(
+                "CREATE MATERIALIZED VIEW {schema}.totals AS SELECT count(*) FROM {schema}.orders"
+            ),
+        ] {
+            app.execute_query(&id, &statement, "setup")
+                .await
+                .expect("a schema to look at");
+        }
+        Some((Agent::new(Arc::new(app)), id, schema))
+    }
+
+    async fn drop_schema(agent: &Agent, id: &str, schema: &str) {
+        agent
+            .app
+            .execute_query(id, &format!("DROP SCHEMA {schema} CASCADE"), "teardown")
+            .await
+            .ok();
+    }
+
+    #[tokio::test]
+    async fn lists_each_table_with_its_schema_and_kind() {
+        let Some((agent, id, schema)) = agent_with_a_schema().await else {
+            return;
+        };
+
+        let Json(tables) = agent
+            .list_tables(Parameters(Of {
+                connection_id: id.clone(),
+            }))
+            .await
+            .unwrap();
+        let mut ours: Vec<_> = tables
+            .iter()
+            .filter(|table| table.schema == schema)
+            .map(|table| (table.name.as_str(), table.kind.as_str()))
+            .collect();
+        ours.sort_unstable();
+        assert_eq!(
+            ours,
+            [
+                ("notes", "view"),
+                ("orders", "table"),
+                ("totals", "materialized_view")
+            ]
+        );
+
+        drop_schema(&agent, &id, &schema).await;
+    }
+
+    #[tokio::test]
+    async fn describes_a_table_s_columns() {
+        let Some((agent, id, schema)) = agent_with_a_schema().await else {
+            return;
+        };
+
+        let Json(columns) = agent
+            .describe_table(Parameters(Named {
+                connection_id: id.clone(),
+                schema: schema.clone(),
+                table: "orders".into(),
+            }))
+            .await
+            .unwrap();
+        let described: Vec<_> = columns
+            .iter()
+            .map(|column| {
+                (
+                    column.name.as_str(),
+                    column.data_type.as_str(),
+                    column.nullable,
+                )
+            })
+            .collect();
+        assert_eq!(
+            described,
+            [("id", "integer", false), ("note", "text", true)]
+        );
+
+        drop_schema(&agent, &id, &schema).await;
+    }
+
+    #[tokio::test]
+    async fn answers_a_statement_with_its_columns_and_rows() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        let agent = Agent::new(Arc::new(app));
+
+        let Json(answer) = agent
+            .run_query(Parameters(Statement {
+                connection_id: id,
+                sql: "SELECT 1::int4 AS one, 'a'::text AS letter".into(),
+            }))
+            .await
+            .unwrap();
+        let columns: Vec<_> = answer
+            .columns
+            .iter()
+            .map(|column| (column.name.as_str(), column.type_name.as_str()))
+            .collect();
+        assert_eq!(columns, [("one", "INT4"), ("letter", "TEXT")]);
+        assert_eq!(
+            answer.rows,
+            [[serde_json::json!(1), serde_json::json!("a")]]
+        );
+        assert!(!answer.truncated);
+    }
+
+    #[tokio::test]
+    async fn answers_with_the_plan_postgresql_wrote() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        let agent = Agent::new(Arc::new(app));
+
+        let Json(planned) = agent
+            .explain_query(Parameters(Explain {
+                connection_id: id,
+                sql: "SELECT 1".into(),
+                analyze: true,
+            }))
+            .await
+            .unwrap();
+        assert_eq!(planned.plan["Plan"]["Node Type"], "Result");
+        assert!(
+            planned.plan["Execution Time"].is_number(),
+            "{}",
+            planned.plan
+        );
+    }
+
+    #[tokio::test]
+    async fn tells_the_reader_s_statements_from_the_agent_s() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        app.execute_query(&id, "SELECT 'by the reader'", "reader")
+            .await
+            .unwrap();
+        let agent = Agent::new(Arc::new(app));
+        agent
+            .run_query(Parameters(Statement {
+                connection_id: id.clone(),
+                sql: "SELECT 'by an agent'".into(),
+            }))
+            .await
+            .unwrap();
+
+        let Json(ran) = agent
+            .query_history(Parameters(Of { connection_id: id }))
+            .await
+            .unwrap();
+        let log: Vec<_> = ran
+            .iter()
+            .map(|entry| (entry.sql.as_str(), entry.source.as_str()))
+            .collect();
+        assert_eq!(
+            log,
+            [
+                ("SELECT 'by an agent'", "agent"),
+                ("SELECT 'by the reader'", "reader")
+            ]
+        );
+    }
 }
