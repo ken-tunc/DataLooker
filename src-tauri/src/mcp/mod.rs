@@ -404,6 +404,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explains_a_statement_without_running_it_unless_asked() {
+        let Some((app, id)) = crate::app::tests::app_reaching_postgres().await else {
+            return;
+        };
+        let server = listen(Arc::new(app), TOKEN.to_string(), 0)
+            .await
+            .expect("a port to answer on");
+        greeted(server.port).await;
+
+        // `analyze` left out: an estimate, which carries nothing measured.
+        let (status, said) = asked(
+            server.port,
+            TOKEN,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "explain_query",
+                    "arguments": { "connection_id": id, "sql": "SELECT 1" },
+                },
+            }),
+        )
+        .await;
+        assert_eq!(status, 200, "{said}");
+
+        let answer: Value = serde_json::from_str(&said).expect("JSON-RPC");
+        let plan = &answer["result"]["structuredContent"]["plan"];
+        assert_eq!(plan["Plan"]["Node Type"], "Result", "{said}");
+        assert!(plan["Plan"].get("Actual Loops").is_none(), "{said}");
+
+        server.stop().await;
+    }
+
+    #[tokio::test]
     async fn answers_with_what_the_app_holds() {
         let server = answering().await;
         greeted(server.port).await;
