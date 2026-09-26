@@ -15,9 +15,15 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
+        // PostgreSQL is read here without connecting; BigQuery has to be asked.
         Ok(match record.config {
             DriverConfig::Postgres { .. } => postgres::risks(sql, record.production),
-            DriverConfig::BigQuery { .. } => Vec::new(),
+            DriverConfig::BigQuery { .. } => {
+                self.session(connection_id)
+                    .await?
+                    .risks(sql, record.production)
+                    .await?
+            }
         })
     }
 }

@@ -11,10 +11,10 @@ PostgreSQL and BigQuery.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type,
   formatting in either dialect that keeps comments and keyword case, and vim keybindings.
-  On PostgreSQL, an `UPDATE` or `DELETE` without a `WHERE`, a `DROP`, a `TRUNCATE` and an
-  `ALTER TABLE ... DROP COLUMN` ask before they run, each statement read from its parse
-  tree. On a connection marked production, drawn in red, every statement that writes
-  asks.
+  A `DROP`, a `TRUNCATE`, an `ALTER TABLE ... DROP COLUMN` and, on PostgreSQL, an `UPDATE`
+  or `DELETE` without a `WHERE` ask before they run: PostgreSQL's from its parse tree,
+  BigQuery's from a dry run. On a connection marked production, drawn in red, every
+  statement that writes asks.
 - **Results** — a virtualized grid with resizable columns, and the whole of a value the
   cell cuts short on hover, with documents indented. A range of cells, dragged or
   stretched with ⇧, is copied as a spreadsheet pastes it, or from the right-click menu
