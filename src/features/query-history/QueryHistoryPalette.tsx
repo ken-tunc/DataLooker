@@ -32,7 +32,7 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
       empty="No query matches."
       status={
         history.isPending ? (
-          <p className="text-base-content/60 p-2 text-sm">Reading the history…</p>
+          <p className="text-faint p-2 text-sm">Reading the history…</p>
         ) : history.isError ? (
           <div role="alert" className="alert alert-soft alert-error text-sm">
             <span className="truncate">{describeError(history.error)}</span>
@@ -53,12 +53,12 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
             {entry.error ? (
               <span className="text-error">failed</span>
             ) : (
-              <span className="text-base-content/50">
+              <span className="text-faint">
                 {entry.row_count} {entry.row_count === 1 ? "row" : "rows"}
               </span>
             )}
           </span>
-          <span className="text-base-content/50 shrink-0 text-xs">{ranAt(entry)}</span>
+          <span className="text-faint shrink-0 text-xs">{ranAt(entry)}</span>
         </>
       )}
     </Palette>

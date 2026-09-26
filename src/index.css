@@ -16,6 +16,22 @@
   --depth: 1;
 }
 
+/* Two steps back from the text, named for what they hold so a new line of text
+   takes one of them rather than an opacity of its own: `muted` for what is read
+   second — a status, a description, a subtitle — and `faint` for what sits
+   beside a name as its detail, or stands in for something not there yet. As
+   colours rather than utilities, they give `fill-` for the plan's graph too. */
+@theme inline {
+  --color-muted: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+  --color-faint: color-mix(in oklab, var(--color-base-content) 45%, transparent);
+}
+
+/* What heads a group inside a pane or a dialog: it labels the group rather than
+   being read, so it steps back from the group's own text. */
+@utility section-title {
+  @apply text-muted text-xs font-semibold tracking-wide uppercase;
+}
+
 /* A line between two panels is drawn in the text colour at low opacity rather than
    in a base shade, so it reads the same against whichever shade is behind it. */
 @utility hairline {

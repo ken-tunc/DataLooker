@@ -90,7 +90,7 @@ export function QueryTabPane({
             Run
           </button>
         )}
-        <span className="text-base-content/60 text-xs">
+        <span className="text-faint text-xs">
           <kbd className="kbd kbd-xs">⌘</kbd> <kbd className="kbd kbd-xs">Enter</kbd>
         </span>
         {explains && (
@@ -187,15 +187,15 @@ function Status({
   outcome: Outcome | null;
 }) {
   if (pending) return <span className="loading loading-spinner loading-xs" />;
-  if (cancelled) return <span className="text-base-content/60 text-sm">Cancelled</span>;
+  if (cancelled) return <span className="text-muted text-sm">Cancelled</span>;
   if (error) return <span className="text-error truncate font-mono text-sm">{error}</span>;
   if (!outcome) return null;
   if (outcome.kind === "plan") {
-    return <span className="text-base-content/60 text-sm">{outcome.plan.elapsed_ms} ms</span>;
+    return <span className="text-muted text-sm">{outcome.plan.elapsed_ms} ms</span>;
   }
   const { result } = outcome;
   return (
-    <span className="text-base-content/60 flex gap-3 text-sm">
+    <span className="text-muted flex gap-3 text-sm">
       <span>
         {result.rows.length} {result.rows.length === 1 ? "row" : "rows"}
       </span>

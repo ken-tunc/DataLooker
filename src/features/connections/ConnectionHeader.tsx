@@ -64,7 +64,7 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
         <DriverIcon kind={connection.config.kind} />
         <div className="flex min-w-0 grow flex-col leading-tight">
           <h1 className="truncate text-sm font-semibold">{connection.label}</h1>
-          <span className="text-base-content/60 truncate text-xs">
+          <span className="text-muted truncate text-xs">
             {describeConnection(connection.config)}
           </span>
         </div>
@@ -89,7 +89,7 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
           ref={menu}
           id={menuId}
           popover="auto"
-          className="dropdown dropdown-end menu bg-base-200 rounded-box border-base-content/15 w-40 border p-1 shadow-lg"
+          className="dropdown dropdown-end menu bg-base-200 rounded-box hairline w-40 border p-1 shadow-lg"
           style={{ positionAnchor: `--${menuId}` }}
         >
           <li>

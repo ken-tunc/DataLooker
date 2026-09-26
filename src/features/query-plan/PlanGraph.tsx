@@ -267,10 +267,10 @@ function Node({
           {`⚠ ${flagged}`}
         </text>
       )}
-      <text x={12} y={38} className="fill-base-content/60 font-mono text-[11px]">
+      <text x={12} y={38} className="fill-faint font-mono text-[11px]">
         {clip(reads, 28)}
       </text>
-      <text x={12} y={56} className="fill-base-content/70 text-[11px] tabular-nums">
+      <text x={12} y={56} className="fill-muted text-[11px] tabular-nums">
         {measured}
       </text>
     </g>

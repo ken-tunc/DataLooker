@@ -107,7 +107,7 @@ function NodeRow({
         <span className="flex items-baseline gap-2 whitespace-nowrap">
           {node.role && <span className="badge badge-outline badge-xs">{node.role}</span>}
           <span className="font-medium">{node.operation}</span>
-          {node.target && <span className="text-base-content/60 font-mono">{node.target}</span>}
+          {node.target && <span className="text-faint font-mono">{node.target}</span>}
           {node.warnings.map((warning) => (
             <span key={warning.label} className="badge badge-warning badge-xs" title={warning.why}>
               {warning.label}
@@ -123,7 +123,7 @@ function NodeRow({
                 <span className="bg-primary block h-full" style={{ width: `${share * 100}%` }} />
               </span>
               <span className="whitespace-nowrap">{ms(actual.selfMs)}</span>
-              <span className="text-base-content/50">{percent(share)}</span>
+              <span className="text-faint">{percent(share)}</span>
             </span>
           )}
         </td>
@@ -138,11 +138,9 @@ function NodeRow({
           </span>
         )}
       </td>
-      {analyzed && (
-        <td className="text-base-content/60 text-right">{decimal.format(node.estimatedRows)}</td>
-      )}
+      {analyzed && <td className="text-muted text-right">{decimal.format(node.estimatedRows)}</td>}
       {analyzed && <td className="text-right">{actual ? decimal.format(actual.loops) : ""}</td>}
-      <td className="text-base-content/60 text-right">{decimal.format(node.cost)}</td>
+      <td className="text-muted text-right">{decimal.format(node.cost)}</td>
     </tr>
   );
 }

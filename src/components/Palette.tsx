@@ -106,9 +106,7 @@ export function Palette<T>({
 
         {status}
 
-        {!status && items.length === 0 && (
-          <p className="text-base-content/60 p-2 text-sm">{empty}</p>
-        )}
+        {!status && items.length === 0 && <p className="text-faint p-2 text-sm">{empty}</p>}
 
         <ul
           ref={list}
@@ -140,7 +138,7 @@ export function Palette<T>({
 
         {footer?.(items)}
 
-        <p className="text-base-content/60 hairline flex items-center gap-3 border-t px-2 pt-2 text-xs">
+        <p className="text-muted hairline flex items-center gap-3 border-t px-2 pt-2 text-xs">
           <span>
             <kbd className="kbd kbd-xs">↑</kbd> <kbd className="kbd kbd-xs">↓</kbd> move
           </span>

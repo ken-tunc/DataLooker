@@ -395,7 +395,7 @@ function GridCell({
         "shrink-0 truncate px-3 py-1",
         selected ? "bg-primary/20 ring-primary ring-1" : "",
         changed ? "bg-warning/20" : "",
-        value === null ? "text-base-content/50 italic" : "",
+        value === null ? "text-faint italic" : "",
       ].join(" ")}
       style={{ width }}
     >
@@ -422,7 +422,7 @@ function HeaderLabel({
         ) : (
           <ArrowUp className="ml-1 inline size-3.5" />
         ))}
-      <span className="text-base-content/50 ml-2 font-normal lowercase">{column.type_name}</span>
+      <span className="text-faint ml-2 font-normal lowercase">{column.type_name}</span>
     </>
   );
 

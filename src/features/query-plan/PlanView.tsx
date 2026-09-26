@@ -67,7 +67,7 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
 
   return (
     <div className="hairline flex h-full flex-col overflow-hidden rounded-box border">
-      <div className="hairline text-base-content/70 flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-sm">
+      <div className="hairline text-muted flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-sm">
         <ViewSwitch label="Show the plan as" views={SHAPES} shown={shape} onShow={onShapeChange} />
         <span>{analyzed ? "Analyzed" : "Estimated"}</span>
         {read.planningMs !== null && <span>Planning {ms(read.planningMs)}</span>}
@@ -77,7 +77,7 @@ export function PlanView({ plan, shape, onShapeChange }: Props) {
             {name} = {value}
           </span>
         ))}
-        <span className="text-base-content/50 ml-auto">
+        <span className="text-faint ml-auto">
           {shape === "graph" &&
             `A line is as wide as the rows it carries${analyzed ? `; amber is ${percent(HEAVY)} or more of the run` : ""}. `}
           {analyzed && "Self time is approximate: a node's time less its inputs'."}
@@ -150,7 +150,7 @@ function Details({ node, onClose }: { node: PlanNode; onClose: () => void }) {
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="font-medium">{node.operation}</div>
-          {node.target && <div className="text-base-content/60 font-mono">{node.target}</div>}
+          {node.target && <div className="text-faint font-mono">{node.target}</div>}
         </div>
         <button
           type="button"
@@ -172,11 +172,11 @@ function Details({ node, onClose }: { node: PlanNode; onClose: () => void }) {
         .filter(({ entries }) => entries.length > 0)
         .map(({ title, entries }) => (
           <section key={title}>
-            <h3 className="text-base-content/50 mb-1 font-medium">{title}</h3>
+            <h3 className="section-title mb-1">{title}</h3>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
               {entries.map(([key, value]) => (
                 <div key={key} className="contents">
-                  <dt className="text-base-content/60 whitespace-nowrap">{key}</dt>
+                  <dt className="text-muted whitespace-nowrap">{key}</dt>
                   <dd className="font-mono break-words">{shown(value)}</dd>
                 </div>
               ))}
