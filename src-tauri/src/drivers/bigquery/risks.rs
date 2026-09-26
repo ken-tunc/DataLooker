@@ -13,6 +13,12 @@ pub fn suspect(sql: &str) -> bool {
     statements(sql).any(|statement| !hazards(&statement.words).is_empty())
 }
 
+/// Whether `sql` is more than one statement, which BigQuery calls a
+/// `SCRIPT` and says no more about: its words are all there is to read.
+pub fn script(sql: &str) -> bool {
+    statements(sql).nth(1).is_some()
+}
+
 /// What to ask about, from what the dry run said `sql` is. On a `production`
 /// connection, a statement that writes and has nothing worse to say is asked
 /// about too.
@@ -309,6 +315,16 @@ mod tests {
             said(risks(dynamic, &planned("SCRIPT", None), true)),
             [(dynamic.into(), Hazard::Dynamic, vec![])]
         );
+    }
+
+    #[test]
+    fn more_than_one_statement_is_a_script() {
+        assert!(script(
+            "CREATE TEMP TABLE x AS SELECT 1 AS a; SELECT * FROM x"
+        ));
+        assert!(script("BEGIN SELECT 1; END"));
+        assert!(!script("SELECT 1;"));
+        assert!(!script("SELECT ';' -- ;\n"));
     }
 
     #[test]
