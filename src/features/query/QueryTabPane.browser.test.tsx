@@ -346,6 +346,12 @@ describe("going to the table a name means", () => {
     return screen;
   }
 
+  /** A message is all that happens: no table opens and no chooser. */
+  function wentNowhere(screen: Awaited<ReturnType<typeof jump>>) {
+    expect(screen.getByRole("tab", { name: /orders/ }).query()).toBeNull();
+    expect(screen.getByPlaceholder("Find a table").query()).toBeNull();
+  }
+
   it("opens the structure of the one table it names", async () => {
     const screen = await jump({
       schema_tree: { schemas: [{ name: "public", tables: [table("orders"), table("items")] }] },
@@ -376,12 +382,14 @@ describe("going to the table a name means", () => {
     });
 
     await expect.element(screen.getByText("No table here is called orders.")).toBeVisible();
+    wentNowhere(screen);
   });
 
   it("claims nothing while the schema is still being read", async () => {
     const screen = await jump({ schema_tree: () => new Promise(() => {}) });
 
     await expect.element(screen.getByText("The schema is still being read.")).toBeVisible();
+    wentNowhere(screen);
   });
 
   it("says why no name can be looked up when the schema could not be read", async () => {
@@ -394,5 +402,6 @@ describe("going to the table a name means", () => {
     await expect
       .element(screen.getByText(/permission denied for schema public — no name can be looked up/))
       .toBeVisible();
+    wentNowhere(screen);
   });
 });
