@@ -120,16 +120,24 @@ impl BigQuerySession {
     }
 
     /// What to ask the reader about before `sql` runs. BigQuery is asked only
-    /// when the words look easy to regret, or on `production`, where every
-    /// write asks: most statements need not wait for a dry run.
+    /// about one statement whose words look easy to regret, or any one on
+    /// `production`, where every write asks: most need not wait for a dry run.
     pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
         if !production && !risks::suspect(sql) {
             return Ok(Vec::new());
         }
-        // Nobody holds this to cancel it, so it has a deadline.
-        let planned = tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
-            .await
-            .map_err(|_| AppError::Timeout)??;
+        // A dry run of a script says only that it is one, so none is asked for.
+        let planned = if risks::script(sql) {
+            Planned {
+                kind: "SCRIPT".to_string(),
+                target: None,
+            }
+        } else {
+            // Nobody holds this to cancel it, so it has a deadline.
+            tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
+                .await
+                .map_err(|_| AppError::Timeout)??
+        };
         Ok(risks::risks(sql, &planned, production))
     }
 
