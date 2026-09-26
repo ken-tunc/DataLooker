@@ -35,7 +35,13 @@ export function PlanGraph({ root, nodes, whole, selected, onSelect, onKeyDown, s
   useEffect(() => {
     if (!viewport) return;
     const observer = new ResizeObserver(() => {
-      setMeasured({ width: viewport.clientWidth, height: viewport.clientHeight });
+      const { clientWidth: width, clientHeight: height } = viewport;
+      // A hidden tab is measured as nothing, which is no size to fit or reveal in,
+      // and coming back to the size it had is no change.
+      if (width === 0 || height === 0) return;
+      setMeasured((was) =>
+        was?.width === width && was.height === height ? was : { width, height },
+      );
     });
     observer.observe(viewport);
     return () => observer.disconnect();

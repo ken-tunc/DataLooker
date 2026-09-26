@@ -255,6 +255,16 @@ describe("explaining a statement", () => {
     await expect.poll(inside).toBe(false);
     await new Promise((settled) => setTimeout(settled, 200));
     expect(inside()).toBe(false);
+
+    // Nor does hiding the tab and showing it again, as switching tabs does.
+    const shown = () => graph.element().querySelector("svg > g")?.getAttribute("transform");
+    const panned = shown();
+    const pane = graph.element().parentElement!;
+    pane.style.display = "none";
+    await new Promise((settled) => setTimeout(settled, 200));
+    pane.style.display = "";
+    await new Promise((settled) => setTimeout(settled, 200));
+    expect(shown()).toBe(panned);
   });
 
   it("counts a node's rows over its loops as a whole number", async () => {
