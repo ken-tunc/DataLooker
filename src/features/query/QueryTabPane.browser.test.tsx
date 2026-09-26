@@ -51,6 +51,7 @@ const analyzed: QueryPlan = {
           "Actual Rows": 150,
           "Actual Loops": 1,
           "Actual Total Time": 0.3,
+          "Actual Startup Time": 0.004,
           Filter: "(status = 'shipped')",
           "Rows Removed by Filter": 9000,
         },
@@ -100,7 +101,7 @@ describe("explaining a statement", () => {
     await screen.getByRole("button", { name: "Explain" }).click();
 
     await expect.element(screen.getByText("Estimated")).toBeVisible();
-    await expect.element(screen.getByRole("cell", { name: "Seq Scan" })).toBeVisible();
+    await expect.element(screen.getByRole("gridcell", { name: "Seq Scan" })).toBeVisible();
     expect(ipc.sent("explain_query")).toMatchObject({
       connection_id: "c1",
       sql: "SELECT * FROM orders o",
@@ -135,13 +136,17 @@ describe("explaining a statement", () => {
     const details = screen.getByRole("complementary", { name: "Node details" });
     expect(details.query()).toBeNull();
 
-    await screen.getByRole("group", { name: "Plan" }).click();
+    await screen.getByRole("grid", { name: "Plan" }).click();
     await userEvent.keyboard("{Control>}n{/Control}{Control>}n{/Control}");
     await expect.element(scan).toHaveAttribute("aria-selected", "true");
     await expect.element(details).toHaveTextContent("Rows Removed by Filter");
     // Once: it is a count, so not among the conditions.
     expect(details.element().textContent?.split("Rows Removed by Filter")).toHaveLength(2);
     await expect.element(details).toHaveTextContent("(status = 'shipped')");
+    // To the microsecond, as PostgreSQL wrote it.
+    await expect.element(details).toHaveTextContent(/Actual Startup Time\s*0\.004/);
+    const plan = screen.getByRole("grid", { name: "Plan" });
+    await expect.element(plan).toHaveAttribute("aria-activedescendant", scan.element().id);
 
     await screen.getByRole("row", { name: /Hash Left Join/ }).click();
     await expect.element(details).toHaveTextContent("(o.customer_id = c.id)");
@@ -149,6 +154,11 @@ describe("explaining a statement", () => {
     await expect.element(scan).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Escape}");
     await expect.element(details).not.toBeInTheDocument();
+
+    await scan.click();
+    await details.getByRole("button", { name: "Close the details" }).click();
+    await expect.element(details).not.toBeInTheDocument();
+    await expect.element(plan).toHaveFocus();
   });
 
   it("scrolls a node picked from the keyboard into view", async () => {
@@ -169,7 +179,7 @@ describe("explaining a statement", () => {
     const last = screen.getByRole("row", { name: /Seq Scan/ });
     await expect.element(last).not.toBeInViewport();
     // Focused rather than clicked: a click would land on a row and pick it.
-    (screen.getByRole("group", { name: "Plan" }).element() as HTMLElement).focus();
+    (screen.getByRole("grid", { name: "Plan" }).element() as HTMLElement).focus();
     // Up from nothing selected is the last node.
     await userEvent.keyboard("{Control>}p{/Control}");
 

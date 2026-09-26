@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { QueryPlan } from "../../bindings/QueryPlan";
 import { stepFor } from "../../lib/keys";
 import { type PlanNode, readPlan } from "./plan";
@@ -11,7 +11,8 @@ function rows(node: PlanNode, depth = 0): Row[] {
   return [{ node, depth }, ...node.children.flatMap((child) => rows(child, depth + 1))];
 }
 
-const decimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+// PostgreSQL writes times to the microsecond; fewer digits would show a quick node as none.
+const decimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
 const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 function ms(value: number) {
@@ -21,8 +22,11 @@ function ms(value: number) {
 export function PlanView({ plan }: { plan: QueryPlan }) {
   const [selected, setSelected] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLTableElement>(null);
+  const rowId = useId();
 
   // The keys move the selection, not the focus, so nothing else brings the row into view.
+  // For the same reason `aria-activedescendant` names the row to a screen reader.
   useEffect(() => {
     scroller.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [selected]);
@@ -76,15 +80,16 @@ export function PlanView({ plan }: { plan: QueryPlan }) {
         )}
       </div>
       <div className="flex min-h-0 flex-1">
-        <div
-          ref={scroller}
-          role="group"
-          aria-label="Plan"
-          tabIndex={0}
-          className="min-h-0 min-w-0 flex-1 overflow-auto outline-none"
-          onKeyDown={move}
-        >
-          <table className="table-pin-rows table table-xs">
+        <div ref={scroller} className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <table
+            ref={grid}
+            role="grid"
+            aria-label="Plan"
+            aria-activedescendant={selected === null ? undefined : `${rowId}-${selected}`}
+            tabIndex={0}
+            className="table-pin-rows table table-xs focus-visible:outline-primary outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+            onKeyDown={move}
+          >
             <thead>
               <tr>
                 <th>Node</th>
@@ -101,6 +106,7 @@ export function PlanView({ plan }: { plan: QueryPlan }) {
                   // The list is fixed for as long as this plan is shown.
                   // oxlint-disable-next-line no-array-index-key
                   key={index}
+                  id={`${rowId}-${index}`}
                   node={node}
                   depth={depth}
                   whole={whole}
@@ -118,7 +124,14 @@ export function PlanView({ plan }: { plan: QueryPlan }) {
             aria-label="Node details"
             className="hairline w-80 shrink-0 overflow-auto border-l px-3 py-2 text-xs"
           >
-            <Details node={chosen} onClose={() => setSelected(null)} />
+            <Details
+              node={chosen}
+              onClose={() => {
+                setSelected(null);
+                // The button that had the focus is gone; the plan takes it back.
+                grid.current?.focus();
+              }}
+            />
           </aside>
         )}
       </div>
@@ -127,6 +140,7 @@ export function PlanView({ plan }: { plan: QueryPlan }) {
 }
 
 function NodeRow({
+  id,
   node,
   depth,
   whole,
@@ -134,6 +148,7 @@ function NodeRow({
   selected,
   onSelect,
 }: {
+  id: string;
   node: PlanNode;
   depth: number;
   whole: number;
@@ -147,6 +162,7 @@ function NodeRow({
 
   return (
     <tr
+      id={id}
       aria-selected={selected}
       // Clear of the pinned header when scrolled to from below.
       className={`cursor-default scroll-mt-8 ${selected ? "bg-base-300" : "hover:bg-base-200"} ${never ? "opacity-50" : ""}`}
