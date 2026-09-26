@@ -242,7 +242,9 @@ export function ResultGrid({
       json: () => toJson(part),
       insert: () => (insertInto ? toInsert(insertInto, part) : ""),
     }[format]();
-    void navigator.clipboard.writeText(text);
+    navigator.clipboard
+      .writeText(text)
+      .catch((error: unknown) => show(`Not copied: ${describeError(error)}`, "error"));
   }
 
   async function save(extension: "csv" | "json") {

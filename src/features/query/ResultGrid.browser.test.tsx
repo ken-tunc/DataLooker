@@ -299,6 +299,22 @@ describe("ResultGrid", () => {
       );
     });
 
+    it("says so when the clipboard refuses the copy", async () => {
+      const written = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockRejectedValue(new Error("Document is not focused."));
+      try {
+        const screen = await peopleGrid();
+        await screen.getByText("Ada").click();
+        await userEvent.keyboard("{Meta>}c{/Meta}");
+        await expect
+          .element(screen.getByText("Not copied: Document is not focused."))
+          .toBeVisible();
+      } finally {
+        written.mockRestore();
+      }
+    });
+
     it("saves every row, not only the selected ones, and says when there are more", async () => {
       const save = vi.mocked(saveTextFile);
       save.mockResolvedValue("people.csv");
