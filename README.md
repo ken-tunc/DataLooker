@@ -18,7 +18,10 @@ PostgreSQL and BigQuery.
 - **Plans** — a PostgreSQL statement's plan as a tree, estimated, or analyzed: run
   inside a read-only transaction and rolled back, so the server refuses a write and
   nothing the run did is kept, not even the table an analyzed `CREATE TABLE AS` makes,
-  while a transaction you have open stays as it was.
+  while a transaction you have open stays as it was. An analyzed plan shows each node's
+  own share of the time, estimates tenfold or more off, and what the plan states
+  outright: a sort or hash on disk, a lossy bitmap, missing workers, a filter that throws
+  most rows away. Every key of a node is a click away.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
@@ -51,6 +54,7 @@ Press ⌘? for this list in the app.
 | ⌘C                | Copy the selected cell                |
 | Space             | Show the selected cell in full        |
 | ⌘Backspace        | Set the cell being edited to NULL     |
+| ↑, ↓, ⌃N, ⌃P      | Next / previous node in a plan        |
 | ⌃N, ⌃P            | Next / previous item in a palette     |
 | ⌥↑, ⌥↓            | Move the focused connection up / down |
 

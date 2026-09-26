@@ -46,6 +46,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { keys: ["⌘C"], what: "Copy the selected cell" },
       { keys: ["Space"], what: "Show the selected cell in full" },
       { keys: ["⌘Backspace"], what: "Set the cell being edited to NULL" },
+      { keys: ["↑", "↓", "⌃N", "⌃P"], what: "Next / previous node in a plan" },
     ],
   },
   {
