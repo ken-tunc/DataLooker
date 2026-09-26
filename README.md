@@ -9,8 +9,8 @@ PostgreSQL and BigQuery.
   macOS keychain. A connection can carry a shell command, such as an SSH tunnel, started
   and stopped from its header, or run only while the connection is selected.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
-  a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type, and vim
-  keybindings.
+  a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type,
+  formatting in either dialect that keeps comments and keyword case, and vim keybindings.
 - **Results** — a virtualized grid with resizable columns, and the whole of a value the
   cell cuts short on hover, with documents indented. A range of cells, dragged or
   stretched with ⇧, is copied as a spreadsheet pastes it, or from the right-click menu
@@ -42,28 +42,29 @@ PostgreSQL and BigQuery.
 
 Press ⌘? for this list in the app.
 
-| Keys              | What it does                          |
-| ----------------- | ------------------------------------- |
-| ⌘?                | Show these shortcuts                  |
-| ⌘O                | Find a table by name and open it      |
-| ⌘Y                | Reopen a query that was run before    |
-| ⌘J                | Open a query template                 |
-| ⌘T                | New SQL tab                           |
-| ⌃Tab, ⌃⇧Tab       | Next / previous tab                   |
-| Delete, Backspace | Close the focused tab                 |
-| ⌘Enter            | Run the editor's query                |
-| ⌘E                | Show how PostgreSQL would run it      |
-| ⌘⇧E               | Run it read-only and time each step   |
-| ⌘⇧D, ⌘-click      | Open the table named under the cursor |
-| ⇧-click, ⇧↑↓←→    | Stretch the selection over a range    |
-| ⌘↑↓←→             | Go to the first / last row or column  |
-| ⌘A                | Select every cell                     |
-| ⌘C                | Copy the selected cells               |
-| Space             | Show the selected cell in full        |
-| ⌘Backspace        | Set the cell being edited to NULL     |
-| ↑, ↓, ⌃N, ⌃P      | Next / previous node in a plan        |
-| ⌃N, ⌃P            | Next / previous item in a palette     |
-| ⌥↑, ⌥↓            | Move the focused connection up / down |
+| Keys              | What it does                           |
+| ----------------- | -------------------------------------- |
+| ⌘?                | Show these shortcuts                   |
+| ⌘O                | Find a table by name and open it       |
+| ⌘Y                | Reopen a query that was run before     |
+| ⌘J                | Open a query template                  |
+| ⌘T                | New SQL tab                            |
+| ⌃Tab, ⌃⇧Tab       | Next / previous tab                    |
+| Delete, Backspace | Close the focused tab                  |
+| ⌘Enter            | Run the editor's query                 |
+| ⌘E                | Show how PostgreSQL would run it       |
+| ⌘⇧E               | Run it read-only and time each step    |
+| ⌘⇧D, ⌘-click      | Open the table named under the cursor  |
+| ⌘⇧F               | Format the statement, or the selection |
+| ⇧-click, ⇧↑↓←→    | Stretch the selection over a range     |
+| ⌘↑↓←→             | Go to the first / last row or column   |
+| ⌘A                | Select every cell                      |
+| ⌘C                | Copy the selected cells                |
+| Space             | Show the selected cell in full         |
+| ⌘Backspace        | Set the cell being edited to NULL      |
+| ↑, ↓, ⌃N, ⌃P      | Next / previous node in a plan         |
+| ⌃N, ⌃P            | Next / previous item in a palette      |
+| ⌥↑, ⌥↓            | Move the focused connection up / down  |
 
 ## Installing a release
 

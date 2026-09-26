@@ -15,12 +15,20 @@ import {
   registerCompletion,
 } from "./completion";
 import { documentUri } from "./documents";
+import { formatWith, registerFormatting } from "./formatting";
+import type { Dialect } from "./format";
 import { identifierAt, type QualifiedName } from "./jump";
 import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE, Uri } from "./monaco";
 import { useVimMode } from "./vim";
 
 /** Whoever owns a marker can replace it, so the name has to be ours alone. */
 const SYNTAX = "datalooker.syntax";
+
+/** Monaco's own, registered by the import of its message contribution. */
+const MESSAGES = "editor.contrib.messageController";
+type Messages = monaco.IEditorContribution & {
+  showMessage(message: string, position: { lineNumber: number; column: number }): void;
+};
 
 /** Long enough that a burst of typing is parsed once, short enough to feel live. */
 const SETTLE_MS = 400;
@@ -82,8 +90,17 @@ export default function SqlEditor({
         : languageServerCompleter(connectionId);
   });
 
+  // Read when a format is asked for, since the connections may not have been
+  // read when the editor was made. Until they are, neither grammar is assumed:
+  // PostgreSQL's would split BigQuery's `@name` in two.
+  const dialect = useRef<Dialect | null>(null);
+  useLayoutEffect(() => {
+    dialect.current = config ? (config.kind === "bigquery" ? "bigquery" : "postgresql") : null;
+  });
+
   useEffect(() => {
     registerCompletion();
+    registerFormatting();
     const client = languageClientFor(connectionId);
     // The URI says which connection's server to ask.
     const uri = Uri.parse(documentUri(connectionId, tabId));
@@ -109,6 +126,18 @@ export default function SqlEditor({
     });
     editor.current = instance;
 
+    const formatting = formatWith(uri.toString(), {
+      dialect: () => dialect.current,
+      refused(reason, at) {
+        const position = at ?? instance.getPosition();
+        if (position) {
+          instance
+            .getContribution<Messages>(MESSAGES)
+            ?.showMessage(`Left unformatted: ${reason}`, position);
+        }
+      },
+    });
+
     const changed = instance.onDidChangeModelContent(() => {
       handlers.current.onChange(instance.getValue());
       client.wrote(uri.toString(), instance.getValue());
@@ -131,6 +160,18 @@ export default function SqlEditor({
     instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyD, () =>
       jumpAt(instance.getPosition()),
     );
+    // One key for either, as BigQuery's console has it: Monaco's own keys are
+    // one for the document, even with a selection, and a chord for a selection.
+    instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF, () =>
+      instance.trigger(
+        "keyboard",
+        instance.getSelection()?.isEmpty() === false
+          ? "editor.action.formatSelection"
+          : "editor.action.formatDocument",
+        null,
+      ),
+    );
+
     // Free: Monaco's multi-cursor click is ⌥, not ⌘.
     const clicked = instance.onMouseUp((event) => {
       if (event.event.metaKey || event.event.ctrlKey) jumpAt(event.target.position);
@@ -140,6 +181,7 @@ export default function SqlEditor({
       changed.dispose();
       clicked.dispose();
       answering();
+      formatting();
       client.closed(uri.toString());
       instance.getModel()?.dispose();
       instance.dispose();

@@ -7,11 +7,15 @@ import "monaco-editor/features/contextmenu/register.js";
 import "monaco-editor/features/cursorUndo/register.js";
 import "monaco-editor/features/find/register.js";
 import "monaco-editor/features/folding/register.js";
+// Format Document and Format Selection, with their keys and context menu items.
+import "monaco-editor/features/format/register.js";
 import "monaco-editor/features/gotoLine/register.js";
 // Reads out a syntax error where it is marked.
 import "monaco-editor/features/hover/register.js";
 import "monaco-editor/features/indentation/register.js";
 import "monaco-editor/features/linesOperations/register.js";
+// Says in the editor why a statement was left unformatted.
+import "monaco-editor/editor/contrib/message/browser/messageController.js";
 import "monaco-editor/features/multicursor/register.js";
 import "monaco-editor/features/smartSelect/register.js";
 import "monaco-editor/features/snippet/register.js";
@@ -25,7 +29,7 @@ import "monaco-editor/features/wordPartOperations/register.js";
 import "monaco-editor/languages/definitions/pgsql/register.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 
-import { editor } from "monaco-editor/editor/editor.api.js";
+import { editor, KeyCode, KeyMod } from "monaco-editor/editor/editor.api.js";
 
 export {
   KeyCode,
@@ -35,6 +39,13 @@ export {
   editor,
   languages,
 } from "monaco-editor/editor/editor.api.js";
+
+// ⌘⇧F formats (`SqlEditor`), so Monaco's own key for the document alone is
+// taken away rather than left to do half of it.
+editor.addKeybindingRule({
+  keybinding: KeyMod.Shift | KeyMod.Alt | KeyCode.KeyF,
+  command: "-editor.action.formatDocument",
+});
 
 // Monaco holds one theme for everything it draws, so it is set here rather than
 // per editor; `colorize` outside an editor uses it too.
