@@ -347,6 +347,8 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
                 onSelectRow={(row) => setTarget(targetAt(row))}
                 editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
                 connectionId={connectionId}
+                table={{ schema: tab.schema, table: tab.table }}
+                fileName={tab.table}
               />
             ) : (
               <EmptyState>{preview.isPending ? "Reading the table…" : "No rows match."}</EmptyState>
