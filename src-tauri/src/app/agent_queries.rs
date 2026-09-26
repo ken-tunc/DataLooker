@@ -127,6 +127,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn keeps_nothing_an_explained_statement_made() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+
+        // Read-only does not stop this under EXPLAIN ANALYZE; the rollback does.
+        app.run_agent_query(
+            &id,
+            "EXPLAIN ANALYZE CREATE TABLE agent_explained_into_being AS SELECT 1",
+        )
+        .await
+        .expect("PostgreSQL lets it through");
+
+        let left = app
+            .run_agent_query(
+                &id,
+                "SELECT to_regclass('agent_explained_into_being') IS NULL",
+            )
+            .await
+            .unwrap();
+        assert_eq!(left.rows, vec![vec![serde_json::json!(true)]]);
+    }
+
+    #[tokio::test]
     async fn takes_one_statement_at_a_time() {
         let Some((app, id)) = app_reaching_postgres().await else {
             return;

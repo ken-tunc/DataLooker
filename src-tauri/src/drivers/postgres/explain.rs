@@ -20,6 +20,11 @@ pub fn statement(sql: &str, analyze: bool) -> String {
 /// carries the statement out, and even planning calls the immutable functions
 /// it folds. The server refuses a write, `nextval` included, and the reader's
 /// own transaction, when one is open, comes back as it was, able to write.
+///
+/// The rollback is not a second guard. `EXPLAIN ANALYZE` carries out
+/// `CREATE TABLE AS` and `CREATE MATERIALIZED VIEW` without the read-only
+/// check those statements get on their own, as does a temporary table's write,
+/// and only the rollback throws them away.
 pub async fn run(conn: &mut PgConnection, statement: &str) -> Result<Value, DriverError> {
     // A transaction cannot be begun inside another. A savepoint can, and
     // rolling back to it undoes `SET LOCAL` too.
@@ -181,6 +186,26 @@ mod live {
             column(&session, "SELECT count(*) FROM pg_temp.scratch").await,
             vec![vec![json!(0)]]
         );
+
+        // Read-only does not stop these under EXPLAIN; the rollback does.
+        explain(&session, "CREATE TABLE explain_made_this AS SELECT 1 AS n")
+            .await
+            .unwrap();
+        explain(
+            &session,
+            "CREATE MATERIALIZED VIEW explain_made_that AS SELECT 1 AS n",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            column(
+                &session,
+                "SELECT to_regclass('explain_made_this') IS NULL \
+                    AND to_regclass('explain_made_that') IS NULL"
+            )
+            .await,
+            vec![vec![json!(true)]]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -212,6 +237,12 @@ mod live {
         explain(&session, "INSERT INTO pg_temp.scratch VALUES (1)")
             .await
             .unwrap();
+        explain(
+            &session,
+            "CREATE TABLE explain_inside.made AS SELECT 1 AS n",
+        )
+        .await
+        .unwrap();
 
         run(&session, "INSERT INTO explain_inside.notes VALUES (3)")
             .await
@@ -224,6 +255,14 @@ mod live {
         assert_eq!(
             column(&session, "SELECT count(*) FROM pg_temp.scratch").await,
             vec![vec![json!(0)]]
+        );
+        assert_eq!(
+            column(
+                &session,
+                "SELECT to_regclass('explain_inside.made') IS NULL"
+            )
+            .await,
+            vec![vec![json!(true)]]
         );
     }
 

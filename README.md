@@ -17,7 +17,8 @@ PostgreSQL and BigQuery.
   unless it names another.
 - **Plans** — a PostgreSQL statement's plan as a tree, estimated, or analyzed: run
   inside a read-only transaction and rolled back, so the server refuses a write and
-  nothing the run did is kept, while a transaction you have open stays as it was.
+  nothing the run did is kept, not even the table an analyzed `CREATE TABLE AS` makes,
+  while a transaction you have open stays as it was.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
