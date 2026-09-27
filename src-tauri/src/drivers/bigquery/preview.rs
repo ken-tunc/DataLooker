@@ -3,6 +3,7 @@ use std::time::Instant;
 use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
 use gcp_bigquery_client::tabledata::ListQueryParameters;
 use gcp_bigquery_client::Client;
+use time::{OffsetDateTime, UtcOffset};
 use tokio_util::sync::CancellationToken;
 
 use super::query::{self, cells, refused};
@@ -12,7 +13,7 @@ use crate::error::AppError;
 
 /// An unfiltered, unsorted page is listed rather than queried: listing is not
 /// billed, and a query is billed for every row it scans, `LIMIT` or not. A
-/// view has no rows of its own to list.
+/// view has no rows of its own to list, and a listing has no past.
 pub async fn preview(
     client: &Client,
     project_id: &str,
@@ -21,7 +22,13 @@ pub async fn preview(
     cancel: &CancellationToken,
 ) -> Result<TablePage, AppError> {
     let started = Instant::now();
-    if request.filter.trim().is_empty() && request.sort.is_none() {
+    if request.as_of.is_some() {
+        tokio::select! {
+            kept = keeps_its_past(client, project_id, request) => kept?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        }
+    }
+    if request.filter.trim().is_empty() && request.sort.is_none() && request.as_of.is_none() {
         let listed = tokio::select! {
             listed = list(client, project_id, request, started) => listed?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -57,6 +64,27 @@ fn unversioned(result: QueryResult) -> TablePage {
     TablePage {
         result,
         versions: Vec::new(),
+    }
+}
+
+/// BigQuery reads a view with `FOR SYSTEM_TIME AS OF` as it is now, without
+/// a word, so what cannot be read in the past is refused here.
+pub(super) async fn keeps_its_past(
+    client: &Client,
+    project_id: &str,
+    request: &Preview<'_>,
+) -> Result<(), AppError> {
+    let table = client
+        .table()
+        .get(project_id, request.schema, request.table, None)
+        .await
+        .map_err(refused)?;
+    match table.r#type.as_deref() {
+        Some("TABLE") => Ok(()),
+        kind => Err(AppError::Unsupported(format!(
+            "Only a table can be read as it was, and BigQuery calls this a {}.",
+            kind.unwrap_or("relation of no stated type")
+        ))),
     }
 }
 
@@ -123,13 +151,16 @@ fn columns(fields: &[TableFieldSchema]) -> Vec<QueryColumn> {
 }
 
 /// The filter is the reader's own expression, as trusted as the editor.
-fn preview_sql(project_id: &str, preview: &Preview) -> String {
+pub(super) fn preview_sql(project_id: &str, preview: &Preview) -> String {
     let mut sql = format!(
         "SELECT * FROM {}.{}.{} AS t",
         quote(project_id),
         quote(preview.schema),
         quote(preview.table)
     );
+    if let Some(as_of) = preview.as_of {
+        sql.push_str(&format!(" FOR SYSTEM_TIME AS OF {}", timestamp(as_of)));
+    }
     if !preview.filter.trim().is_empty() {
         sql.push_str(&format!(" WHERE {}", preview.filter.trim()));
     }
@@ -142,6 +173,22 @@ fn preview_sql(project_id: &str, preview: &Preview) -> String {
         preview.limit, preview.offset
     ));
     sql
+}
+
+/// Written by this app from a parsed point, so nothing the reader typed ends
+/// up in the statement.
+fn timestamp(at: OffsetDateTime) -> String {
+    let at = at.to_offset(UtcOffset::UTC);
+    format!(
+        "TIMESTAMP '{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}+00'",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.microsecond()
+    )
 }
 
 fn quote(name: &str) -> String {
@@ -171,6 +218,7 @@ mod tests {
             limit: 100,
             offset: 0,
             versioned: false,
+            as_of: None,
         }
     }
 
@@ -179,6 +227,25 @@ mod tests {
         assert_eq!(
             preview_sql("my-project", &preview_of("shop", "orders")),
             "SELECT * FROM `my-project`.`shop`.`orders` AS t LIMIT 100 OFFSET 0"
+        );
+    }
+
+    #[test]
+    fn a_past_point_is_read_in_utc_to_the_microsecond() {
+        let as_of = time::macros::datetime!(2025-01-02 10:00:00.123_456_789 +09:00);
+        assert_eq!(
+            preview_sql(
+                "p",
+                &Preview {
+                    as_of: Some(as_of),
+                    ..preview_of("shop", "orders")
+                }
+            ),
+            concat!(
+                "SELECT * FROM `p`.`shop`.`orders` AS t",
+                " FOR SYSTEM_TIME AS OF TIMESTAMP '2025-01-02 01:00:00.123456+00'",
+                " LIMIT 100 OFFSET 0"
+            )
         );
     }
 
@@ -219,11 +286,14 @@ mod tests {
 #[cfg(test)]
 mod live {
     use serde_json::{json, Value};
+    use time::format_description::well_known::Rfc3339;
+    use time::OffsetDateTime;
     use tokio_util::sync::CancellationToken;
 
     use crate::drivers::bigquery::testing::*;
 
     use crate::drivers::{Preview, Sort};
+    use crate::error::AppError;
 
     fn page_of<'a>(dataset: &'a str, table: &'a str) -> Preview<'a> {
         Preview {
@@ -234,6 +304,7 @@ mod live {
             limit: 2,
             offset: 0,
             versioned: false,
+            as_of: None,
         }
     }
 
@@ -313,6 +384,91 @@ mod live {
             .expect("a page of a view");
         assert_eq!(viewed.result.rows.len(), 2);
         assert!(viewed.result.truncated);
+
+        dataset.drop_it().await;
+    }
+
+    #[tokio::test]
+    async fn a_table_is_read_as_it_was() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "timetravel").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE TABLE {name}.people AS SELECT 1 AS id, 'Ada' AS name"
+            ))
+            .await;
+        dataset
+            .run(&format!(
+                "CREATE VIEW {name}.people_view AS SELECT * FROM {name}.people"
+            ))
+            .await;
+        let cancel = CancellationToken::new();
+        // BigQuery's clock, not this machine's, is the one the past is kept by.
+        let then = dataset
+            .session
+            .execute(
+                "SELECT FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E6SZ', CURRENT_TIMESTAMP())",
+                1,
+                &cancel,
+            )
+            .await
+            .expect("BigQuery's time");
+        let then = OffsetDateTime::parse(
+            then.rows[0][0].as_str().expect("a formatted time"),
+            &Rfc3339,
+        )
+        .expect("a time in RFC 3339");
+        dataset
+            .run(&format!("INSERT INTO {name}.people VALUES (2, 'Grace')"))
+            .await;
+
+        let past = Preview {
+            as_of: Some(then),
+            limit: 10,
+            ..page_of(&name, "people")
+        };
+        let read = dataset
+            .session
+            .preview(&past, &cancel)
+            .await
+            .expect("the table as it was");
+        assert_eq!(names(&read), [json!("Ada")]);
+        let now = dataset
+            .session
+            .preview(
+                &Preview {
+                    as_of: None,
+                    ..past
+                },
+                &cancel,
+            )
+            .await
+            .expect("the table as it is");
+        assert_eq!(now.result.rows.len(), 2);
+
+        let bytes = dataset
+            .session
+            .preview_cost(&past, &cancel)
+            .await
+            .expect("what reading it would scan");
+        assert!(bytes > 0, "a query scans the columns it reads");
+
+        // BigQuery would read the view as it is now.
+        let err = dataset
+            .session
+            .preview(
+                &Preview {
+                    as_of: Some(then),
+                    ..page_of(&name, "people_view")
+                },
+                &cancel,
+            )
+            .await
+            .expect_err("a view keeps no past");
+        assert!(matches!(err, AppError::Unsupported(_)), "got {err}");
 
         dataset.drop_it().await;
     }

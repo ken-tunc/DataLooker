@@ -106,6 +106,7 @@ mod tests {
                 filter: String::new(),
                 sort: None,
                 versioned: true,
+                as_of: None,
                 page: 0,
                 query_id: uuid::Uuid::new_v4().to_string(),
             })

@@ -1,10 +1,11 @@
-import { RotateCw } from "lucide-react";
+import { History, RotateCw } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../../components/EmptyState";
 import { SqlInput } from "../../components/SqlInput";
 import { ViewSwitch } from "../../components/ViewSwitch";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
+import { useDriver, useTimeZone } from "../connections/hooks";
 import { formatCell } from "../query/cell";
 import { ResultGrid } from "../query/ResultGrid";
 import type { TableView } from "../tabs/tabs";
@@ -28,7 +29,9 @@ import {
   useTablePreview,
   useTableShape,
 } from "./hooks";
+import { wallClock } from "./pointInTime";
 import { TableStructure } from "./TableStructure";
+import { TimeTravel } from "./TimeTravel";
 
 const SHOWS = [
   { value: "rows", label: "Rows" },
@@ -77,6 +80,10 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   const [target, setTarget] = useState<DeleteTarget | null>(null);
   // Applied on submit: half a predicate is a syntax error.
   const [draft, setDraft] = useState(tab.filter);
+  // Only BigQuery keeps a table's past.
+  const keepsPast = useDriver(connectionId) === "bigquery";
+  const [traveling, setTraveling] = useState(tab.asOf !== null);
+  const timeZone = useTimeZone(connectionId);
 
   const page = preview.data;
   const columns = page?.result.columns ?? [];
@@ -190,6 +197,13 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
     onView({ filter: draft });
   }
 
+  function toggleTimeTravel() {
+    // Closing it is going back to now: an open control is what says the rows
+    // are from the past.
+    if (traveling && tab.asOf !== null) onView({ asOf: null });
+    setTraveling(!traveling);
+  }
+
   function sortBy(column: string) {
     onView({
       sort:
@@ -251,6 +265,18 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             </button>
           </>
         )}
+        {!structure && keepsPast && (
+          <button
+            type="button"
+            className={`btn btn-ghost btn-sm btn-square ${traveling ? "btn-active" : ""}`}
+            aria-label="Time travel"
+            title="Read the table as it was"
+            aria-pressed={traveling}
+            onClick={toggleTimeTravel}
+          >
+            <History className="size-4" />
+          </button>
+        )}
         <button
           type="button"
           className="btn btn-ghost btn-sm btn-square"
@@ -270,6 +296,10 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
           {refreshing ? "Refreshing table…" : ""}
         </span>
       </div>
+
+      {!structure && keepsPast && traveling && (
+        <TimeTravel connectionId={connectionId} tab={tab} hidden={hidden} onView={onView} />
+      )}
 
       {pending > 0 && (
         <div
@@ -378,6 +408,9 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
               {tab.page + 1}
             </span>
             {page && <span>{page.result.elapsed_ms} ms</span>}
+            {tab.asOf !== null && (
+              <span className="text-warning">as of {wallClock(new Date(tab.asOf), timeZone)}</span>
+            )}
             <span className="grow" />
             <span>{unwritable ?? editingHint(editingPage, shape.isError)}</span>
           </div>

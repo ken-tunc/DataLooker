@@ -6,7 +6,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { TableEdits } from "../../bindings/TableEdits";
-import { commitTableEdits, previewTable, tableDefinition, tableShape } from "../../lib/commands";
+import {
+  commitTableEdits,
+  previewCost,
+  previewTable,
+  tableDefinition,
+  tableShape,
+} from "../../lib/commands";
 import type { Tab } from "../tabs/tabs";
 import { previewKeys } from "./keys";
 
@@ -58,6 +64,7 @@ export function useTablePreview(
       tab.sort,
       tab.page,
       editable,
+      tab.asOf,
     ),
     // Keep the rows on screen until the next ones arrive.
     placeholderData: keepPreviousData,
@@ -70,9 +77,45 @@ export function useTablePreview(
         sort: tab.sort,
         page: tab.page,
         versioned: editable,
+        as_of: tab.asOf,
         // React Query's abort signal is not wired to a backend cancel: it fires
         // on every key change and remount, which would cancel the reader's own
         // request.
+        query_id: crypto.randomUUID(),
+      }),
+  });
+}
+
+/**
+ * The bytes reading the tab's page at `asOf` would be billed for. Not asked
+ * while the tab is hidden, for the same reason as the page.
+ */
+export function usePreviewCost(
+  connectionId: string,
+  tab: TableTab,
+  asOf: string | null,
+  ready: boolean,
+) {
+  return useQuery({
+    enabled: ready && asOf !== null,
+    queryKey: previewKeys.cost(
+      connectionId,
+      tab.schema,
+      tab.table,
+      tab.filter,
+      tab.sort,
+      asOf ?? "",
+    ),
+    queryFn: () =>
+      previewCost({
+        connection_id: connectionId,
+        schema: tab.schema,
+        table: tab.table,
+        filter: tab.filter,
+        sort: tab.sort,
+        page: tab.page,
+        versioned: false,
+        as_of: asOf,
         query_id: crypto.randomUUID(),
       }),
   });

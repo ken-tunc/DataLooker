@@ -86,6 +86,8 @@ pub fn preview_sql(preview: &Preview, select: &str) -> String {
         limit,
         offset,
         versioned,
+        // Refused before a PostgreSQL preview gets here: it keeps no past.
+        as_of: _,
     } = preview;
 
     // Last, so it is stripped off the same way whatever the table holds.
@@ -163,6 +165,7 @@ mod tests {
             limit: 100,
             offset: 0,
             versioned: false,
+            as_of: None,
         }
     }
 
@@ -213,6 +216,7 @@ mod tests {
         let sql = preview_sql(
             &Preview {
                 versioned: true,
+                as_of: None,
                 ..preview_of("public", "people")
             },
             "t.*",
@@ -296,6 +300,7 @@ mod live {
                         limit: 4,
                         offset: page * 4,
                         versioned: false,
+                        as_of: None,
                     },
                     &CancellationToken::new(),
                 )
@@ -395,6 +400,7 @@ mod live {
                     limit: 10,
                     offset: 0,
                     versioned: true,
+                    as_of: None,
                 },
                 &CancellationToken::new(),
             )

@@ -278,6 +278,34 @@ impl BigQuerySession {
         preview::preview(client, &self.project_id, &self.location, request, cancel).await
     }
 
+    /// Only what a query would scan: a page that can be listed costs nothing,
+    /// and one read in the past is always a query.
+    pub async fn preview_cost(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<u64, AppError> {
+        if request.as_of.is_some() {
+            let client = tokio::select! {
+                client = self.client() => client?,
+                () = cancel.cancelled() => return Err(AppError::Cancelled),
+            };
+            tokio::select! {
+                kept = preview::keeps_its_past(client, &self.project_id, request) => kept?,
+                () = cancel.cancelled() => return Err(AppError::Cancelled),
+            }
+        }
+        let planned = self
+            .dry_run(&preview::preview_sql(&self.project_id, request), cancel)
+            .await?;
+        planned
+            .total_bytes_processed
+            .and_then(|bytes| bytes.parse().ok())
+            .ok_or_else(|| {
+                AppError::Database("BigQuery did not say what it would scan".to_string())
+            })
+    }
+
     pub async fn test(&self) -> Result<(), AppError> {
         let attempt = async {
             let mut request = QueryRequest::new(NOTHING_AT_ALL);

@@ -170,8 +170,26 @@ impl Session {
         cancel: &CancellationToken,
     ) -> Result<TablePage, AppError> {
         match self {
+            Session::Postgres(_) if request.as_of.is_some() => Err(AppError::Unsupported(
+                "PostgreSQL keeps no past state of a table to read.".to_string(),
+            )),
             Session::Postgres(session) => session.preview(request, cancel).await,
             Session::BigQuery(session) => session.preview(request, cancel).await,
+        }
+    }
+
+    /// What reading `request` would be billed for, in bytes, asked without
+    /// reading it.
+    pub async fn preview_cost(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<u64, AppError> {
+        match self {
+            Session::Postgres(_) => Err(AppError::Unsupported(
+                "A PostgreSQL query is not billed by the bytes it reads.".to_string(),
+            )),
+            Session::BigQuery(session) => session.preview_cost(request, cancel).await,
         }
     }
 
