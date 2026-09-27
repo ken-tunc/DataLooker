@@ -10,11 +10,15 @@ const tree: SchemaTree = {
   schemas: [
     {
       name: "public",
+      sequences: [],
+      types: [],
       routines: [],
       tables: [table("people"), table("orders"), table("order_items")],
     },
     {
       name: "analytics",
+      sequences: [],
+      types: [],
       routines: [],
       tables: [{ ...table("people_daily"), kind: "view" as const, comment: null }],
     },

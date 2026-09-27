@@ -16,15 +16,25 @@ const tree: Tree = {
   schemas: [
     {
       name: "shop",
+      sequences: [],
+      types: [],
       routines: [],
       tables: [
         { name: "orders", kind: "table", comment: null },
         { name: "recent_orders", kind: "view", comment: null },
       ],
     },
-    { name: "analytics", routines: [], tables: [{ name: "daily", kind: "table", comment: null }] },
+    {
+      name: "analytics",
+      sequences: [],
+      types: [],
+      routines: [],
+      tables: [{ name: "daily", kind: "table", comment: null }],
+    },
     {
       name: "logs",
+      sequences: [],
+      types: [],
       routines: [],
       tables: [
         { name: "events_20250101", kind: "table", comment: null },
@@ -160,6 +170,8 @@ describe("SchemaTree", () => {
         schemas: [
           {
             name: "shop",
+            sequences: [],
+            types: [],
             routines: [],
             tables: [{ name: "orders", kind: "table", comment: "What was bought" }],
           },
@@ -188,6 +200,8 @@ describe("SchemaTree", () => {
           {
             name: "shop",
             tables: [{ name: "orders", kind: "table", comment: null }],
+            sequences: [],
+            types: [],
             routines: [
               { name: "add", kind: "function", arguments: "a integer", comment: null },
               { name: "add", kind: "function", arguments: "a text", comment: null },
@@ -209,6 +223,45 @@ describe("SchemaTree", () => {
     expect(onOpenRoutine).toHaveBeenCalledWith("shop", "add", "a text");
   });
 
+  it("shows a sequence's value and owner, and an enum's labels once it is opened", async () => {
+    const { screen } = await schemaTree({
+      schema_tree: {
+        schemas: [
+          {
+            name: "shop",
+            tables: [],
+            routines: [],
+            sequences: [
+              { name: "orders_id_seq", last_value: "42", owned_by: "orders.id", comment: null },
+              { name: "tickets", last_value: null, owned_by: null, comment: null },
+            ],
+            types: [
+              {
+                name: "mood",
+                kind: "enum",
+                base: null,
+                members: [{ name: "happy", data_type: null }],
+                comment: null,
+              },
+              { name: "positive", kind: "domain", base: "integer", members: [], comment: null },
+            ],
+          },
+        ],
+      },
+    });
+    await screen.getByText("shop").click();
+
+    await screen.getByText("Sequences").click();
+    await expect.element(screen.getByText("42 · owned by orders.id")).toBeVisible();
+    await expect.element(screen.getByText("tickets")).toBeVisible();
+
+    await screen.getByText("Types").click();
+    await expect.element(screen.getByText("domain of integer")).toBeVisible();
+    expect(screen.getByText("happy").elements()).toEqual([]);
+    await screen.getByText("mood").click();
+    await expect.element(screen.getByText("happy")).toBeVisible();
+  });
+
   it("filters routines by name as it filters tables", async () => {
     const { screen } = await schemaTree({
       schema_tree: {
@@ -216,11 +269,15 @@ describe("SchemaTree", () => {
           {
             name: "shop",
             tables: [{ name: "orders", kind: "table", comment: null }],
+            sequences: [],
+            types: [],
             routines: [{ name: "tidy_orders", kind: "procedure", arguments: "", comment: null }],
           },
           {
             name: "other",
             tables: [],
+            sequences: [],
+            types: [],
             routines: [{ name: "tidy", kind: "function", arguments: "", comment: null }],
           },
         ],

@@ -357,7 +357,15 @@ describe("going to the table a name means", () => {
   it("opens the structure of the one table it names", async () => {
     const screen = await jump({
       schema_tree: {
-        schemas: [{ name: "public", routines: [], tables: [table("orders"), table("items")] }],
+        schemas: [
+          {
+            name: "public",
+            sequences: [],
+            types: [],
+            routines: [],
+            tables: [table("orders"), table("items")],
+          },
+        ],
       },
     });
 
@@ -370,8 +378,8 @@ describe("going to the table a name means", () => {
     const screen = await jump({
       schema_tree: {
         schemas: [
-          { name: "public", routines: [], tables: [table("orders")] },
-          { name: "archive", routines: [], tables: [table("orders")] },
+          { name: "public", sequences: [], types: [], routines: [], tables: [table("orders")] },
+          { name: "archive", sequences: [], types: [], routines: [], tables: [table("orders")] },
         ],
       },
     });
@@ -382,7 +390,11 @@ describe("going to the table a name means", () => {
 
   it("says so when no table has the name", async () => {
     const screen = await jump({
-      schema_tree: { schemas: [{ name: "public", routines: [], tables: [table("items")] }] },
+      schema_tree: {
+        schemas: [
+          { name: "public", sequences: [], types: [], routines: [], tables: [table("items")] },
+        ],
+      },
     });
 
     await expect.element(screen.getByText("No table here is called orders.")).toBeVisible();

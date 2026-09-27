@@ -82,6 +82,10 @@ pub struct Schema {
     pub name: String,
     pub tables: Vec<Table>,
     pub routines: Vec<Routine>,
+    /// PostgreSQL's; BigQuery has none.
+    pub sequences: Vec<Sequence>,
+    /// The types made with `CREATE TYPE` or `CREATE DOMAIN`, PostgreSQL's.
+    pub types: Vec<UserType>,
 }
 
 /// No columns: a project can hold tens of thousands of tables, so a table's
@@ -126,6 +130,48 @@ pub enum RoutineKind {
     Aggregate,
     Window,
     TableFunction,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Sequence {
+    pub name: String,
+    /// As text, since it may be past what a JavaScript number holds. `None`
+    /// before the first `nextval`, or when the role may not read it.
+    pub last_value: Option<String>,
+    /// `table.column`, for a sequence a column's default or identity draws on.
+    pub owned_by: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct UserType {
+    pub name: String,
+    pub kind: UserTypeKind,
+    /// What a domain narrows, or what a range ranges over.
+    pub base: Option<String>,
+    /// An enum's labels, in their order, or a composite type's attributes.
+    pub members: Vec<TypeMember>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum UserTypeKind {
+    Enum,
+    Domain,
+    Composite,
+    Range,
+}
+
+/// `data_type` is `None` for an enum's label.
+#[derive(Debug, Serialize, TS, PartialEq, Eq)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct TypeMember {
+    pub name: String,
+    pub data_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]

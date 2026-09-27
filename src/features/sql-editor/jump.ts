@@ -150,8 +150,14 @@ if (import.meta.vitest) {
     const table = (name: string) => ({ name, kind: "table" as const, columns: [], comment: null });
     const tree: SchemaTree = {
       schemas: [
-        { name: "public", routines: [], tables: [table("orders"), table("people")] },
-        { name: "shop", routines: [], tables: [table("orders")] },
+        {
+          name: "public",
+          sequences: [],
+          types: [],
+          routines: [],
+          tables: [table("orders"), table("people")],
+        },
+        { name: "shop", sequences: [], types: [], routines: [], tables: [table("orders")] },
       ],
     };
 

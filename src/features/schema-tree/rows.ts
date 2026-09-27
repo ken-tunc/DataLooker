@@ -1,6 +1,7 @@
 import type { Column } from "../../bindings/Column";
 import type { Routine } from "../../bindings/Routine";
 import type { RoutineKind } from "../../bindings/RoutineKind";
+import type { UserTypeKind } from "../../bindings/UserTypeKind";
 import type { Schema } from "../../bindings/Schema";
 import type { SchemaTree } from "../../bindings/SchemaTree";
 import type { Table } from "../../bindings/Table";
@@ -54,6 +55,24 @@ export type TreeRow = { id: string; indent: number } &
         routineKind: RoutineKind;
         comment: string | null;
       }
+    | {
+        kind: "sequence";
+        name: string;
+        lastValue: string | null;
+        ownedBy: string | null;
+        comment: string | null;
+      }
+    /** `expanded` is null for a type with nothing to show under it. */
+    | {
+        kind: "type";
+        name: string;
+        typeKind: UserTypeKind;
+        base: string | null;
+        comment: string | null;
+        expanded: boolean | null;
+      }
+    /** An enum's label, or a composite type's attribute. */
+    | { kind: "member"; name: string; dataType: string | null }
     /** Where a table's columns would be, while they are on their way or lost. */
     | { kind: "note"; text: string }
   );
@@ -68,6 +87,7 @@ export const schemaRowId = (schema: string) => rowId("schema", schema);
 export const tableRowId = (schema: string, table: string) => rowId("table", schema, table);
 export const shardsRowId = (schema: string, prefix: string) => rowId("shards", schema, prefix);
 export const folderRowId = (schema: string, folder: string) => rowId("folder", schema, folder);
+export const typeRowId = (schema: string, type: string) => rowId("type", schema, type);
 const routineRowId = (schema: string, routine: Routine) =>
   rowId("routine", schema, routine.name, routine.arguments);
 
@@ -195,19 +215,27 @@ function tableRows(
   ];
 }
 
-type Folder = { key: string; title: string; items: TreeRow[] };
+/** `count` is how many things it holds; `rows` also has what an open one holds. */
+type Folder = { key: string; title: string; count: number; rows: TreeRow[] };
 
 /**
  * What a schema keeps besides its tables, a folder per kind, holding what
- * `named` lets through. Items are laid out at the indent a folder's go at.
+ * `named` lets through. Rows are laid out at the indent a folder's go at.
  */
-function folders(schema: Schema, named: (name: string) => boolean): Folder[] {
+function folders(
+  schema: Schema,
+  named: (name: string) => boolean,
+  expanded: ReadonlySet<string>,
+): Folder[] {
   const routines = schema.routines.filter((routine) => named(routine.name));
+  const sequences = schema.sequences.filter((sequence) => named(sequence.name));
+  const types = schema.types.filter((type) => named(type.name));
   return [
     {
       key: "routines",
       title: "Routines",
-      items: routines.map((routine): TreeRow => ({
+      count: routines.length,
+      rows: routines.map((routine): TreeRow => ({
         kind: "routine",
         id: routineRowId(schema.name, routine),
         indent: 2,
@@ -217,6 +245,51 @@ function folders(schema: Schema, named: (name: string) => boolean): Folder[] {
         routineKind: routine.kind,
         comment: routine.comment,
       })),
+    },
+    {
+      key: "sequences",
+      title: "Sequences",
+      count: sequences.length,
+      rows: sequences.map((sequence): TreeRow => ({
+        kind: "sequence",
+        id: rowId("sequence", schema.name, sequence.name),
+        indent: 2,
+        name: sequence.name,
+        lastValue: sequence.last_value,
+        ownedBy: sequence.owned_by,
+        comment: sequence.comment,
+      })),
+    },
+    {
+      key: "types",
+      title: "Types",
+      count: types.length,
+      rows: types.flatMap((type): TreeRow[] => {
+        const id = typeRowId(schema.name, type.name);
+        const expandable = type.members.length > 0;
+        const open = expandable && expanded.has(id);
+        const row: TreeRow = {
+          kind: "type",
+          id,
+          indent: 2,
+          name: type.name,
+          typeKind: type.kind,
+          base: type.base,
+          comment: type.comment,
+          expanded: expandable ? open : null,
+        };
+        if (!open) return [row];
+        return [
+          row,
+          ...type.members.map((member): TreeRow => ({
+            kind: "member",
+            id: rowId("member", schema.name, type.name, member.name),
+            indent: 3,
+            name: member.name,
+            dataType: member.data_type,
+          })),
+        ];
+      }),
     },
   ];
 }
@@ -247,7 +320,7 @@ export function treeRows(
       const shards = group.shards.filter(matches);
       return shards.length === 0 ? [] : [{ ...group, shards }];
     });
-    const held = folders(schema, named).filter((folder) => folder.items.length > 0);
+    const held = folders(schema, named, expanded).filter((folder) => folder.count > 0);
     if (needle !== "" && groups.length === 0 && held.length === 0) continue;
 
     const schemaOpen = needle !== "" || expanded.has(schemaRowId(schema.name));
@@ -260,7 +333,7 @@ export function treeRows(
       id: schemaRowId(schema.name),
       indent: 0,
       name: schema.name,
-      items: held.reduce((count, folder) => count + folder.items.length, tables),
+      items: held.reduce((count, folder) => count + folder.count, tables),
       expanded: schemaOpen,
     });
     if (!schemaOpen) continue;
@@ -273,10 +346,10 @@ export function treeRows(
         id,
         indent: 1,
         title: folder.title,
-        count: folder.items.length,
+        count: folder.count,
         expanded: open,
       });
-      if (open) rows.push(...folder.items);
+      if (open) rows.push(...folder.rows);
     }
 
     for (const group of groups) {
@@ -314,6 +387,8 @@ if (import.meta.vitest) {
     schemas: [
       {
         name: "public",
+        sequences: [],
+        types: [],
         routines: [],
         tables: [
           { name: "people", kind: "table", comment: null },
@@ -322,6 +397,8 @@ if (import.meta.vitest) {
       },
       {
         name: "analytics",
+        sequences: [],
+        types: [],
         routines: [],
         tables: [{ name: "daily_people", kind: "view", comment: null }],
       },
@@ -344,6 +421,8 @@ if (import.meta.vitest) {
     schemas: [
       {
         name: "logs",
+        sequences: [],
+        types: [],
         routines: [],
         tables: [
           { name: "events_20250101", kind: "table", comment: null },
@@ -413,6 +492,8 @@ if (import.meta.vitest) {
         schemas: [
           {
             name: "public",
+            sequences: [],
+            types: [],
             routines: [],
             tables: [
               { name: "a.b", kind: "table", comment: null },
@@ -474,9 +555,11 @@ if (import.meta.vitest) {
           {
             name: "public",
             tables: [{ name: "people", kind: "table", comment: null }],
+            sequences: [],
+            types: [],
             routines: [{ name: "add", kind: "function", arguments: "a int", comment: null }],
           },
-          { name: "empty", tables: [], routines: [] },
+          { name: "empty", tables: [], sequences: [], types: [], routines: [] },
         ],
       };
       const open = new Set([schemaRowId("public"), schemaRowId("empty")]);
@@ -505,12 +588,65 @@ if (import.meta.vitest) {
       ]);
     });
 
+    it("counts a folder's types, not the labels of the ones open", () => {
+      const typed: SchemaTree = {
+        schemas: [
+          {
+            name: "public",
+            tables: [],
+            routines: [],
+            sequences: [{ name: "tickets", last_value: "7", owned_by: null, comment: null }],
+            types: [
+              {
+                name: "mood",
+                kind: "enum",
+                base: null,
+                members: [
+                  { name: "sad", data_type: null },
+                  { name: "happy", data_type: null },
+                ],
+                comment: null,
+              },
+              { name: "positive", kind: "domain", base: "integer", members: [], comment: null },
+            ],
+          },
+        ],
+      };
+      const rows = treeRows(
+        typed,
+        new Set([
+          schemaRowId("public"),
+          folderRowId("public", "types"),
+          typeRowId("public", "mood"),
+          typeRowId("public", "positive"),
+        ]),
+        "",
+        read,
+      );
+
+      expect(rows.map((row) => [row.kind, row.indent])).toEqual([
+        ["schema", 0],
+        ["folder", 1],
+        ["folder", 1],
+        ["type", 2],
+        ["member", 3],
+        ["member", 3],
+        ["type", 2],
+      ]);
+      expect(rows[0]).toMatchObject({ items: 3 });
+      expect(rows[2]).toMatchObject({ title: "Types", count: 2 });
+      // A domain has nothing to open, whatever the set of open rows says.
+      expect(rows[6]).toMatchObject({ name: "positive", expanded: null });
+    });
+
     it("tells overloads apart", () => {
       const overloaded: SchemaTree = {
         schemas: [
           {
             name: "public",
             tables: [],
+            sequences: [],
+            types: [],
             routines: [
               { name: "add", kind: "function", arguments: "a int", comment: null },
               { name: "add", kind: "function", arguments: "a text", comment: null },
