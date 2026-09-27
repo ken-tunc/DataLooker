@@ -6,10 +6,12 @@ edition = "2021"
 rust-version = "1.98"
 
 [lib]
-# Tauri's mobile entry point links the app as a library, and the `_lib` suffix
-# keeps the library name from colliding with the binary on Windows.
+# The `_lib` suffix keeps the library name from colliding with the binary on
+# Windows. Only an rlib: the `staticlib` and `cdylib` Tauri's template adds are
+# for a mobile build, and on macOS they cost every build an archive of every
+# dependency and a longer release link.
 name = "datalooker_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -58,6 +60,11 @@ uuid = { version = "1.26.1", features = ["v4"] }
 # Reads the service account key BigQuery is reached with. The BigQuery client
 # takes the parsed key rather than the file, so this is named here too.
 yup-oauth2 = { version = "12", default-features = false, features = ["service-account", "ring"] }
+
+# Line tables keep file and line in a backtrace. Full debug info, for reading
+# variables in a debugger, costs a sixth of a clean dev build and much of its disk.
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 panic = "abort"
