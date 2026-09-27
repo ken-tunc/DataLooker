@@ -142,6 +142,10 @@ A BigQuery statement is dry-run first and runs only if BigQuery calls it a `SELE
 agent has its own sessions, a row cap and a deadline, since nobody is watching to
 cancel it. Its runs are logged beside the reader's and marked.
 
+A statement an agent may not run is handed to the reader instead: it opens in a tab and
+runs, if at all, on the reader's session by the reader's hand, so read-only holds without
+the reader copying between the agent and the editor.
+
 ## Processes
 
 A connection's command, `go install`, and the lookup of a language server all go through

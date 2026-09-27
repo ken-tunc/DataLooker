@@ -24,6 +24,7 @@ use crate::app::agents::AgentAccess;
 use crate::app::completion::Completion;
 use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
+use crate::app::handoffs::Handoff;
 use crate::app::preview::PreviewRequest;
 use crate::app::syntax::SyntaxError;
 use crate::app::templates::SaveTemplateInput;
@@ -241,6 +242,7 @@ events! {
     shell_exit = "shell:exit" => ShellExit;
     lsp_message = "lsp:message" => LspMessage;
     lsp_exit = "lsp:exit" => LspExit;
+    agent_handoff = "agent:handoff" => Handoff;
 }
 
 #[cfg(test)]
