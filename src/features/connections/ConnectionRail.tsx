@@ -195,7 +195,9 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       aria-description={connection.production ? "Production" : undefined}
       // What moves it up or down the rail, besides dragging.
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-      className={`flex flex-col items-center gap-1 px-1 ${selected ? "menu-active" : ""} ${
+      // As tall as two lines of name, so every tile is one size, which dragging relies on;
+      // a one-line name is centred rather than left with an empty line below it.
+      className={`flex h-19 flex-col items-center justify-center gap-1 px-1 ${selected ? "menu-active" : ""} ${
         connection.production ? "ring-error ring-1 ring-inset" : ""
       }`}
       onClick={onSelect}
@@ -203,10 +205,9 @@ function Avatar({ connection, selected, onSelect, running }: EntryProps & { runn
       <div className={`avatar ${running ? "avatar-online" : ""}`}>
         <DriverIcon kind={connection.config.kind} className="size-7" />
       </div>
-      {/* Two lines hold most names; the title has the rest. Always two lines tall, so every
-          tile is one size, which dragging relies on. */}
+      {/* Two lines hold most names; the title has the rest. */}
       <span
-        className={`line-clamp-2 h-[2lh] w-full text-center text-xs wrap-anywhere ${
+        className={`line-clamp-2 w-full text-center text-xs wrap-anywhere ${
           connection.production ? "text-error" : ""
         }`}
       >
