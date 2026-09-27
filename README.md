@@ -8,12 +8,16 @@ PostgreSQL and BigQuery.
 - **Connections** — PostgreSQL and BigQuery (service account key). Secrets stay in the
   macOS keychain. A connection can carry a shell command, such as an SSH tunnel, started
   and stopped from its header, or run only while the connection is selected.
-- **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
+- **SQL editor** — Monaco with tabs, which each connection reopens after a restart with
+  what was written in them, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type,
   formatting in either dialect that keeps comments and keyword case, and vim keybindings.
   A BigQuery statement is dry-run as you type, and the footer says what it would scan,
   what that costs at on-demand pricing, which partitioned table it reads whole, or what
   BigQuery refused it for.
+  A PostgreSQL connection keeps one session, so `BEGIN`, `SET` and temporary tables last
+  between statements; its header says when a transaction is open, or has failed, and
+  commits or rolls it back.
   A `DROP`, a `TRUNCATE`, an `ALTER TABLE ... DROP COLUMN` and, on PostgreSQL, an `UPDATE`
   or `DELETE` without a `WHERE` ask before they run: PostgreSQL's from its parse tree,
   BigQuery's from a dry run. On a connection marked production, drawn in red, every

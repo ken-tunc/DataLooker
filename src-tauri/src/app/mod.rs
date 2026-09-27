@@ -13,6 +13,7 @@ mod risks;
 mod schema;
 pub mod shell;
 pub mod syntax;
+pub mod tabs;
 pub mod templates;
 
 use std::path::PathBuf;

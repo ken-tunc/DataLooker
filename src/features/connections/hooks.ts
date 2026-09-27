@@ -8,6 +8,7 @@ import {
   testConnection,
 } from "../../lib/commands";
 import { schemaKeys } from "../schema-tree/keys";
+import { transactionKeys } from "../transaction/keys";
 import type { DriverKind } from "./driver";
 import { connectionKeys } from "./keys";
 
@@ -30,11 +31,13 @@ export function useSaveConnection() {
   return useMutation({
     mutationFn: saveConnection,
     // What a connection holds is read as the connection was, and a save can
-    // point it at another database or give it other credentials.
+    // point it at another database or give it other credentials. Its session
+    // is closed, and whatever transaction it held with it.
     onSuccess: (id) =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: connectionKeys.all }),
         queryClient.invalidateQueries({ queryKey: schemaKeys.of(id) }),
+        queryClient.invalidateQueries({ queryKey: transactionKeys.of(id) }),
       ]),
   });
 }

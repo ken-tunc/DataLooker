@@ -1,7 +1,7 @@
 use serde_json::Value;
 use sqlx::{AssertSqlSafe, Executor, PgConnection};
 
-use crate::drivers::postgres::edit::in_transaction;
+use crate::drivers::postgres::transaction::in_transaction;
 use crate::drivers::DriverError;
 
 /// `SETTINGS` names the planner settings the reader changed from their
