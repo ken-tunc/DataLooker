@@ -78,8 +78,8 @@ inside the SQLite transaction so a keychain failure rolls the row back.
 
 A connection's driver settings are one JSON `config` column, so a new driver needs no
 migration. Its shell command, and whether that runs only while the connection is
-selected, and its time zone are columns of their own: they belong to the reader, not the
-driver.
+selected, its time zone, and whether it is marked production are columns of their own:
+they belong to the reader, not the driver.
 
 ## Sessions
 

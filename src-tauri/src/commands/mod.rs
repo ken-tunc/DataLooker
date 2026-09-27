@@ -34,7 +34,7 @@ use crate::db::history::HistoryEntry;
 use crate::db::template::QueryTemplate;
 use crate::drivers::bigquery::Estimate;
 use crate::drivers::{
-    Column, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -106,6 +106,7 @@ commands! {
     query::cancel_query(CancelQueryArgs) -> ();
     query::estimate_query(EstimateQueryArgs) -> Estimate;
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
+    query::statement_risks(StatementRisksArgs) -> Vec<Risk>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
     template::list_templates() -> Vec<QueryTemplate>;
     template::save_template(SaveTemplateInput) -> String;
@@ -195,6 +196,13 @@ pub struct CancelQueryArgs {
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct CheckSyntaxArgs {
+    pub sql: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct StatementRisksArgs {
+    pub connection_id: String,
     pub sql: String,
 }
 

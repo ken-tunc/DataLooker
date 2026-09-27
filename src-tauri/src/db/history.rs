@@ -139,6 +139,7 @@ mod tests {
             config,
             command: None,
             command_while_selected: false,
+            production: false,
             time_zone: None,
         }
     }
