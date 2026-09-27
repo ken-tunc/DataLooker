@@ -50,6 +50,16 @@ pub async fn replace(
     saved: &SavedTabs,
 ) -> Result<bool, AppError> {
     let mut tx = pool.begin().await?;
+    // Asked outright rather than left to the foreign key, which no insert
+    // reaches when every tab was closed.
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM connections WHERE id = ?1)")
+            .bind(connection_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if !exists {
+        return Ok(false);
+    }
     sqlx::query("DELETE FROM open_tabs WHERE connection_id = ?1")
         .bind(connection_id)
         .execute(&mut *tx)
@@ -59,7 +69,7 @@ pub async fn replace(
             SavedTab::Sql { title, sql } => ("sql", Some(title), Some(sql), None, None),
             SavedTab::Table { schema, table } => ("table", None, None, Some(schema), Some(table)),
         };
-        let inserted = sqlx::query(
+        sqlx::query(
             "INSERT INTO open_tabs
                  (connection_id, position, kind, title, sql, schema_name, table_name, active)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -73,12 +83,7 @@ pub async fn replace(
         .bind(table)
         .bind(u32::try_from(position).is_ok_and(|p| p == saved.active))
         .execute(&mut *tx)
-        .await;
-        match inserted {
-            Ok(_) => {}
-            Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => return Ok(false),
-            Err(e) => return Err(e.into()),
-        }
+        .await?;
     }
     tx.commit().await?;
     Ok(true)
@@ -215,5 +220,6 @@ mod tests {
             .unwrap();
         assert_eq!(left, 0);
         assert!(!replace(&pool, "c1", &saved).await.unwrap());
+        assert!(!replace(&pool, "c1", &SavedTabs::default()).await.unwrap());
     }
 }
