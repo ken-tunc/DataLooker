@@ -435,6 +435,14 @@ mod tests {
     }
 
     #[test]
+    fn on_production_an_analyzed_execute_asks_since_it_may_write() {
+        assert_eq!(
+            on_production("EXPLAIN ANALYZE EXECUTE purge"),
+            one(Hazard::Dynamic, &[])
+        );
+    }
+
+    #[test]
     fn on_production_a_worse_hazard_is_asked_about_instead() {
         assert_eq!(
             on_production("DELETE FROM users"),
