@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
 use crate::db::connection::{self, DriverConfig};
-use crate::drivers::bigquery::BigQuerySession;
+use crate::drivers::bigquery::{BigQuerySession, Estimate};
 use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
     Column, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
@@ -75,6 +75,21 @@ impl Session {
                 }
                 session.execute(sql, row_limit, cancel).await
             }
+        }
+    }
+
+    /// What `sql` would scan, which is what BigQuery bills. PostgreSQL bills
+    /// nothing, and its plan says what it would read.
+    pub async fn estimate(
+        &self,
+        sql: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Estimate, AppError> {
+        match self {
+            Session::Postgres(_) => Err(AppError::Unsupported(
+                "A PostgreSQL statement has no scan to estimate; explain it instead.".to_string(),
+            )),
+            Session::BigQuery(session) => session.estimate(sql, cancel).await,
         }
     }
 

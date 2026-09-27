@@ -31,6 +31,7 @@ use crate::app::App;
 use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
 use crate::db::template::QueryTemplate;
+use crate::drivers::bigquery::Estimate;
 use crate::drivers::{
     Column, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
 };
@@ -102,6 +103,7 @@ commands! {
     query::execute_query(ExecuteQueryArgs) -> QueryResult;
     query::explain_query(ExplainQueryArgs) -> QueryPlan;
     query::cancel_query(CancelQueryArgs) -> ();
+    query::estimate_query(EstimateQueryArgs) -> Estimate;
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
     template::list_templates() -> Vec<QueryTemplate>;
@@ -174,6 +176,13 @@ pub struct ExplainQueryArgs {
     pub sql: String,
     pub analyze: bool,
     pub query_id: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct EstimateQueryArgs {
+    pub connection_id: String,
+    pub sql: String,
 }
 
 #[derive(Debug, Deserialize, TS)]

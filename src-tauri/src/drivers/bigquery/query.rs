@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use gcp_bigquery_client::error::BQError;
 use gcp_bigquery_client::model::get_query_results_parameters::GetQueryResultsParameters;
 use gcp_bigquery_client::model::query_request::QueryRequest;
 use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
@@ -246,8 +247,13 @@ fn count(total_rows: Option<&str>) -> Option<u64> {
     total_rows.and_then(|total| total.parse().ok())
 }
 
-pub(super) fn refused(error: gcp_bigquery_client::error::BQError) -> AppError {
-    AppError::Database(error.to_string())
+/// BigQuery's own words where it gave some; the client's rendering of them is
+/// a Rust debug dump of the whole response.
+pub(super) fn refused(error: BQError) -> AppError {
+    AppError::Database(match error {
+        BQError::ResponseError { error } => error.error.message,
+        other => other.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -258,6 +264,25 @@ mod tests {
     fn a_catalog_is_named_after_the_region_that_holds_it() {
         assert_eq!(region("US"), "region-us");
         assert_eq!(region("asia-northeast1"), "region-asia-northeast1");
+    }
+
+    #[test]
+    fn a_refusal_is_in_bigquery_s_own_words() {
+        let error = BQError::ResponseError {
+            error: gcp_bigquery_client::error::ResponseError {
+                error: gcp_bigquery_client::error::NestedResponseError {
+                    code: 400,
+                    errors: Vec::new(),
+                    message: "Unrecognized name: nope at [1:8]".to_string(),
+                    status: "INVALID_ARGUMENT".to_string(),
+                },
+            },
+        };
+
+        let AppError::Database(message) = refused(error) else {
+            panic!("a refusal is the database's");
+        };
+        assert_eq!(message, "Unrecognized name: nope at [1:8]");
     }
 
     #[test]

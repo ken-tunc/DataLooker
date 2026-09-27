@@ -3,6 +3,7 @@ pub mod agents;
 pub mod completion;
 pub mod connections;
 pub mod edit;
+mod estimate;
 pub mod history;
 pub mod lsp;
 pub mod preview;
