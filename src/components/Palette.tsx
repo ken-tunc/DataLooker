@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { stepFor } from "../lib/keys";
+import { Keys } from "./Keys";
 
 type Props<T> = {
   /** Names the dialog. */
@@ -140,13 +141,13 @@ export function Palette<T>({
 
         <p className="text-muted hairline flex items-center gap-3 border-t px-2 pt-2 text-xs">
           <span>
-            <kbd className="kbd kbd-xs">↑</kbd> <kbd className="kbd kbd-xs">↓</kbd> move
+            <Keys keys="↑" size="xs" /> <Keys keys="↓" size="xs" /> move
           </span>
           <span>
-            <kbd className="kbd kbd-xs">↵</kbd> open
+            <Keys keys="↵" size="xs" /> open
           </span>
           <span>
-            <kbd className="kbd kbd-xs">esc</kbd> close
+            <Keys keys="esc" size="xs" /> close
           </span>
         </p>
       </div>
