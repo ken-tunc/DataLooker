@@ -581,8 +581,14 @@ describe("AppShell", () => {
       await expect.poll(() => whileSelected).toBe(false);
       await expect.element(screen.getByText("Saved Staging")).toBeVisible();
 
+      const before = ipc.calls.length;
       stopped();
-      await expect.poll(() => ipc.calls.at(-1)?.command).toBe("running_connection_commands");
+      // Asked after, not necessarily last: the editor checks the syntax on its own time.
+      await expect
+        .poll(() =>
+          ipc.calls.slice(before).some(({ command }) => command === "running_connection_commands"),
+        )
+        .toBe(true);
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(commands(ipc)).toEqual([
         "run_connection_command id-1",
