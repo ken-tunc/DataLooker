@@ -10,6 +10,7 @@ mod secrets;
 mod shell;
 
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 use app::App;
 use secrets::KeyringStore;
@@ -20,6 +21,13 @@ pub fn run() {
         // window may then write, since the dialog adds it to the fs scope.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // Where the window was and how large, not what it looks like: its
+        // decorations and visibility are the config's.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;

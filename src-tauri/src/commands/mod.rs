@@ -11,6 +11,7 @@ pub mod preview;
 pub mod query;
 pub mod schema;
 pub mod shell;
+pub mod tabs;
 pub mod template;
 
 use std::future::Future;
@@ -27,14 +28,17 @@ use crate::app::edit::TableEdits;
 use crate::app::handoffs::Handoff;
 use crate::app::preview::{PreviewCost, PreviewRequest};
 use crate::app::syntax::SyntaxError;
+use crate::app::tabs::SaveTabsInput;
 use crate::app::templates::SaveTemplateInput;
 use crate::app::App;
 use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
+use crate::db::tabs::SavedTabs;
 use crate::db::template::QueryTemplate;
 use crate::drivers::bigquery::Estimate;
 use crate::drivers::{
     Column, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
+    TransactionState,
 };
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -104,10 +108,13 @@ commands! {
     query::execute_query(ExecuteQueryArgs) -> QueryResult;
     query::explain_query(ExplainQueryArgs) -> QueryPlan;
     query::cancel_query(CancelQueryArgs) -> ();
+    query::transaction_state(ConnectionArgs) -> TransactionState;
     query::estimate_query(EstimateQueryArgs) -> Estimate;
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
     query::statement_risks(StatementRisksArgs) -> Vec<Risk>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
+    tabs::saved_tabs(ConnectionArgs) -> SavedTabs;
+    tabs::save_tabs(SaveTabsInput) -> ();
     template::list_templates() -> Vec<QueryTemplate>;
     template::save_template(SaveTemplateInput) -> String;
     template::delete_template(TemplateArgs) -> ();

@@ -1,3 +1,5 @@
+import type { SavedTab } from "../../bindings/SavedTab";
+import type { SavedTabs } from "../../bindings/SavedTabs";
 import type { Sort } from "../../bindings/Sort";
 
 /** What a table tab keeps besides its identity: how it is being read. */
@@ -87,7 +89,11 @@ export function openTableTab(
   );
   if (state && open) return setTableView({ ...state, activeId: open.id }, open.id, { shows });
 
-  return opened(state, {
+  return opened(state, tableTab(id, schema, table, shows));
+}
+
+function tableTab(id: string, schema: string, table: string, shows: TableView["shows"]): Tab {
+  return {
     kind: "table",
     id,
     // Two schemas can hold a table of the same name.
@@ -100,7 +106,56 @@ export function openTableTab(
     asOf: null,
     shows,
     unsaved: false,
+  };
+}
+
+const sameTable = (tab: Tab, saved: SavedTab) =>
+  tab.kind === "table" &&
+  saved.kind === "table" &&
+  tab.schema === saved.schema &&
+  tab.table === saved.table;
+
+/**
+ * What is kept across a restart. A statement an agent handed over and nobody
+ * took up is left out: it was handed over to be run now, not kept.
+ */
+export function toSaved(state: TabsState | undefined): SavedTabs {
+  const kept = (state?.tabs ?? []).filter((tab) => !(tab.kind === "sql" && tab.fromAgent));
+  return {
+    tabs: kept.map((tab): SavedTab =>
+      tab.kind === "sql"
+        ? { kind: "sql", title: tab.title, sql: tab.sql }
+        : { kind: "table", schema: tab.schema, table: tab.table },
+    ),
+    active: Math.max(
+      kept.findIndex((tab) => tab.id === state?.activeId),
+      0,
+    ),
+  };
+}
+
+/**
+ * Puts the saved tabs before any opened while they were being read, which keep
+ * the front. `ids` holds one fresh id per saved tab.
+ */
+export function restoreTabs(
+  state: TabsState | undefined,
+  saved: SavedTabs,
+  ids: string[],
+): TabsState | undefined {
+  const restored = saved.tabs.flatMap((tab, index): Tab[] => {
+    const id = ids[index] ?? crypto.randomUUID();
+    if (tab.kind === "sql") return [{ ...tab, id, fromAgent: false }];
+    // A table opens once.
+    if (state?.tabs.some((open) => sameTable(open, tab))) return [];
+    return [tableTab(id, tab.schema, tab.table, "rows")];
   });
+  const first = restored[0];
+  if (!first) return state;
+  const active = ids[saved.active];
+  const activeId =
+    state?.activeId ?? (restored.some((tab) => tab.id === active) ? active : first.id);
+  return { tabs: [...restored, ...(state?.tabs ?? [])], activeId: activeId ?? first.id };
 }
 
 /** A routine's definition opens once, as a table does. */
@@ -383,6 +438,73 @@ if (import.meta.vitest) {
         "SELECT 1",
         "",
       ]);
+    });
+  });
+
+  describe("toSaved", () => {
+    it("keeps each tab's statement or table, in order, and which is in front", () => {
+      const state = activateTab(
+        openTableTab(openSqlTab(undefined, "a", "SELECT 1"), "t1", "public", "people"),
+        "a",
+      );
+      expect(toSaved(state)).toEqual({
+        tabs: [
+          { kind: "sql", title: "Query 1", sql: "SELECT 1" },
+          { kind: "table", schema: "public", table: "people" },
+        ],
+        active: 0,
+      });
+    });
+
+    it("leaves out what an agent handed over and nobody took up", () => {
+      const handed = openSqlTab(openSqlTab(undefined, "a"), "b", "DELETE FROM orders", "x", true);
+      expect(toSaved(handed)).toEqual({
+        tabs: [{ kind: "sql", title: "Query 1", sql: "" }],
+        active: 0,
+      });
+      expect(toSaved(adoptSql(handed, "b")).tabs).toHaveLength(2);
+    });
+
+    it("keeps nothing when nothing is open", () => {
+      expect(toSaved(undefined)).toEqual({ tabs: [], active: 0 });
+    });
+  });
+
+  describe("restoreTabs", () => {
+    const saved: SavedTabs = {
+      tabs: [
+        { kind: "sql", title: "Orders", sql: "SELECT 1" },
+        { kind: "table", schema: "public", table: "people" },
+      ],
+      active: 1,
+    };
+
+    it("reopens what was saved, with the saved tab in front", () => {
+      const state = restoreTabs(undefined, saved, ["x", "y"]) as TabsState;
+      expect(state.tabs).toEqual([
+        { kind: "sql", id: "x", title: "Orders", sql: "SELECT 1", fromAgent: false },
+        openTableTab(undefined, "y", "public", "people").tabs[0],
+      ]);
+      expect(state.activeId).toBe("y");
+      expect(toSaved(state)).toEqual(saved);
+    });
+
+    it("goes before a tab opened while it was read, which stays in front", () => {
+      const handed = openSqlTab(undefined, "a", "SELECT 2", "Handed", true);
+      const state = restoreTabs(handed, saved, ["x", "y"]) as TabsState;
+      expect(ids(state)).toEqual(["x", "y", "a"]);
+      expect(state.activeId).toBe("a");
+    });
+
+    it("does not open a table twice", () => {
+      const open = openTableTab(undefined, "t1", "public", "people");
+      expect(ids(restoreTabs(open, saved, ["x", "y"]) as TabsState)).toEqual(["x", "t1"]);
+    });
+
+    it("leaves the state alone when nothing was saved", () => {
+      expect(restoreTabs(undefined, { tabs: [], active: 0 }, [])).toBeUndefined();
+      const open = openSqlTab(undefined, "a");
+      expect(restoreTabs(open, { tabs: [], active: 0 }, [])).toBe(open);
     });
   });
 

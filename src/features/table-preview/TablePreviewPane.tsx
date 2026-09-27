@@ -337,6 +337,9 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
                 commit.error instanceof IpcError
                   ? `${commit.error.message} Reload the page to see what it holds now.`
                   : undefined,
+              // Its `COMMIT` would end the reader's transaction.
+              InTransaction:
+                "Nothing was saved: a save would end the transaction open on this connection. Commit or roll it back in the header first.",
             })}
           </span>
         </div>

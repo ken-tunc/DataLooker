@@ -21,6 +21,11 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    /// Refused because the reader's own transaction is open, or has failed,
+    /// on the session it would run on.
+    #[error("Transaction open: {0}")]
+    InTransaction(String),
+
     #[error("Shell error: {0}")]
     Shell(String),
 

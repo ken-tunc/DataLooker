@@ -7,6 +7,7 @@ mod risks;
 mod schema;
 #[cfg(test)]
 pub(crate) mod testing;
+mod transaction;
 mod value;
 
 use std::time::{Duration, Instant};
@@ -21,13 +22,18 @@ pub use crate::drivers::postgres::explain::statement as explain_statement;
 pub use crate::drivers::postgres::risks::risks;
 use crate::drivers::{
     Column, DriverError, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage,
-    TableShape,
+    TableShape, TransactionState,
 };
 use crate::error::AppError;
 
 /// Bounds opening a connection, and the whole of `test`, against a server that
 /// accepts and then stalls.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Bounds asking where the reader's transaction stands. Not cancellable: a
+/// cancel landing after the statement finished would drop the connection and
+/// roll back the transaction the reader was told succeeded.
+const STATE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// One PostgreSQL session, reused so that `BEGIN`, `SET` and temporary tables
 /// outlive the statement that made them. Queries on it run one at a time.
@@ -38,6 +44,8 @@ pub struct PostgresSession {
     /// reader's connection they would wait behind their longest query and fail
     /// inside their failed transaction.
     catalog: Mutex<Option<PgConnection>>,
+    /// Of `conn`, as it was left by the last statement on it.
+    transaction: std::sync::Mutex<TransactionState>,
 }
 
 impl PostgresSession {
@@ -51,6 +59,7 @@ impl PostgresSession {
                 .password(password),
             conn: Mutex::new(None),
             catalog: Mutex::new(None),
+            transaction: std::sync::Mutex::default(),
         }
     }
 
@@ -205,25 +214,33 @@ impl PostgresSession {
             .await
     }
 
+    pub fn transaction_state(&self) -> TransactionState {
+        *self.transaction.lock().unwrap()
+    }
+
     async fn with_connection<T>(
         &self,
         cancel: &CancellationToken,
         work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
-        self.run_on(&self.conn, cancel, work).await
+        self.run_on(&self.conn, Some(&self.transaction), cancel, work)
+            .await
     }
 
     async fn on_catalog<T>(
         &self,
         work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
-        self.run_on(&self.catalog, &CancellationToken::new(), work)
+        self.run_on(&self.catalog, None, &CancellationToken::new(), work)
             .await
     }
 
+    /// `transaction`, when given, is kept up to date with where the connection
+    /// was left.
     async fn run_on<T>(
         &self,
         slot: &Mutex<Option<PgConnection>>,
+        transaction: Option<&std::sync::Mutex<TransactionState>>,
         cancel: &CancellationToken,
         work: impl AsyncFnOnce(&mut PgConnection) -> Result<T, DriverError>,
     ) -> Result<T, AppError> {
@@ -243,25 +260,42 @@ impl PostgresSession {
             result = work(&mut conn) => Some(result),
         };
 
-        match outcome {
+        let keep = match &outcome {
             // Abandoned mid-protocol: the connection cannot be trusted.
-            None => Err(AppError::Cancelled),
-            Some(Ok(value)) => {
-                *held = Some(conn);
-                Ok(value)
-            }
+            None => false,
+            Some(Ok(_)) => true,
             // An error the server reported keeps the session, so the reader
             // sees their aborted transaction; so does a refusal that never
             // reached the wire.
-            Some(Err(e)) => {
-                if matches!(
-                    e,
-                    DriverError::Sql(sqlx::Error::Database(_)) | DriverError::Refused(_)
-                ) {
-                    *held = Some(conn);
-                }
-                Err(e.into())
+            Some(Err(e)) => matches!(
+                e,
+                DriverError::Sql(sqlx::Error::Database(_))
+                    | DriverError::Refused(_)
+                    | DriverError::InTransaction(_)
+            ),
+        };
+        if keep {
+            *held = Some(conn);
+        }
+        if let Some(transaction) = transaction {
+            let state = match held.as_mut() {
+                Some(conn) => tokio::time::timeout(STATE_TIMEOUT, transaction::state(conn))
+                    .await
+                    .ok()
+                    .and_then(Result::ok),
+                None => Some(TransactionState::Idle),
+            };
+            // A connection that cannot say where it stands is dropped, and the
+            // server rolls back whatever it held.
+            if state.is_none() {
+                *held = None;
             }
+            *transaction.lock().unwrap() = state.unwrap_or_default();
+        }
+
+        match outcome {
+            None => Err(AppError::Cancelled),
+            Some(result) => result.map_err(AppError::from),
         }
     }
 }
