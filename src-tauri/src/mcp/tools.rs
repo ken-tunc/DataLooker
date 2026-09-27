@@ -119,6 +119,36 @@ pub struct Planned {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct Estimated {
+    /// The id of a connection, as `list_connections` gives it. BigQuery only.
+    pub connection_id: String,
+    /// The statement to estimate. Nothing runs, whatever it is.
+    pub sql: String,
+}
+
+/// What BigQuery says a statement would scan, before it is run.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Scan {
+    /// Bytes it would read, an upper bound unless `at_least`. On-demand pricing
+    /// bills these.
+    pub bytes: u64,
+    /// True when the statement runs a string as SQL (`EXECUTE IMMEDIATE`),
+    /// which the dry run does not read: then `bytes` is only a lower bound.
+    pub at_least: bool,
+    /// Partitioned tables the statement names but never filters on the column
+    /// they are partitioned by, so every partition is read.
+    pub unpruned: Vec<Unfiltered>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Unfiltered {
+    /// `project.dataset.table`.
+    pub table: String,
+    /// The column a filter would have to name to read fewer partitions.
+    pub column: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Handed {
     /// The id of a connection, as `list_connections` gives it.
     pub connection_id: String,
@@ -257,6 +287,33 @@ impl Agent {
             .map_err(refused)?;
         Ok(Json(Planned {
             plan: explained.plan,
+        }))
+    }
+
+    #[tool(
+        name = "estimate_query",
+        description = "What a BigQuery statement would scan, from a dry run that bills nothing: its bytes, which BigQuery bills for, and each partitioned table it would read whole. Ask before running a statement over a large table."
+    )]
+    async fn estimate_query(
+        &self,
+        Parameters(Estimated { connection_id, sql }): Parameters<Estimated>,
+    ) -> Result<Json<Scan>, ErrorData> {
+        let estimate = self
+            .app
+            .estimate_query(&connection_id, Whose::Agent, &sql)
+            .await
+            .map_err(refused)?;
+        Ok(Json(Scan {
+            bytes: estimate.bytes,
+            at_least: estimate.at_least,
+            unpruned: estimate
+                .unpruned
+                .into_iter()
+                .map(|table| Unfiltered {
+                    table: table.table,
+                    column: table.column,
+                })
+                .collect(),
         }))
     }
 

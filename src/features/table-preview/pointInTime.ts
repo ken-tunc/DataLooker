@@ -78,18 +78,6 @@ export function parseWallClock(text: string, timeZone: string): Date | null {
   return new Date(wall.getTime() - offsetOf(first, timeZone) * 1000);
 }
 
-/** In the binary units BigQuery bills by, labelled as its console labels them. */
-export function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return unit === 0 ? `${bytes} B` : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-}
-
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
@@ -148,16 +136,6 @@ if (import.meta.vitest) {
       for (const text of ["", "yesterday", "2025-01-02", "2025-02-30 10:00", "2025-01-02 25:00"]) {
         expect(parseWallClock(text, "UTC"), text).toBeNull();
       }
-    });
-  });
-
-  describe("formatBytes", () => {
-    it("names the largest unit that keeps a number above one", () => {
-      expect(formatBytes(0)).toBe("0 B");
-      expect(formatBytes(1023)).toBe("1023 B");
-      expect(formatBytes(1536)).toBe("1.5 KB");
-      expect(formatBytes(250 * 1024 ** 2)).toBe("250 MB");
-      expect(formatBytes(3 * 1024 ** 4)).toBe("3.0 TB");
     });
   });
 }

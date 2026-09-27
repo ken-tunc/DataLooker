@@ -5,10 +5,12 @@ use tauri::State;
 use crate::app::syntax::SyntaxError;
 use crate::app::App;
 use crate::commands::{
-    CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, ExecuteQueryArgs, ExplainQueryArgs,
-    StatementRisksArgs,
+    CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, EstimateQueryArgs, ExecuteQueryArgs,
+    ExplainQueryArgs, StatementRisksArgs,
 };
 use crate::db::history::HistoryEntry;
+use crate::drivers::bigquery::Estimate;
+use crate::drivers::session::Whose;
 use crate::drivers::{QueryPlan, QueryResult, Risk};
 use crate::error::AppError;
 
@@ -35,6 +37,15 @@ pub async fn explain_query(
     app: State<'_, Arc<App>>,
 ) -> Result<QueryPlan, AppError> {
     app.explain_query(&args.connection_id, &args.sql, args.analyze, &args.query_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn estimate_query(
+    args: EstimateQueryArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<Estimate, AppError> {
+    app.estimate_query(&args.connection_id, Whose::Reader, &args.sql)
         .await
 }
 

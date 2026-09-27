@@ -690,3 +690,73 @@ describe("SqlEditor asked to format", () => {
     await vi.waitFor(() => expect(made.text()).toBe("select\n  *\nfrom\n  `p.ds.t`"));
   });
 });
+
+describe("SqlEditor's footer on BigQuery", () => {
+  async function estimated(estimate_query: Replies["estimate_query"], sql = "select 1") {
+    const connectionId = crypto.randomUUID();
+    return editor(
+      { check_syntax: [], list_connections: bigquery(connectionId), estimate_query },
+      sql,
+      connectionId,
+    );
+  }
+
+  it("says what the statement would scan and cost before it runs", async () => {
+    const { ipc } = await estimated(
+      { bytes: 1.5 * 1024 ** 4, at_least: false, unpruned: [] },
+      "select * from `shop.events`",
+    );
+
+    await expect.element(page.getByText("1.5 TiB · ≈ $9.38")).toBeVisible();
+    expect(ipc.sent("estimate_query")).toEqual({
+      connection_id: expect.any(String),
+      sql: "select * from `shop.events`",
+    });
+  });
+
+  it("warns of a partitioned table read whole", async () => {
+    await estimated({
+      bytes: 2048,
+      at_least: false,
+      unpruned: [{ table: "shop.analytics.events", column: "happened" }],
+    });
+
+    await expect
+      .element(page.getByText("shop.analytics.events is read whole: nothing filters on happened"))
+      .toBeVisible();
+  });
+
+  it("shows what BigQuery refused the statement for", async () => {
+    await estimated(() => {
+      throw { kind: "Database", message: "Unrecognized name: nope at [1:8]" };
+    }, "select nope");
+
+    await expect.element(page.getByText("Unrecognized name: nope at [1:8]")).toBeVisible();
+  });
+
+  it("asks nothing of a PostgreSQL connection", async () => {
+    const connectionId = crypto.randomUUID();
+    const made = await editor(
+      {
+        check_syntax: [],
+        list_connections: [
+          {
+            ...(bigquery(connectionId)[0] as ConnectionRecord),
+            config: {
+              kind: "postgres",
+              host: "localhost",
+              port: 5432,
+              database: "shop",
+              username: "reader",
+            },
+          },
+        ],
+      },
+      "select 1",
+      connectionId,
+    );
+
+    await vi.waitFor(() => expect(made.ipc.sent("check_syntax")).toBeDefined(), { timeout: 3000 });
+    expect(made.ipc.calls.map((call) => call.command)).not.toContain("estimate_query");
+  });
+});

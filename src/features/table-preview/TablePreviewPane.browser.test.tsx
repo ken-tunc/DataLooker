@@ -383,7 +383,9 @@ describe("TablePreviewPane on BigQuery", () => {
       .toMatchObject({
         as_of: "2025-01-02T01:00:00.000Z",
       });
-    await expect.element(screen.getByText(/Reading a page scans 1\.5 KB\./)).toBeVisible();
+    await expect
+      .element(screen.getByText(/Reading a page scans 1\.5 KiB, about < \$0\.01\./))
+      .toBeVisible();
     await screen.getByRole("button", { name: "Read" }).click();
     expect(onView).toHaveBeenCalledWith({ asOf: "2025-01-02T01:00:00.000Z" });
   });

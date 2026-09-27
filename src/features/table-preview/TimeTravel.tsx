@@ -3,7 +3,8 @@ import { describeError } from "../../lib/invoke";
 import { useTimeZone } from "../connections/hooks";
 import type { TableView } from "../tabs/tabs";
 import { type TableTab, usePreviewCost } from "./hooks";
-import { formatBytes, parseWallClock, wallClock } from "./pointInTime";
+import { formatBytes, formatCost } from "../query-estimate/format";
+import { parseWallClock, wallClock } from "./pointInTime";
 
 /**
  * The longest BigQuery keeps a table's past, in minutes. A dataset may keep
@@ -107,5 +108,5 @@ function costText(invalid: boolean, cost: ReturnType<typeof usePreviewCost>): st
   if (invalid) return "Write a date and a time, such as 2025-01-02 10:00:00.";
   if (cost.isError) return "What it scans could not be estimated.";
   if (cost.data === undefined) return "Estimating what it scans…";
-  return `Reading a page scans ${formatBytes(cost.data.bytes)}.`;
+  return `Reading a page scans ${formatBytes(cost.data.bytes)}, about ${formatCost(cost.data.bytes)}.`;
 }

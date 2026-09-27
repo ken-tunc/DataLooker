@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Unpacks the BigQuery analyzer the app fetches.
 flate2 = "1"
-futures-util = { version = "0.3", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 gcp-bigquery-client = { version = "0.28", default-features = false, features = ["rust-tls"] }
 http = "1.5.0"
 http-body-util = "0.1.5"
