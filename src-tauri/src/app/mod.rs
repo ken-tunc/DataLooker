@@ -66,6 +66,10 @@ pub struct App {
     /// Held across opening or shutting: two at once could each stop what the
     /// other started, leaving a server nothing holds.
     turning: tokio::sync::Mutex<()>,
+    /// Held across reading the agents' token and making one, so two that find
+    /// none cannot each make their own. Apart from `turning`, so a door can be
+    /// shut while the keychain waits on the reader.
+    making: std::sync::Mutex<()>,
 }
 
 impl App {
@@ -86,6 +90,7 @@ impl App {
             handoffs: broadcast::channel(HANDOFFS_HELD).0,
             handed: Handed::default(),
             turning: tokio::sync::Mutex::new(()),
+            making: std::sync::Mutex::new(()),
         }
     }
 
