@@ -107,8 +107,8 @@ if (import.meta.vitest) {
         {
           name: "sales",
           tables: [
-            { name: "orders", kind: "table" },
-            { name: "recent", kind: "materialized_view" },
+            { name: "orders", kind: "table", comment: null },
+            { name: "recent", kind: "materialized_view", comment: null },
           ],
         },
         { name: "logs", tables: [] },

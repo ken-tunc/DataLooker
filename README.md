@@ -34,9 +34,10 @@ PostgreSQL and BigQuery.
   most rows away. Every key of a node is a click away. The plan can also be drawn as a
   graph, each line as wide as the rows it carries.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
-  `events_20250101` are folded into one row.
+  `events_20250101` are folded into one row. A table's and a column's comment (a
+  BigQuery description) is shown beside it.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
-  indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
+  comments, indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
   BigQuery table can be read as it was at any point in its time-travel window, after
   showing what the query would scan.
 - **History** — every statement run is logged and can be reopened.

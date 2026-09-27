@@ -5,4 +5,8 @@ import type { TableKind } from "./TableKind";
  * No columns: a project can hold tens of thousands of tables, so a table's
  * columns are asked for when it is opened.
  */
-export type Table = { name: string, kind: TableKind, };
+export type Table = { name: string, kind: TableKind, 
+/**
+ * PostgreSQL's `COMMENT ON`, or BigQuery's description.
+ */
+comment: string | null, };

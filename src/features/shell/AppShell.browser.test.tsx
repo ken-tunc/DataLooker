@@ -25,7 +25,7 @@ const local: ConnectionRecord = {
 const staging: ConnectionRecord = { ...local, id: "id-2", label: "Staging" };
 
 const tree: SchemaTree = {
-  schemas: [{ name: "shop", tables: [{ name: "people", kind: "table" }] }],
+  schemas: [{ name: "shop", tables: [{ name: "people", kind: "table", comment: null }] }],
 };
 
 const definition = {

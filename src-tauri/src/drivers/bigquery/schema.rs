@@ -12,11 +12,14 @@ pub async fn tree(
     project_id: &str,
     location: &str,
 ) -> Result<SchemaTree, AppError> {
+    let region = region(location);
     let sql = format!(
-        "SELECT table_schema, table_name, table_type \
-         FROM `{}`.INFORMATION_SCHEMA.TABLES \
-         ORDER BY table_schema, table_name",
-        region(location)
+        "SELECT t.table_schema, t.table_name, t.table_type, o.option_value \
+         FROM `{region}`.INFORMATION_SCHEMA.TABLES t \
+         LEFT JOIN `{region}`.INFORMATION_SCHEMA.TABLE_OPTIONS o \
+           ON o.table_schema = t.table_schema AND o.table_name = t.table_name \
+          AND o.option_name = 'description' \
+         ORDER BY t.table_schema, t.table_name"
     );
     let rows = collect(client, project_id, Query::new(&sql, location)).await?;
     Ok(assemble(&rows))
@@ -30,12 +33,16 @@ pub async fn columns(
     dataset: &str,
     table: &str,
 ) -> Result<Vec<Column>, AppError> {
+    // A description is kept per field path, a column being the path to itself.
+    let region = region(location);
     let sql = format!(
-        "SELECT column_name, data_type, is_nullable \
-         FROM `{}`.INFORMATION_SCHEMA.COLUMNS \
-         WHERE table_schema = @dataset AND table_name = @table \
-         ORDER BY ordinal_position",
-        region(location)
+        "SELECT c.column_name, c.data_type, c.is_nullable, p.description \
+         FROM `{region}`.INFORMATION_SCHEMA.COLUMNS c \
+         LEFT JOIN `{region}`.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS p \
+           ON p.table_schema = c.table_schema AND p.table_name = c.table_name \
+          AND p.field_path = c.column_name \
+         WHERE c.table_schema = @dataset AND c.table_name = @table \
+         ORDER BY c.ordinal_position"
     );
     let query = Query::new(&sql, location)
         .text("dataset", dataset)
@@ -50,6 +57,7 @@ pub async fn columns(
                 data_type: text(row.get(1))?,
                 // BigQuery answers this one in words.
                 nullable: text(row.get(2))? == "YES",
+                comment: text(row.get(3)).filter(|description| !description.is_empty()),
             })
         })
         .collect())
@@ -79,6 +87,8 @@ pub async fn described(
                 name: field.name.clone(),
                 data_type: spelled(field),
                 nullable: field.mode.as_deref() != Some("REQUIRED"),
+                // Completion has no use for it.
+                comment: None,
             })
             .collect(),
     ))
@@ -129,10 +139,40 @@ fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
         schema.tables.push(Table {
             name,
             kind: kind_of(text(row.get(2)).as_deref()),
+            comment: text(row.get(3))
+                .map(|option| unquoted(&option))
+                .filter(|description| !description.is_empty()),
         });
     }
 
     SchemaTree { schemas }
+}
+
+/// `TABLE_OPTIONS` writes an option's value as the literal that would set it:
+/// a description `say "hi"` is `"say \"hi\""`.
+fn unquoted(literal: &str) -> String {
+    let Some(inner) = literal
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    else {
+        return literal.to_string();
+    };
+    let mut text = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            text.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => text.push('\n'),
+            Some('t') => text.push('\t'),
+            Some('r') => text.push('\r'),
+            Some(other) => text.push(other),
+            None => text.push('\\'),
+        }
+    }
+    text
 }
 
 /// A snapshot or a clone reads like any other table.
@@ -151,7 +191,7 @@ mod tests {
     use serde_json::json;
 
     fn row(dataset: &str, table: &str, kind: &str) -> Vec<Value> {
-        vec![json!(dataset), json!(table), json!(kind)]
+        vec![json!(dataset), json!(table), json!(kind), Value::Null]
     }
 
     #[test]
@@ -176,6 +216,24 @@ mod tests {
         assert_eq!(tables, ["events", "recent"]);
         assert_eq!(tree.schemas[0].tables[1].kind, TableKind::View);
         assert_eq!(tree.schemas[1].tables.len(), 1);
+    }
+
+    #[test]
+    fn a_description_is_read_out_of_the_literal_that_would_set_it() {
+        assert_eq!(unquoted(r#""plain""#), "plain");
+        assert_eq!(unquoted(r#""say \"hi\"""#), r#"say "hi""#);
+        assert_eq!(unquoted(r#""two\nlines""#), "two\nlines");
+        assert_eq!(unquoted(r#""back\\slash""#), r"back\slash");
+        assert_eq!(unquoted("unquoted"), "unquoted");
+
+        let mut described = row("shop", "orders", "BASE TABLE");
+        described[3] = json!(r#""What was bought""#);
+        let tree = assemble(&[described, row("shop", "plain", "BASE TABLE")]);
+        assert_eq!(
+            tree.schemas[0].tables[0].comment.as_deref(),
+            Some("What was bought")
+        );
+        assert_eq!(tree.schemas[0].tables[1].comment, None);
     }
 
     fn field(name: &str, kind: &str, mode: Option<&str>) -> Field {
@@ -290,6 +348,44 @@ mod live {
             .await
             .expect("no columns")
             .is_empty());
+
+        dataset.drop_it().await;
+    }
+
+    #[tokio::test]
+    async fn a_description_is_read_with_the_table_or_column_it_is_on() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "descriptions").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE TABLE {name}.people (\
+                 id INT64, \
+                 name STRING OPTIONS (description = 'As they wrote it')) \
+                 OPTIONS (description = 'Who \\'bought\\'\\nand when')"
+            ))
+            .await;
+
+        let tree = dataset.session.schema_tree().await.expect("the tree");
+        let people = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == name)
+            .and_then(|schema| schema.tables.first())
+            .expect("the table just made");
+        assert_eq!(people.comment.as_deref(), Some("Who 'bought'\nand when"));
+
+        let comments: Vec<Option<String>> = dataset
+            .session
+            .columns(&name, "people")
+            .await
+            .expect("the columns")
+            .into_iter()
+            .map(|column| column.comment)
+            .collect();
+        assert_eq!(comments, [None, Some("As they wrote it".to_string())]);
 
         dataset.drop_it().await;
     }

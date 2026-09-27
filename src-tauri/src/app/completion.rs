@@ -536,6 +536,7 @@ mod tests {
                 name: "id".into(),
                 data_type: "INT64".into(),
                 nullable: false,
+                comment: None,
             }]),
         );
         catalogs.learn("c1", 0, ["p".into(), "d".into(), "gone".into()], None);

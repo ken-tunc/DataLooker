@@ -337,7 +337,7 @@ describe("explaining a statement", () => {
 });
 
 describe("going to the table a name means", () => {
-  const table = (name: string) => ({ name, kind: "table" as const });
+  const table = (name: string) => ({ name, kind: "table" as const, comment: null });
 
   /** ⇧⌘D with the cursor in `orders`, which `shell` writes. */
   async function jump(replies: Replies) {

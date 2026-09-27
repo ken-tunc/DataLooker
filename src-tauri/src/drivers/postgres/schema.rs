@@ -8,7 +8,8 @@ use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
 const TREE: &str = "
     SELECT n.nspname AS schema_name,
            c.relname AS table_name,
-           c.relkind AS table_kind
+           c.relkind AS table_kind,
+           obj_description(c.oid, 'pg_class') AS table_comment
       FROM pg_namespace n
       LEFT JOIN pg_class c
              ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
@@ -21,7 +22,8 @@ const TREE: &str = "
 const COLUMNS: &str = "
     SELECT a.attname AS column_name,
            format_type(a.atttypid, a.atttypmod) AS data_type,
-           NOT a.attnotnull AS nullable
+           NOT a.attnotnull AS nullable,
+           col_description(c.oid, a.attnum) AS comment
       FROM pg_attribute a
       JOIN pg_class c ON c.oid = a.attrelid
       JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -52,6 +54,7 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
         schemas.last_mut().expect("just pushed").tables.push(Table {
             name: table_name,
             kind: table_kind(row.try_get::<i8, _>("table_kind")? as u8 as char),
+            comment: row.try_get("table_comment")?,
         });
     }
 
@@ -71,6 +74,7 @@ pub async fn columns(
             name: row.try_get("column_name")?,
             data_type: row.try_get("data_type")?,
             nullable: row.try_get("nullable")?,
+            comment: row.try_get("comment")?,
         });
     }
     Ok(columns)
@@ -183,6 +187,49 @@ mod live {
                 .await
                 .unwrap();
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_comment_is_read_with_the_table_or_column_it_is_on() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_comments CASCADE",
+            "CREATE SCHEMA tree_comments",
+            "CREATE TABLE tree_comments.people (id int, name text)",
+            "CREATE TABLE tree_comments.plain (id int)",
+            "COMMENT ON TABLE tree_comments.people IS 'Who bought'",
+            "COMMENT ON COLUMN tree_comments.people.name IS 'As they wrote it'",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+
+        let tree = session.schema_tree().await.unwrap();
+        let schema = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == "tree_comments")
+            .unwrap();
+        let comments: Vec<Option<&str>> = schema
+            .tables
+            .iter()
+            .map(|table| table.comment.as_deref())
+            .collect();
+        assert_eq!(comments, [Some("Who bought"), None]);
+
+        let comments: Vec<Option<String>> = session
+            .columns("tree_comments", "people")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|column| column.comment)
+            .collect();
+        assert_eq!(comments, [None, Some("As they wrote it".to_string())]);
+
+        run(&session, "DROP SCHEMA tree_comments CASCADE")
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
