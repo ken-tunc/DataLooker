@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import type { Handoff } from "../../bindings/Handoff";
 import type { QueryTemplate } from "../../bindings/QueryTemplate";
 import { Splitter } from "../../components/Splitter";
+import { subscribe } from "../../lib/events";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
 import { useCommandsFollowSelection } from "../connection-command/hooks";
 import { ConnectionHeader } from "../connections/ConnectionHeader";
@@ -37,11 +39,27 @@ export function AppShell() {
   const [sidebarWidth] = usePaneSize(SIDEBAR);
   const followSelection = useCommandsFollowSelection();
 
-  function select(id: string) {
-    followSelection(selectedId, id);
+  // Two handoffs can arrive before the next render, and the second must not
+  // start from the selection the first replaced.
+  const front = useRef<string | null>(null);
+  function bringForward(id: string) {
+    followSelection(front.current, id);
+    front.current = id;
     setSelectedId(id);
+  }
+
+  function select(id: string) {
+    bringForward(id);
     if (!tabs.of(id)) tabs.open(id);
   }
+
+  // The connection comes to the front with it: the backend has brought the
+  // window forward for this statement, not for whatever was in front.
+  const receive = useEffectEvent((handoff: Handoff) => {
+    bringForward(handoff.connection_id);
+    tabs.openFromAgent(handoff.connection_id, handoff.sql, handoff.title ?? undefined);
+  });
+  useEffect(() => subscribe("agent:handoff", receive), []);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -99,6 +117,7 @@ export function AppShell() {
           <ConnectionHeader
             connectionId={selectedId}
             onRemoved={(id) => {
+              front.current = null;
               setSelectedId(null);
               tabs.forget(id);
             }}

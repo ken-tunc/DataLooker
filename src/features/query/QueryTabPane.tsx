@@ -22,6 +22,8 @@ type Props = {
   tabId: string;
   sql: string;
   onSqlChange: (sql: string) => void;
+  /** Whatever ran it, Explain included. */
+  onRun: () => void;
   hidden: boolean;
   /** Where a name in the statement leads: the table it names, as it is made. */
   onOpenStructure: (schema: string, table: string) => void;
@@ -34,6 +36,7 @@ export function QueryTabPane({
   tabId,
   sql,
   onSqlChange,
+  onRun,
   hidden,
   onOpenStructure,
   onFindTable,
@@ -51,7 +54,9 @@ export function QueryTabPane({
 
   function submit(explain: Request["explain"] = null) {
     if (explain !== null && !explains) return;
-    if (sql.trim() !== "" && !run.isPending) run.mutate({ sql, explain });
+    if (sql.trim() === "" || run.isPending) return;
+    run.mutate({ sql, explain });
+    onRun();
   }
 
   /** Several matches go to the palette: the search path decides, not the tree. */

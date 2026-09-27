@@ -39,8 +39,9 @@ PostgreSQL and BigQuery.
   statement it makes in a new tab.
 - **Agents** — an optional MCP server on localhost, behind a token, lets your own agents
   list connections, read schemas, run read-only statements, read their plans and ask
-  what a BigQuery statement would scan. Their runs are logged and
-  marked.
+  what a BigQuery statement would scan. A statement that writes, they hand to you: it
+  opens in a new tab, marked as theirs, and runs only if you run it. What they run or
+  hand over is logged and marked.
 
 ## Keyboard
 

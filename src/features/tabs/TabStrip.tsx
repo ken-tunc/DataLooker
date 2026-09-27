@@ -10,6 +10,13 @@ type Props = {
 };
 
 const unsaved = (tab: Tab) => tab.kind === "table" && tab.unsaved;
+const fromAgent = (tab: Tab) => tab.kind === "sql" && tab.fromAgent;
+
+function describeTab(tab: Tab): string | undefined {
+  if (unsaved(tab)) return `${tab.title}, unsaved changes`;
+  if (fromAgent(tab)) return `${tab.title}, written by an agent`;
+  return undefined;
+}
 
 /** The tabs are siblings in the strip, in the order they are rendered. */
 function focusTabAt(sibling: HTMLElement, index: number): void {
@@ -77,12 +84,22 @@ export function TabStrip({ state, onActivate, onClose, onOpen }: Props) {
           role="tab"
           tabIndex={tab.id === state.activeId ? 0 : -1}
           aria-selected={tab.id === state.activeId}
-          aria-label={unsaved(tab) ? `${tab.title}, unsaved changes` : undefined}
+          aria-label={describeTab(tab)}
           className={`tab gap-2 ${tab.id === state.activeId ? "tab-active" : ""}`}
           onClick={() => onActivate(tab.id)}
           onKeyDown={(event) => onTabKeyDown(event, tab.id)}
         >
           {tab.title}
+          {/* Until the reader edits or runs it: what is in it is not theirs. */}
+          {fromAgent(tab) && (
+            <span
+              aria-hidden="true"
+              title="Written by an agent. Nothing has run."
+              className="badge badge-soft badge-secondary badge-xs"
+            >
+              agent
+            </span>
+          )}
           {unsaved(tab) && (
             <span aria-hidden="true" title="Unsaved changes" className="status status-warning" />
           )}

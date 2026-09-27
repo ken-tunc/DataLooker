@@ -22,13 +22,15 @@ pub struct HistoryEntry {
     pub source: Source,
 }
 
-/// An agent's statement still ran against the reader's database.
+/// An agent's statement still ran against the reader's database. A handoff did
+/// not run: an agent gave it to the reader, whose run of it is their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "../../src/bindings/")]
 pub enum Source {
     Reader,
     Agent,
+    Handoff,
 }
 
 impl Source {
@@ -36,12 +38,14 @@ impl Source {
         match self {
             Source::Reader => "reader",
             Source::Agent => "agent",
+            Source::Handoff => "handoff",
         }
     }
 
     fn read(written: &str) -> Self {
         match written {
             "agent" => Source::Agent,
+            "handoff" => Source::Handoff,
             _ => Source::Reader,
         }
     }

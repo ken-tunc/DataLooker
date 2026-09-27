@@ -65,7 +65,8 @@ pub struct Ran {
     pub row_count: Option<u32>,
     pub error: Option<String>,
     /// `reader` for what the person at the window ran, `agent` for what was
-    /// run through here.
+    /// run through here, `handoff` for what was opened in the reader's editor
+    /// through here and did not run.
     pub source: String,
 }
 
@@ -141,6 +142,17 @@ pub struct Unfiltered {
     pub table: String,
     /// The column a filter would have to name to read fewer partitions.
     pub column: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct Handed {
+    /// The id of a connection, as `list_connections` gives it.
+    pub connection_id: String,
+    /// The statement, as the reader is to read it before running it.
+    pub sql: String,
+    /// A few words naming what it does, for the tab.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -301,6 +313,25 @@ impl Agent {
     }
 
     #[tool(
+        name = "open_in_editor",
+        description = "Hand a statement you may not run — a migration, an UPDATE that fixes data — to the person at the window. It opens in a new editor tab on that connection and nothing runs: they read it and run it, or not. At most five a minute."
+    )]
+    async fn open_in_editor(
+        &self,
+        Parameters(Handed {
+            connection_id,
+            sql,
+            title,
+        }): Parameters<Handed>,
+    ) -> Result<String, ErrorData> {
+        self.app
+            .hand_to_reader(&connection_id, &sql, title.as_deref())
+            .await
+            .map_err(refused)?;
+        Ok("Opened in the reader's editor. It has not run.".to_string())
+    }
+
+    #[tool(
         name = "query_history",
         description = "What has been run against a connection lately, by the person at the window as well as through here. Newest first."
     )]
@@ -325,6 +356,7 @@ impl Agent {
                     source: match entry.source {
                         crate::db::history::Source::Reader => "reader".to_string(),
                         crate::db::history::Source::Agent => "agent".to_string(),
+                        crate::db::history::Source::Handoff => "handoff".to_string(),
                     },
                 })
                 .collect(),
@@ -352,7 +384,9 @@ impl Agent {
         about.server_info = who;
         about.instructions = Some(
             "DataLooker reaches the databases its reader has set up. Start with \
-             list_connections; everything else takes one of those ids."
+             list_connections; everything else takes one of those ids. You may \
+             only read; a statement that writes is handed to the reader with \
+             open_in_editor."
                 .to_string(),
         );
         about
@@ -446,6 +480,24 @@ mod tests {
             named,
             ["table", "view", "materialized_view", "foreign_table"]
         );
+    }
+
+    #[tokio::test]
+    async fn hands_nothing_to_a_connection_that_is_not_there() {
+        let app = Arc::new(crate::app::tests::app().await);
+        let mut window = app.handoffs();
+        let agent = Agent::new(Arc::clone(&app));
+
+        let refusal = agent
+            .open_in_editor(Parameters(Handed {
+                connection_id: "nowhere".into(),
+                sql: "DROP TABLE orders".into(),
+                title: None,
+            }))
+            .await
+            .expect_err("a connection that does not exist");
+        assert!(refusal.message.contains("nowhere"), "{}", refusal.message);
+        assert!(window.try_recv().is_err());
     }
 
     #[tokio::test]
