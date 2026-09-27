@@ -4,6 +4,7 @@ import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import { useToast } from "../../components/useToast";
 import { describeError } from "../../lib/invoke";
 import { CommandButton } from "../connection-command/CommandButton";
+import { TransactionControls } from "../transaction/TransactionControls";
 import { ConnectionFormDialog } from "./ConnectionFormDialog";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import { describeConnection } from "./driver";
@@ -75,6 +76,7 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
             {describeConnection(connection.config)}
           </span>
         </div>
+        <TransactionControls connectionId={connection.id} />
         {test.isPending && <span className="loading loading-spinner loading-xs shrink-0" />}
         {connection.command && (
           <CommandButton connection={connection} command={connection.command} />
