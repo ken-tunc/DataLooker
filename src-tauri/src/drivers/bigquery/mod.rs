@@ -151,6 +151,7 @@ impl BigQuerySession {
 
         Ok(Estimate {
             bytes,
+            at_least: risks::dynamic(sql),
             unpruned: estimate::unpruned(sql, &read),
         })
     }

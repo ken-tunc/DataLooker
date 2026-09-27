@@ -2,6 +2,7 @@ import { describeError } from "../../lib/invoke";
 import { DOLLARS_PER_TIB, formatBytes, formatCost } from "./format";
 import { useEstimate } from "./hooks";
 
+const DYNAMIC = "At least: the SQL that EXECUTE IMMEDIATE runs is not read by a dry run.";
 const PRICING = `At on-demand pricing, $${DOLLARS_PER_TIB} per TiB. Editions and reservations bill differently.`;
 
 /**
@@ -25,7 +26,8 @@ export function Estimate({ connectionId, sql }: { connectionId: string; sql: str
   }
   if (!estimate.data) return null;
 
-  const { bytes, unpruned } = estimate.data;
+  const { bytes, at_least, unpruned } = estimate.data;
+  const least = at_least ? "≥ " : "";
   const warning = unpruned
     .map((table) => `${table.table} is read whole: nothing filters on ${table.column}`)
     .join(". ");
@@ -36,8 +38,10 @@ export function Estimate({ connectionId, sql }: { connectionId: string; sql: str
           {warning}
         </span>
       )}
-      <span className="shrink-0" title={PRICING}>
-        {formatBytes(bytes)} · ≈ {formatCost(bytes)}
+      <span className="shrink-0" title={at_least ? `${DYNAMIC} ${PRICING}` : PRICING}>
+        {least}
+        {formatBytes(bytes)} · {least || "≈ "}
+        {formatCost(bytes)}
       </span>
     </span>
   );

@@ -19,6 +19,11 @@ pub fn script(sql: &str) -> bool {
     statements(sql).nth(1).is_some()
 }
 
+/// Whether `sql` runs a string as SQL, which a dry run plans without reading.
+pub fn dynamic(sql: &str) -> bool {
+    statements(sql).any(|statement| hazards(&statement.words).contains(&Hazard::Dynamic))
+}
+
 /// What to ask about, from what the dry run said `sql` is. On a `production`
 /// connection, a statement that writes and has nothing worse to say is asked
 /// about too.
@@ -216,6 +221,16 @@ fn quoted(bytes: &[u8], from: usize, quote: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_string_run_as_sql_is_dynamic_but_one_quoted_or_commented_is_not() {
+        assert!(dynamic(
+            "SELECT 1; EXECUTE IMMEDIATE 'SELECT * FROM shop.users'"
+        ));
+        assert!(!dynamic(
+            "SELECT 'EXECUTE IMMEDIATE' -- execute\nFROM shop.users"
+        ));
+    }
 
     fn planned(kind: &str, target: Option<&str>) -> Planned {
         Planned {

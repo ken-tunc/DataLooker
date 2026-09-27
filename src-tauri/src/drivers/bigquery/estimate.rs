@@ -21,6 +21,9 @@ pub struct Estimate {
     /// number's exact range: that is eight pebibytes.
     #[ts(type = "number")]
     pub bytes: u64,
+    /// The statement runs a string as SQL (`EXECUTE IMMEDIATE`), which the
+    /// dry run does not read, so `bytes` is only what the rest would scan.
+    pub at_least: bool,
     pub unpruned: Vec<Unpruned>,
 }
 

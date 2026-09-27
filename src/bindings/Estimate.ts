@@ -6,4 +6,9 @@ export type Estimate = {
  * An upper bound, and what on-demand pricing bills. Well within a JSON
  * number's exact range: that is eight pebibytes.
  */
-bytes: number, unpruned: Array<Unpruned>, };
+bytes: number, 
+/**
+ * The statement runs a string as SQL (`EXECUTE IMMEDIATE`), which the
+ * dry run does not read, so `bytes` is only what the rest would scan.
+ */
+at_least: boolean, unpruned: Array<Unpruned>, };

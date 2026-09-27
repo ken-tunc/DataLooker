@@ -703,7 +703,7 @@ describe("SqlEditor's footer on BigQuery", () => {
 
   it("says what the statement would scan and cost before it runs", async () => {
     const { ipc } = await estimated(
-      { bytes: 1.5 * 1024 ** 4, unpruned: [] },
+      { bytes: 1.5 * 1024 ** 4, at_least: false, unpruned: [] },
       "select * from `shop.events`",
     );
 
@@ -717,6 +717,7 @@ describe("SqlEditor's footer on BigQuery", () => {
   it("warns of a partitioned table read whole", async () => {
     await estimated({
       bytes: 2048,
+      at_least: false,
       unpruned: [{ table: "shop.analytics.events", column: "happened" }],
     });
 

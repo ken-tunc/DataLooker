@@ -129,8 +129,12 @@ pub struct Estimated {
 /// What BigQuery says a statement would scan, before it is run.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct Scan {
-    /// Bytes it would read, an upper bound. On-demand pricing bills these.
+    /// Bytes it would read, an upper bound unless `at_least`. On-demand pricing
+    /// bills these.
     pub bytes: u64,
+    /// True when the statement runs a string as SQL (`EXECUTE IMMEDIATE`),
+    /// which the dry run does not read: then `bytes` is only a lower bound.
+    pub at_least: bool,
     /// Partitioned tables the statement names but never filters on the column
     /// they are partitioned by, so every partition is read.
     pub unpruned: Vec<Unfiltered>,
@@ -301,6 +305,7 @@ impl Agent {
             .map_err(refused)?;
         Ok(Json(Scan {
             bytes: estimate.bytes,
+            at_least: estimate.at_least,
             unpruned: estimate
                 .unpruned
                 .into_iter()
