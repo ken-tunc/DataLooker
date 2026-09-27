@@ -22,11 +22,14 @@ export function useEstimate(connectionId: string, sql: string) {
     return () => clearTimeout(timer);
   }, [sql]);
 
-  return useQuery({
+  const query = useQuery({
     enabled: settled.trim() !== "",
     queryKey: estimateKeys.of(connectionId, settled),
     queryFn: () => estimateQuery(connectionId, settled),
     // Keep the last answer on screen until the next one arrives.
     placeholderData: keepPreviousData,
   });
+  // Until the text settles, what is on screen answers a statement since
+  // changed, even when it is not React Query's placeholder.
+  return { ...query, stale: settled !== sql || query.isPlaceholderData, empty: sql.trim() === "" };
 }

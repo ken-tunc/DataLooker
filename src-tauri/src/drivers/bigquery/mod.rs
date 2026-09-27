@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use futures_util::future::try_join_all;
 use gcp_bigquery_client::model::job::Job;
 use gcp_bigquery_client::model::job_configuration::JobConfiguration;
 use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
@@ -104,16 +105,17 @@ impl BigQuerySession {
             .and_then(|bytes| bytes.parse().ok())
             .unwrap_or_default();
 
-        let mut read = Vec::new();
-        for table in planned.referenced_tables.unwrap_or_default() {
-            let columns = tokio::select! {
-                columns = self.partitioning(&table) => columns?,
-                () = cancel.cancelled() => return Err(AppError::Cancelled),
-            };
-            if let Some(columns) = columns {
-                read.push((table, columns));
-            }
-        }
+        let tables = planned.referenced_tables.unwrap_or_default();
+        let asked = try_join_all(tables.iter().map(|table| self.partitioning(table)));
+        let partitioned = tokio::select! {
+            partitioned = asked => partitioned?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+        let read: Vec<_> = tables
+            .into_iter()
+            .zip(partitioned)
+            .filter_map(|(table, columns)| Some((table, columns?)))
+            .collect();
 
         Ok(Estimate {
             bytes,

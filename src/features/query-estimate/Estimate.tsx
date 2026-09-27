@@ -11,11 +11,14 @@ const PRICING = `At on-demand pricing, $${DOLLARS_PER_TIB} per TiB. Editions and
 export function Estimate({ connectionId, sql }: { connectionId: string; sql: string }) {
   const estimate = useEstimate(connectionId, sql);
 
-  if (!estimate.isEnabled) return null;
+  if (!estimate.isEnabled || estimate.empty) return null;
   if (estimate.isError) {
     const message = describeError(estimate.error);
     return (
-      <span className="text-error min-w-0 truncate" title={message}>
+      <span
+        className={`text-error min-w-0 truncate ${estimate.stale ? "opacity-60" : ""}`}
+        title={message}
+      >
         {message}
       </span>
     );
@@ -27,9 +30,7 @@ export function Estimate({ connectionId, sql }: { connectionId: string; sql: str
     .map((table) => `${table.table} is read whole: nothing filters on ${table.column}`)
     .join(". ");
   return (
-    <span
-      className={`flex min-w-0 items-center gap-3 ${estimate.isPlaceholderData ? "opacity-60" : ""}`}
-    >
+    <span className={`flex min-w-0 items-center gap-3 ${estimate.stale ? "opacity-60" : ""}`}>
       {warning && (
         <span className="text-warning min-w-0 truncate" title={warning}>
           {warning}
