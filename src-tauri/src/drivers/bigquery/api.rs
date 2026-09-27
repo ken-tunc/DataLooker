@@ -2,6 +2,8 @@
 //! it reads. A general client would do, but the one there is builds its gRPC
 //! Storage API into every build, and nothing here streams a table.
 
+use std::time::Duration;
+
 use reqwest::{RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,11 @@ use yup_oauth2::{ServiceAccountAuthenticator, ServiceAccountKey};
 use crate::error::AppError;
 
 const API: &str = "https://bigquery.googleapis.com/bigquery/v2";
+
+const CONNECTING: Duration = Duration::from_secs(10);
+
+/// Well past the ten seconds a request is held open while its job runs.
+const SILENCE: Duration = Duration::from_secs(60);
 
 /// Not read-only: what the reader may do is the service account's to decide.
 const SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/bigquery"];
@@ -209,10 +216,16 @@ impl Client {
             .build()
             .await
             .map_err(|e| Failure::unanswered(format!("BigQuery refused the key: {e}")))?;
-        Ok(Self {
-            http: reqwest::Client::new(),
-            auth,
-        })
+        // No deadline on a whole call: a page of rows may be large, and a job
+        // is waited on for as long as it runs. What these bound is a network
+        // that went quiet, which nothing else would notice while the catalog is
+        // read, since nobody can cancel that.
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECTING)
+            .read_timeout(SILENCE)
+            .build()
+            .map_err(Failure::unanswered)?;
+        Ok(Self { http, auth })
     }
 
     pub async fn query(&self, project_id: &str, query: &Query<'_>) -> Result<Answer, Failure> {
