@@ -3,6 +3,7 @@ mod edit;
 mod explain;
 mod preview;
 mod query;
+mod risks;
 mod schema;
 #[cfg(test)]
 pub(crate) mod testing;
@@ -17,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::drivers::postgres::edit::{Edits, Plan};
 pub use crate::drivers::postgres::explain::statement as explain_statement;
+pub use crate::drivers::postgres::risks::risks;
 use crate::drivers::{
     Column, DriverError, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage,
     TableShape,

@@ -1,7 +1,10 @@
+import { useMutation } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
+import type { Risk } from "../../bindings/Risk";
 import { EmptyState } from "../../components/EmptyState";
 import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
+import { statementRisks } from "../../lib/commands";
 import { describeError, IpcError } from "../../lib/invoke";
 import { type Pane, usePaneSize } from "../../lib/paneSize";
 import { useDriver } from "../connections/hooks";
@@ -10,6 +13,7 @@ import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
 import { PlanView, type Shape } from "../query-plan/PlanView";
 import { ResultGrid } from "./ResultGrid";
+import { RiskDialog } from "./RiskDialog";
 import { type Outcome, type Request, useQueryRunner } from "./hooks";
 
 // Monaco is by far the heaviest thing here, so it loads on first use.
@@ -51,12 +55,33 @@ export function QueryTabPane({
   const explains = useDriver(connectionId) === "postgres";
   const outcome = run.isSuccess ? run.data : null;
   const [planShape, setPlanShape] = useState<Shape>("table");
+  const [asking, setAsking] = useState<{ sql: string; risks: Risk[] } | null>(null);
+  // A plan needs no asking: it is made where nothing it does is kept.
+  const check = useMutation({
+    mutationFn: (statement: string) => statementRisks(connectionId, statement),
+    onSuccess: (risks, statement) => {
+      if (risks.length > 0) setAsking({ sql: statement, risks });
+      else start({ sql: statement, explain: null });
+    },
+    // Not run: what could not be asked about would go unasked. Text that does
+    // not parse has nothing to ask about rather than failing.
+  });
+  const busy = run.isPending || check.isPending;
+
+  /** Only what runs counts as run: a statement the reader backs out of does not. */
+  function start(request: Request) {
+    run.mutate(request);
+    onRun();
+  }
 
   function submit(explain: Request["explain"] = null) {
     if (explain !== null && !explains) return;
-    if (sql.trim() === "" || run.isPending) return;
-    run.mutate({ sql, explain });
-    onRun();
+    if (sql.trim() === "" || busy || asking) return;
+    if (explain === null) check.mutate(sql);
+    else {
+      check.reset();
+      start({ sql, explain });
+    }
   }
 
   /** Several matches go to the palette: the search path decides, not the tree. */
@@ -89,7 +114,7 @@ export function QueryTabPane({
           <button
             type="button"
             className="btn btn-sm btn-primary"
-            disabled={sql.trim() === ""}
+            disabled={sql.trim() === "" || check.isPending}
             onClick={() => submit()}
           >
             Run
@@ -103,7 +128,7 @@ export function QueryTabPane({
             <button
               type="button"
               className="btn btn-sm join-item"
-              disabled={sql.trim() === "" || run.isPending}
+              disabled={sql.trim() === "" || busy}
               title="How PostgreSQL would run it (⌘E)"
               onClick={() => submit("plan")}
             >
@@ -112,7 +137,7 @@ export function QueryTabPane({
             <button
               type="button"
               className="btn btn-sm join-item"
-              disabled={sql.trim() === "" || run.isPending}
+              disabled={sql.trim() === "" || busy}
               title="Run it read-only and time each step (⌘⇧E)"
               onClick={() => submit("analyze")}
             >
@@ -130,9 +155,15 @@ export function QueryTabPane({
         </button>
         <span className="grow" />
         <Status
-          pending={run.isPending}
-          cancelled={cancelled}
-          error={run.isError && !cancelled ? describeError(run.error) : null}
+          pending={busy}
+          cancelled={cancelled && !check.isError}
+          error={
+            check.isError
+              ? describeError(check.error)
+              : run.isError && !cancelled
+                ? describeError(run.error)
+                : null
+          }
           outcome={outcome}
         />
       </div>
@@ -157,6 +188,16 @@ export function QueryTabPane({
       </div>
 
       <Splitter pane={EDITOR} axis="y" label="Resize the editor" />
+
+      {/* Asked only in front: a modal from a tab behind would hold the one the
+        reader moved to. It waits, and is asked when its tab comes back. */}
+      {asking && !hidden && (
+        <RiskDialog
+          risks={asking.risks}
+          onRun={() => start({ sql: asking.sql, explain: null })}
+          onClose={() => setAsking(null)}
+        />
+      )}
 
       {saving && <TemplateFormDialog template={null} sql={sql} onClose={() => setSaving(false)} />}
 
