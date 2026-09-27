@@ -262,6 +262,32 @@ describe("SchemaTree", () => {
     await expect.element(screen.getByText("happy")).toBeVisible();
   });
 
+  it("lists an open table's indexes with their size under the columns", async () => {
+    const { ipc, screen } = await schemaTree({
+      table_indexes: [
+        {
+          name: "orders_pkey",
+          method: "btree",
+          keys: "id",
+          unique: true,
+          primary: true,
+          bytes: 16384,
+        },
+      ],
+    });
+    await screen.getByText("shop").click();
+    await screen.getByLabelText("Expand orders").click();
+
+    await screen.getByText("Indexes").click();
+
+    await expect.element(screen.getByText("btree (id) · primary key · 16.0 KiB")).toBeVisible();
+    expect(ipc.sent("table_indexes")).toEqual({
+      connection_id: "c1",
+      schema: "shop",
+      table: "orders",
+    });
+  });
+
   it("filters routines by name as it filters tables", async () => {
     const { screen } = await schemaTree({
       schema_tree: {

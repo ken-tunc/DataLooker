@@ -1,4 +1,5 @@
 import type { Column } from "../../bindings/Column";
+import type { Index } from "../../bindings/Index";
 import type { Routine } from "../../bindings/Routine";
 import type { RoutineKind } from "../../bindings/RoutineKind";
 import type { UserTypeKind } from "../../bindings/UserTypeKind";
@@ -29,6 +30,17 @@ export type ColumnsState =
   | { status: "reading" }
   | { status: "failed"; message: string }
   | { status: "read"; columns: Column[] };
+
+/** An opened table's indexes, read beside its columns. */
+export type IndexesState =
+  | { status: "reading" }
+  | { status: "failed"; message: string }
+  | { status: "read"; indexes: Index[] };
+
+type IndexesOf = (schema: string, table: string) => IndexesState;
+
+/** For a caller with no indexes to show, such as a test about columns. */
+const NO_INDEXES: IndexesOf = () => ({ status: "read", indexes: [] });
 
 export type TreeRow = { id: string; indent: number } &
   /** `items` counts what is shown under it: tables, and whatever the folders hold. */
@@ -71,6 +83,15 @@ export type TreeRow = { id: string; indent: number } &
         comment: string | null;
         expanded: boolean | null;
       }
+    | {
+        kind: "index";
+        name: string;
+        method: string;
+        keys: string;
+        unique: boolean;
+        primary: boolean;
+        bytes: number;
+      }
     /** An enum's label, or a composite type's attribute. */
     | { kind: "member"; name: string; dataType: string | null }
     /** Where a table's columns would be, while they are on their way or lost. */
@@ -87,6 +108,7 @@ export const schemaRowId = (schema: string) => rowId("schema", schema);
 export const tableRowId = (schema: string, table: string) => rowId("table", schema, table);
 export const shardsRowId = (schema: string, prefix: string) => rowId("shards", schema, prefix);
 export const folderRowId = (schema: string, folder: string) => rowId("folder", schema, folder);
+export const indexesRowId = (schema: string, table: string) => rowId("indexes", schema, table);
 export const typeRowId = (schema: string, type: string) => rowId("type", schema, type);
 const routineRowId = (schema: string, routine: Routine) =>
   rowId("routine", schema, routine.name, routine.arguments);
@@ -175,6 +197,7 @@ function tableRows(
   indent: number,
   expanded: ReadonlySet<string>,
   columnsOf: (schema: string, table: string) => ColumnsState,
+  indexesOf: IndexesOf,
 ): TreeRow[] {
   const id = tableRowId(schema, table.name);
   const open = expanded.has(id);
@@ -212,6 +235,44 @@ function tableRows(
       nullable: column.nullable,
       comment: column.comment,
     })),
+    ...indexRows(schema, table.name, under, expanded, indexesOf(schema, table.name)),
+  ];
+}
+
+/**
+ * A folder after the columns, closed until asked for: what a reader opens a
+ * table for is usually its columns. Nothing while they are on their way.
+ */
+function indexRows(
+  schema: string,
+  table: string,
+  indent: number,
+  expanded: ReadonlySet<string>,
+  state: IndexesState,
+): TreeRow[] {
+  const id = indexesRowId(schema, table);
+  if (state.status === "reading") return [];
+  if (state.status === "failed") {
+    return [{ kind: "note", id, indent, text: `Indexes: ${state.message}` }];
+  }
+  if (state.indexes.length === 0) return [];
+
+  const open = expanded.has(id);
+  return [
+    { kind: "folder", id, indent, title: "Indexes", count: state.indexes.length, expanded: open },
+    ...(open
+      ? state.indexes.map((index): TreeRow => ({
+          kind: "index",
+          id: rowId("index", schema, table, index.name),
+          indent: indent + 1,
+          name: index.name,
+          method: index.method,
+          keys: index.keys,
+          unique: index.unique,
+          primary: index.primary,
+          bytes: index.bytes,
+        }))
+      : []),
   ];
 }
 
@@ -306,6 +367,7 @@ export function treeRows(
   expanded: ReadonlySet<string>,
   filter: string,
   columnsOf: (schema: string, table: string) => ColumnsState,
+  indexesOf: IndexesOf = NO_INDEXES,
 ): TreeRow[] {
   const needle = filter.trim().toLowerCase();
   const rows: TreeRow[] = [];
@@ -354,7 +416,7 @@ export function treeRows(
 
     for (const group of groups) {
       if (group.kind === "table") {
-        rows.push(...tableRows(schema.name, group.table, 1, expanded, columnsOf));
+        rows.push(...tableRows(schema.name, group.table, 1, expanded, columnsOf, indexesOf));
         continue;
       }
 
@@ -372,7 +434,7 @@ export function treeRows(
       if (!open) continue;
 
       for (const shard of group.shards) {
-        rows.push(...tableRows(schema.name, shard, 2, expanded, columnsOf));
+        rows.push(...tableRows(schema.name, shard, 2, expanded, columnsOf, indexesOf));
       }
     }
   }
@@ -637,6 +699,40 @@ if (import.meta.vitest) {
       expect(rows[2]).toMatchObject({ title: "Types", count: 2 });
       // A domain has nothing to open, whatever the set of open rows says.
       expect(rows[6]).toMatchObject({ name: "positive", expanded: null });
+    });
+
+    it("lists a table's indexes in a folder after its columns, once both are read", () => {
+      const open = new Set([schemaRowId("public"), tableRowId("public", "people")]);
+      const index = {
+        name: "people_pkey",
+        method: "btree",
+        keys: "id",
+        unique: true,
+        primary: true,
+        bytes: 8192,
+      };
+      const indexed = (): IndexesState => ({ status: "read", indexes: [index] });
+
+      const closed = treeRows(tree, open, "", read, indexed);
+      expect(closed.slice(2, 5).map((row) => row.kind)).toEqual(["column", "column", "folder"]);
+      expect(closed[4]).toMatchObject({ title: "Indexes", count: 1, indent: 2 });
+
+      const opened = treeRows(
+        tree,
+        new Set([...open, indexesRowId("public", "people")]),
+        "",
+        read,
+        indexed,
+      );
+      expect(opened[5]).toMatchObject({ kind: "index", name: "people_pkey", indent: 3 });
+
+      // Nothing stands in for indexes on their way; a table without any has no folder.
+      expect(ids(treeRows(tree, open, "", read, () => ({ status: "reading" })))).toEqual(
+        ids(treeRows(tree, open, "", read)),
+      );
+      expect(
+        note(treeRows(tree, open, "", read, () => ({ status: "failed", message: "denied" }))),
+      ).toMatchObject({ text: "Indexes: denied" });
     });
 
     it("tells overloads apart", () => {

@@ -5,7 +5,7 @@ use tauri::State;
 use crate::app::App;
 use crate::commands::{ConnectionArgs, RoutineArgs, TableArgs};
 use crate::drivers::session::Whose;
-use crate::drivers::{Column, SchemaTree, TableDefinition};
+use crate::drivers::{Column, Index, SchemaTree, TableDefinition};
 use crate::error::AppError;
 
 #[tauri::command]
@@ -28,6 +28,15 @@ pub async fn table_columns(
         &args.table,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn table_indexes(
+    args: TableArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<Vec<Index>, AppError> {
+    app.table_indexes(&args.connection_id, &args.schema, &args.table)
+        .await
 }
 
 #[tauri::command]

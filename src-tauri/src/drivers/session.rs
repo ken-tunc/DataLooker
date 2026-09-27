@@ -9,7 +9,7 @@ use crate::db::connection::{self, DriverConfig};
 use crate::drivers::bigquery::{BigQuerySession, Estimate};
 use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
-    Column, Preview, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage,
+    Column, Index, Preview, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage,
     TableShape, TransactionState,
 };
 use crate::error::AppError;
@@ -145,6 +145,14 @@ impl Session {
         match self {
             Session::Postgres(session) => session.routine_definition(schema, name, arguments).await,
             Session::BigQuery(session) => session.routine_definition(schema, name).await,
+        }
+    }
+
+    /// BigQuery keeps no indexes a table is read by, so it has none to list.
+    pub async fn indexes(&self, schema: &str, table: &str) -> Result<Vec<Index>, AppError> {
+        match self {
+            Session::Postgres(session) => session.indexes(schema, table).await,
+            Session::BigQuery(_) => Ok(Vec::new()),
         }
     }
 

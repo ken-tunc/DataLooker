@@ -105,6 +105,11 @@ export function tableColumns(connectionId: string, schema: string, table: string
   return invoke("table_columns", { connection_id: connectionId, schema, table });
 }
 
+/** Empty on BigQuery, which keeps no indexes. */
+export function tableIndexes(connectionId: string, schema: string, table: string) {
+  return invoke("table_indexes", { connection_id: connectionId, schema, table });
+}
+
 export function tableDefinition(connectionId: string, schema: string, table: string) {
   return invoke("table_definition", { connection_id: connectionId, schema, table });
 }
