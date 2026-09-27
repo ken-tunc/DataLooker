@@ -175,6 +175,8 @@ fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
                 name: dataset,
                 tables: Vec::new(),
                 routines: Vec::new(),
+                sequences: Vec::new(),
+                types: Vec::new(),
             });
         }
         let schema = schemas.last_mut().expect("just pushed");
@@ -212,6 +214,8 @@ fn add_routines(tree: &mut SchemaTree, rows: &[Vec<Value>]) {
                 name: dataset,
                 tables: Vec::new(),
                 routines: vec![routine],
+                sequences: Vec::new(),
+                types: Vec::new(),
             }),
         }
     }

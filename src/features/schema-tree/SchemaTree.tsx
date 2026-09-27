@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, RotateCw } from "lucide-react";
 import { useState } from "react";
+import type { UserTypeKind } from "../../bindings/UserTypeKind";
 import { describeError } from "../../lib/invoke";
 import { useColumnsOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
 import {
@@ -171,6 +172,62 @@ function Row({
     );
   }
 
+  if (row.kind === "sequence") {
+    // No value is either a sequence never drawn on or one the role may not
+    // read, which cannot be told apart, so neither is claimed.
+    const beside = [row.lastValue, row.ownedBy && `owned by ${row.ownedBy}`]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <span
+        className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}
+        title={row.comment ?? undefined}
+      >
+        <span className="truncate">{row.name}</span>
+        <span className="text-faint truncate text-xs">{beside}</span>
+      </span>
+    );
+  }
+
+  if (row.kind === "member") {
+    return (
+      <span className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}>
+        <span className="truncate">{row.name}</span>
+        {row.dataType && <span className="text-faint truncate text-xs">{row.dataType}</span>}
+      </span>
+    );
+  }
+
+  if (row.kind === "type") {
+    const label = (
+      <>
+        <span className="truncate">{row.name}</span>
+        <span className="text-faint truncate text-xs">{describeType(row.typeKind, row.base)}</span>
+      </>
+    );
+    // An enum's labels and a composite's attributes are under a chevron;
+    // a domain or a range has nothing under it.
+    return row.expanded === null ? (
+      <span
+        className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}
+        title={row.comment ?? undefined}
+      >
+        {label}
+      </span>
+    ) : (
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        className={`hover:bg-base-200 flex w-full cursor-pointer items-baseline gap-1 py-0.5 pr-2 text-left text-sm ${indent}`}
+        title={row.comment ?? undefined}
+        onClick={() => onToggle(row.id)}
+      >
+        <Chevron expanded={row.expanded} />
+        {label}
+      </button>
+    );
+  }
+
   if (row.kind === "routine") {
     return (
       <button
@@ -235,6 +292,12 @@ function Row({
       </button>
     </span>
   );
+}
+
+function describeType(kind: UserTypeKind, base: string | null): string {
+  if (kind === "domain") return `domain of ${base ?? "?"}`;
+  if (kind === "range") return `range of ${base ?? "?"}`;
+  return kind;
 }
 
 function Chevron({ expanded }: { expanded: boolean }) {

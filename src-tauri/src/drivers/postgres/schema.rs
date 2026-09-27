@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 
 use futures_util::TryStreamExt;
+use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Row};
 
-use crate::drivers::{Column, Routine, RoutineKind, Schema, SchemaTree, Table, TableKind};
+use crate::drivers::{
+    Column, Routine, RoutineKind, Schema, SchemaTree, Sequence, Table, TableKind, TypeMember,
+    UserType, UserTypeKind,
+};
 
 /// `pg_catalog` rather than `information_schema`: it knows about materialized
 /// views, and has no permission-filtered views in between.
@@ -39,6 +43,72 @@ const ROUTINES: &str = "
             WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
        )
      ORDER BY n.nspname, p.proname, arguments
+";
+
+/// `pg_sequences` rather than `last_value` on the sequence itself, which would
+/// fail for a role that may not read it. `a` is `OWNED BY`, which `serial`
+/// sets; `i` is an identity column. Either belongs to a table in the same
+/// schema.
+const SEQUENCES: &str = "
+    SELECT n.nspname AS schema_name,
+           c.relname AS name,
+           s.last_value::text AS last_value,
+           (SELECT t.relname || '.' || a.attname
+              FROM pg_depend d
+              JOIN pg_class t ON t.oid = d.refobjid
+              JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+             WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+               AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+             LIMIT 1) AS owned_by,
+           obj_description(c.oid, 'pg_class') AS comment
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_sequences s ON s.schemaname = n.nspname AND s.sequencename = c.relname
+     WHERE c.relkind = 'S'
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND n.nspname NOT LIKE 'pg\\_toast%'
+       AND n.nspname NOT LIKE 'pg\\_temp%'
+     ORDER BY n.nspname, c.relname
+";
+
+/// Enums, domains, ranges and composite types made on their own; every table
+/// has a composite type too, which is the table's. An extension's are left out
+/// as its functions are.
+const TYPES: &str = "
+    SELECT n.nspname AS schema_name,
+           t.typname AS name,
+           t.typtype AS kind,
+           CASE t.typtype
+                WHEN 'd' THEN format_type(t.typbasetype, t.typtypmod)
+                WHEN 'r' THEN (SELECT format_type(r.rngsubtype, NULL)
+                                 FROM pg_range r WHERE r.rngtypid = t.oid)
+           END AS base,
+           CASE t.typtype
+                WHEN 'e' THEN ARRAY(SELECT e.enumlabel::text FROM pg_enum e
+                                     WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder)
+                WHEN 'c' THEN ARRAY(SELECT a.attname::text FROM pg_attribute a
+                                     WHERE a.attrelid = t.typrelid AND a.attnum > 0
+                                       AND NOT a.attisdropped ORDER BY a.attnum)
+                ELSE ARRAY[]::text[]
+           END AS member_names,
+           CASE t.typtype
+                WHEN 'c' THEN ARRAY(SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
+                                     WHERE a.attrelid = t.typrelid AND a.attnum > 0
+                                       AND NOT a.attisdropped ORDER BY a.attnum)
+           END AS member_types,
+           obj_description(t.oid, 'pg_type') AS comment
+      FROM pg_type t
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      LEFT JOIN pg_class c ON c.oid = t.typrelid
+     WHERE (t.typtype IN ('e', 'd', 'r') OR (t.typtype = 'c' AND c.relkind = 'c'))
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND n.nspname NOT LIKE 'pg\\_toast%'
+       AND n.nspname NOT LIKE 'pg\\_temp%'
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_depend d
+            WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e'
+       )
+     ORDER BY n.nspname, t.typname
 ";
 
 /// Overloads share a name, and the arguments tell them apart.
@@ -103,6 +173,8 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
                 name: schema_name,
                 tables: Vec::new(),
                 routines: Vec::new(),
+                sequences: Vec::new(),
+                types: Vec::new(),
             });
         }
         // A schema with no tables still has a row, with the left join's nulls
@@ -125,7 +197,7 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
         .enumerate()
         .map(|(at, schema)| (schema.name.clone(), at))
         .collect();
-    let mut rows = sqlx::query(ROUTINES).fetch(conn);
+    let mut rows = sqlx::query(ROUTINES).fetch(&mut *conn);
     while let Some(row) = rows.try_next().await? {
         let schema_name: String = row.try_get("schema_name")?;
         let Some(&at) = at.get(&schema_name) else {
@@ -135,6 +207,35 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
             name: row.try_get("name")?,
             kind: routine_kind(row.try_get::<i8, _>("kind")? as u8 as char),
             arguments: row.try_get("arguments")?,
+            comment: row.try_get("comment")?,
+        });
+    }
+    drop(rows);
+
+    for row in &sequence_rows(&mut *conn).await? {
+        let Some(&at) = at.get(&row.try_get::<String, _>("schema_name")?) else {
+            continue;
+        };
+        schemas[at].sequences.push(Sequence {
+            name: row.try_get("name")?,
+            last_value: row.try_get("last_value")?,
+            owned_by: row.try_get("owned_by")?,
+            comment: row.try_get("comment")?,
+        });
+    }
+
+    let mut rows = sqlx::query(TYPES).fetch(conn);
+    while let Some(row) = rows.try_next().await? {
+        let Some(&at) = at.get(&row.try_get::<String, _>("schema_name")?) else {
+            continue;
+        };
+        let names: Vec<String> = row.try_get("member_names")?;
+        let types: Option<Vec<String>> = row.try_get("member_types")?;
+        schemas[at].types.push(UserType {
+            name: row.try_get("name")?,
+            kind: user_type_kind(row.try_get::<i8, _>("kind")? as u8 as char),
+            base: row.try_get("base")?,
+            members: members(names, types),
             comment: row.try_get("comment")?,
         });
     }
@@ -174,6 +275,49 @@ pub async fn columns(
         });
     }
     Ok(columns)
+}
+
+/// `pg_sequences` opens each sequence to read its value, and one dropped after
+/// the catalog listed it cannot be opened. Read again, it is no longer listed.
+async fn sequence_rows(conn: &mut PgConnection) -> Result<Vec<PgRow>, sqlx::Error> {
+    let mut tries = 0;
+    loop {
+        match sqlx::query(SEQUENCES).fetch_all(&mut *conn).await {
+            Err(error) if tries < 3 && vanished(&error) => tries += 1,
+            read => return read,
+        }
+    }
+}
+
+/// What PostgreSQL says when a relation it has just listed is gone.
+fn vanished(error: &sqlx::Error) -> bool {
+    matches!(
+        error,
+        sqlx::Error::Database(error)
+            if error.code().as_deref() == Some("XX000")
+                && error.message().starts_with("could not open relation")
+    )
+}
+
+fn user_type_kind(typtype: char) -> UserTypeKind {
+    match typtype {
+        'e' => UserTypeKind::Enum,
+        'd' => UserTypeKind::Domain,
+        'r' => UserTypeKind::Range,
+        _ => UserTypeKind::Composite,
+    }
+}
+
+/// An enum's labels have no types; a composite's attributes each have one.
+fn members(names: Vec<String>, types: Option<Vec<String>>) -> Vec<TypeMember> {
+    let mut types = types.map(Vec::into_iter);
+    names
+        .into_iter()
+        .map(|name| TypeMember {
+            name,
+            data_type: types.as_mut().and_then(Iterator::next),
+        })
+        .collect()
 }
 
 fn routine_kind(prokind: char) -> RoutineKind {
@@ -222,7 +366,7 @@ mod live {
 
     use crate::drivers::postgres::testing::*;
 
-    use crate::drivers::{RoutineKind, TableKind};
+    use crate::drivers::{RoutineKind, TableKind, TypeMember, UserTypeKind};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
@@ -451,6 +595,148 @@ mod live {
         run(&session, "DROP SCHEMA tree_routines CASCADE")
             .await
             .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_schema_s_sequences_and_types_are_listed_with_what_they_hold() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_kinds CASCADE",
+            "CREATE SCHEMA tree_kinds",
+            "CREATE TABLE tree_kinds.orders (id serial, n bigint GENERATED ALWAYS AS IDENTITY)",
+            "CREATE SEQUENCE tree_kinds.tickets",
+            "SELECT setval('tree_kinds.tickets', 9007199254740993)",
+            "COMMENT ON SEQUENCE tree_kinds.tickets IS 'Handed out at the door'",
+            "CREATE TYPE tree_kinds.mood AS ENUM ('sad', 'ok', 'happy')",
+            "CREATE TYPE tree_kinds.point AS (x double precision, y numeric(4, 1))",
+            "CREATE DOMAIN tree_kinds.positive AS integer CHECK (VALUE > 0)",
+            "CREATE TYPE tree_kinds.span AS RANGE (subtype = numeric)",
+            // An extension's types are its own, not the schema's. Another
+            // extension than the routines test's: one database holds one of
+            // each. Its own types are all base types, which are left out
+            // anyway, so one is made its member.
+            "CREATE EXTENSION hstore SCHEMA tree_kinds",
+            "CREATE TYPE tree_kinds.extended AS ENUM ('a')",
+            "ALTER EXTENSION hstore ADD TYPE tree_kinds.extended",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+
+        let tree = session.schema_tree().await.unwrap();
+        let schema = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == "tree_kinds")
+            .unwrap();
+
+        type Row<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+        let sequences: Vec<Row> = schema
+            .sequences
+            .iter()
+            .map(|s| {
+                (
+                    s.name.as_str(),
+                    s.last_value.as_deref(),
+                    s.owned_by.as_deref(),
+                    s.comment.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sequences,
+            [
+                ("orders_id_seq", None, Some("orders.id"), None),
+                ("orders_n_seq", None, Some("orders.n"), None),
+                (
+                    "tickets",
+                    Some("9007199254740993"),
+                    None,
+                    Some("Handed out at the door")
+                ),
+            ]
+        );
+
+        let types: Vec<(&str, UserTypeKind, Option<&str>)> = schema
+            .types
+            .iter()
+            .map(|t| (t.name.as_str(), t.kind, t.base.as_deref()))
+            .collect();
+        assert_eq!(
+            types,
+            [
+                ("mood", UserTypeKind::Enum, None),
+                ("point", UserTypeKind::Composite, None),
+                ("positive", UserTypeKind::Domain, Some("integer")),
+                ("span", UserTypeKind::Range, Some("numeric")),
+            ]
+        );
+        let labels: Vec<&str> = schema.types[0]
+            .members
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert_eq!(labels, ["sad", "ok", "happy"]);
+        assert_eq!(schema.types[0].members[0].data_type, None);
+        assert_eq!(
+            schema.types[1].members,
+            [
+                TypeMember {
+                    name: "x".into(),
+                    data_type: Some("double precision".into())
+                },
+                TypeMember {
+                    name: "y".into(),
+                    data_type: Some("numeric(4,1)".into())
+                },
+            ]
+        );
+
+        run(&session, "DROP SCHEMA tree_kinds CASCADE")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sequence_dropped_after_it_was_listed_is_recognized_as_gone() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_vanished CASCADE",
+            "CREATE SCHEMA tree_vanished",
+            "CREATE SEQUENCE tree_vanished.tickets",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+        // A snapshot taken before the drop still lists the sequence, as a
+        // catalog read racing a drop does.
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .host(&var("DATALOOKER_TEST_PG_HOST", "localhost"))
+            .port(var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap())
+            .database(&var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"))
+            .username(&var("DATALOOKER_TEST_PG_USERNAME", "datalooker"))
+            .password(&var("DATALOOKER_TEST_PG_PASSWORD", "datalooker"));
+        let mut conn = <sqlx::PgConnection as sqlx::Connection>::connect_with(&options)
+            .await
+            .unwrap();
+        for statement in [
+            "BEGIN ISOLATION LEVEL REPEATABLE READ",
+            "SELECT 1 FROM pg_class",
+        ] {
+            sqlx::query(statement).execute(&mut conn).await.unwrap();
+        }
+        run(&session, "DROP SCHEMA tree_vanished CASCADE")
+            .await
+            .unwrap();
+
+        let error = sqlx::query(super::SEQUENCES)
+            .fetch_all(&mut conn)
+            .await
+            .unwrap_err();
+        assert!(super::vanished(&error), "{error:?}");
+        assert!(!super::vanished(&sqlx::Error::RowNotFound));
     }
 
     #[tokio::test(flavor = "multi_thread")]

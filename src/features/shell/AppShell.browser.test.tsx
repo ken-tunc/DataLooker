@@ -26,7 +26,13 @@ const staging: ConnectionRecord = { ...local, id: "id-2", label: "Staging" };
 
 const tree: SchemaTree = {
   schemas: [
-    { name: "shop", routines: [], tables: [{ name: "people", kind: "table", comment: null }] },
+    {
+      name: "shop",
+      sequences: [],
+      types: [],
+      routines: [],
+      tables: [{ name: "people", kind: "table", comment: null }],
+    },
   ],
 };
 
@@ -159,6 +165,8 @@ describe("AppShell", () => {
           {
             name: "shop",
             tables: [],
+            sequences: [],
+            types: [],
             routines: [{ name: "tidy", kind: "procedure", arguments: "", comment: null }],
           },
         ],

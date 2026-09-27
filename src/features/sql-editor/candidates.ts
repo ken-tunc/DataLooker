@@ -106,13 +106,15 @@ if (import.meta.vitest) {
       schemas: [
         {
           name: "sales",
+          sequences: [],
+          types: [],
           routines: [],
           tables: [
             { name: "orders", kind: "table", comment: null },
             { name: "recent", kind: "materialized_view", comment: null },
           ],
         },
-        { name: "logs", routines: [], tables: [] },
+        { name: "logs", sequences: [], types: [], routines: [], tables: [] },
       ],
     };
 

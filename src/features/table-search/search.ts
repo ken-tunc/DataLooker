@@ -137,11 +137,15 @@ if (import.meta.vitest) {
     schemas: [
       {
         name: "public",
+        sequences: [],
+        types: [],
         routines: [],
         tables: [table("people"), table("orders"), table("order_items")],
       },
       {
         name: "analytics",
+        sequences: [],
+        types: [],
         routines: [],
         tables: [table("people_daily"), table("peoplesoft_export")],
       },

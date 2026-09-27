@@ -491,6 +491,8 @@ describe("SqlEditor completion of BigQuery", () => {
           schemas: [
             {
               name: "sales",
+              sequences: [],
+              types: [],
               routines: [],
               tables: [{ name: "orders", kind: "table", comment: null }],
             },
