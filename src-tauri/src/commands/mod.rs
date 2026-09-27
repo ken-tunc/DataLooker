@@ -35,6 +35,7 @@ use crate::db::template::QueryTemplate;
 use crate::drivers::bigquery::Estimate;
 use crate::drivers::{
     Column, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
+    TransactionState,
 };
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -104,6 +105,7 @@ commands! {
     query::execute_query(ExecuteQueryArgs) -> QueryResult;
     query::explain_query(ExplainQueryArgs) -> QueryPlan;
     query::cancel_query(CancelQueryArgs) -> ();
+    query::transaction_state(ConnectionArgs) -> TransactionState;
     query::estimate_query(EstimateQueryArgs) -> Estimate;
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
     query::statement_risks(StatementRisksArgs) -> Vec<Risk>;

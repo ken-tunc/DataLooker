@@ -44,6 +44,11 @@ export function explainQuery(connectionId: string, sql: string, analyze: boolean
   });
 }
 
+/** Of the reader's session, as the last statement on it left it. */
+export function transactionState(connectionId: string) {
+  return invoke("transaction_state", { connection_id: connectionId });
+}
+
 export function cancelQuery(queryId: string) {
   return invoke("cancel_query", { query_id: queryId });
 }

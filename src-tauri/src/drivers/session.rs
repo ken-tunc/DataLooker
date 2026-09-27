@@ -10,7 +10,7 @@ use crate::drivers::bigquery::{BigQuerySession, Estimate};
 use crate::drivers::postgres::{Edits, Plan, PostgresSession};
 use crate::drivers::{
     Column, Preview, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage,
-    TableShape,
+    TableShape, TransactionState,
 };
 use crate::error::AppError;
 use crate::secrets::SecretStore;
@@ -50,6 +50,13 @@ impl Session {
         match self {
             Session::Postgres(session) => session.execute(sql, row_limit, cancel).await,
             Session::BigQuery(session) => session.execute(sql, row_limit, cancel).await,
+        }
+    }
+
+    pub fn transaction_state(&self) -> TransactionState {
+        match self {
+            Session::Postgres(session) => session.transaction_state(),
+            Session::BigQuery(_) => TransactionState::Idle,
         }
     }
 
@@ -306,6 +313,16 @@ impl SessionRegistry {
                 &secret,
             )?)),
         }
+    }
+
+    /// The session already open, without opening one.
+    pub fn peek(&self, id: &str, whose: Whose) -> Option<Arc<Session>> {
+        self.0
+            .lock()
+            .unwrap()
+            .open
+            .get(&(id.to_string(), whose))
+            .cloned()
     }
 
     /// For a query given up on, which leaves its connection mid-answer.

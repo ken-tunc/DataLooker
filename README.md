@@ -14,6 +14,9 @@ PostgreSQL and BigQuery.
   A BigQuery statement is dry-run as you type, and the footer says what it would scan,
   what that costs at on-demand pricing, which partitioned table it reads whole, or what
   BigQuery refused it for.
+  A PostgreSQL connection keeps one session, so `BEGIN`, `SET` and temporary tables last
+  between statements; its header says when a transaction is open, or has failed, and
+  commits or rolls it back.
   A `DROP`, a `TRUNCATE`, an `ALTER TABLE ... DROP COLUMN` and, on PostgreSQL, an `UPDATE`
   or `DELETE` without a `WHERE` ask before they run: PostgreSQL's from its parse tree,
   BigQuery's from a dry run. On a connection marked production, drawn in red, every

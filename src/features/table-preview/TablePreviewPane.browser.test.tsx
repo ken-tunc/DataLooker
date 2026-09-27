@@ -242,6 +242,22 @@ describe("TablePreviewPane", () => {
       .toBeVisible();
   });
 
+  it("points at the reader's open transaction when a save is refused for it", async () => {
+    const { screen, type } = await preview({
+      commit_table_edits: () => {
+        throw { kind: "InTransaction", message: "a transaction is open in the editor." };
+      },
+    });
+
+    await type("Ada", "name", "Katherine");
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    await expect.element(screen.getByText(/Commit or roll it back in the header/)).toBeVisible();
+    await expect
+      .element(screen.getByText(/Reload the page to see what it holds now/))
+      .not.toBeInTheDocument();
+  });
+
   it("is read-only where a row cannot be named", async () => {
     const { screen } = await preview({ table_shape: { types: shape.types, primary_key: [] } });
 

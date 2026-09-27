@@ -31,6 +31,20 @@ pub struct QueryResult {
     pub elapsed_ms: u32,
 }
 
+/// Where the reader's session stands between statements. BigQuery keeps no
+/// session, so it is always `Idle` there.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum TransactionState {
+    #[default]
+    Idle,
+    Open,
+    /// A statement failed inside the transaction, and the server refuses every
+    /// other until it is rolled back.
+    Failed,
+}
+
 /// A statement to ask about before it runs. A guard against slips, not a
 /// permission: what the reader may do is still the role's to decide.
 #[derive(Debug, Serialize, TS)]
@@ -174,6 +188,9 @@ pub struct TablePage {
 pub enum DriverError {
     Sql(sqlx::Error),
     Refused(String),
+    /// Declined, before any statement, because the reader's transaction is
+    /// open on the session; it is theirs to end.
+    InTransaction(String),
     /// A connection in an unknown state, such as a transaction that would not
     /// end, which the next caller must not inherit.
     Broken(String),
@@ -190,6 +207,7 @@ impl From<DriverError> for AppError {
         match e {
             DriverError::Sql(e) => e.into(),
             DriverError::Refused(message) => AppError::Conflict(message),
+            DriverError::InTransaction(message) => AppError::InTransaction(message),
             DriverError::Broken(message) => AppError::Database(message),
         }
     }
