@@ -54,7 +54,7 @@ pub enum Hazard {
     Truncate,
     DropColumn,
     /// SQL this app cannot read before it runs: a prepared statement's
-    /// `EXECUTE`, a `DO` block's code.
+    /// `EXECUTE`, a `DO` block's code, BigQuery's `EXECUTE IMMEDIATE`.
     Dynamic,
     /// Any other write, asked about only on a connection marked production.
     Write,

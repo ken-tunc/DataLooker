@@ -283,7 +283,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 checked={values.production}
                 onChange={(event) => update("production", event.target.checked)}
               />
-              Production: every PostgreSQL statement that writes asks first
+              Production: every statement that writes asks first
             </label>
           </fieldset>
 
