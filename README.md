@@ -40,15 +40,15 @@ PostgreSQL and BigQuery.
 - **Schema tree** — schemas and their tables, with a folder each for functions and
   procedures (BigQuery's routines), sequences with their value and owning column, and
   types: an enum's labels, a composite's attributes, what a domain narrows. An open
-  table lists its columns and, with their size, its indexes. Comments (BigQuery's
-  descriptions) are shown beside what they are on. Everything is filterable by name,
-  and day-named tables such as `events_20250101` are folded into one row. Opening a
-  routine shows the statement that would make it, which can be copied into a query tab
-  to edit.
-- **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
-  comments, indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
-  BigQuery table can be read as it was at any point in its time-travel window, after
-  showing what the query would scan.
+  table lists its columns and, with their size, its indexes. A comment (a BigQuery
+  description) is shown beside a column, and beside a table when the pointer rests on
+  its name. Everything is filterable by name, and day-named tables such as
+  `events_20250101` are folded into one row. Opening a routine shows the statement that
+  would make it, which can be copied into a query tab to edit.
+- **Tables** — rows with filter, sort and paging. A PostgreSQL table also shows the
+  `CREATE` statement with its comments, indexes and triggers, and one with a primary key
+  can be edited in place. A BigQuery table can be read as it was at any point in its
+  time-travel window, after showing what the query would scan.
 - **History** — every statement run is logged and can be reopened.
 - **Templates** — statements kept under a name, with `@name` blanks. Using one asks for
   each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the
