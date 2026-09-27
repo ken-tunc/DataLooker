@@ -91,27 +91,20 @@ jobs:
           # A token left in git config would be reachable from every step.
           persist-credentials: false
 
+      # Before the bump: vp runs pnpm under the Node that `devEngines` names,
+      # which the runner does not have.
+      - uses: voidzero-dev/setup-vp@v1.21.0
+        with:
+          cache: true
+
       # `git ls-remote --exit-code` answers 2 for a missing ref; anything else
-      # is a failure to reach the remote. `npm pkg set` runs no package
-      # script and rewrites nothing but the field.
+      # is a failure to reach the remote.
       - name: Raise the version
         id: bump
         env:
           BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
-          current="$(node -p "require('./package.json').version")"
-          if [[ ! "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "package.json's version '$current' is not major.minor.patch" >&2
-            exit 1
-          fi
-          major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
-          case "$BUMP" in
-            major) version="$((major + 1)).0.0" ;;
-            minor) version="$major.$((minor + 1)).0" ;;
-            patch) version="$major.$minor.$((patch + 1))" ;;
-          esac
-
           tagged() {
             local rc=0
             git ls-remote --exit-code --tags origin "refs/tags/v$1" > /dev/null || rc=$?
@@ -121,28 +114,28 @@ jobs:
               *) echo "git ls-remote failed (exit $rc)" >&2; exit "$rc" ;;
             esac
           }
+          read_version() { node -p "require('./package.json').version"; }
+
+          current="$(read_version)"
           # An untagged current version is a bump that reached `main` without
           # its Release; raising it again would skip that version.
           if ! tagged "$current"; then
             echo "v$current is not released, yet package.json says it; release it by hand first." >&2
             exit 1
           fi
+          vp pm version "$BUMP" -- --no-git-tag-version --no-git-checks
+          version="$(read_version)"
           if tagged "$version"; then
             echo "v$version is released already, yet package.json says $current." >&2
             exit 1
           fi
 
-          npm pkg set version="$version"
           git add package.json
           echo "Building v$version, raised from $current."
           {
             echo "version=$version"
             echo "tree=$(git write-tree)"
           } >> "$GITHUB_OUTPUT"
-
-      - uses: voidzero-dev/setup-vp@v1.21.0
-        with:
-          cache: true
 
       - run: vp install --frozen-lockfile
 
@@ -172,7 +165,11 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: app
-          path: DataLooker.app.tar.gz
+          # package.json carries the bump to the publish job, which then
+          # needs no Node or package manager beside the token that writes.
+          path: |
+            DataLooker.app.tar.gz
+            package.json
           # Only handed to the next job.
           retention-days: 1
 
@@ -205,7 +202,7 @@ jobs:
           TREE: ${{ needs.build.outputs.tree }}
         run: |
           set -euo pipefail
-          npm pkg set version="$VERSION"
+          cp "$RUNNER_TEMP/app/package.json" package.json
           git add package.json
           if [[ "$(git write-tree)" != "$TREE" ]]; then
             echo "The bump here differs from the one the build made." >&2
