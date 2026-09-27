@@ -127,6 +127,20 @@ impl Session {
         }
     }
 
+    /// The statement that would make the routine again. `arguments` is the
+    /// tree's, and names one of PostgreSQL's overloads.
+    pub async fn routine_definition(
+        &self,
+        schema: &str,
+        name: &str,
+        arguments: &str,
+    ) -> Result<Option<String>, AppError> {
+        match self {
+            Session::Postgres(session) => session.routine_definition(schema, name, arguments).await,
+            Session::BigQuery(session) => session.routine_definition(schema, name).await,
+        }
+    }
+
     pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
         match self {
             Session::Postgres(session) => session.columns(schema, table).await,

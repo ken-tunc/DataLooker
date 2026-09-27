@@ -28,7 +28,16 @@ export type Tab =
       table: string;
       /** The edits are the pane's; the strip only marks the tab and asks before closing. */
       unsaved: boolean;
-    } & TableView);
+    } & TableView)
+  | {
+      kind: "routine";
+      id: string;
+      title: string;
+      schema: string;
+      name: string;
+      /** Which of PostgreSQL's overloads of the name, as the tree lists it. */
+      arguments: string;
+    };
 
 export type TabsState = { tabs: Tab[]; activeId: string };
 
@@ -91,6 +100,33 @@ export function openTableTab(
     asOf: null,
     shows,
     unsaved: false,
+  });
+}
+
+/** A routine's definition opens once, as a table does. */
+export function openRoutineTab(
+  state: TabsState | undefined,
+  id: string,
+  schema: string,
+  name: string,
+  args: string,
+): TabsState {
+  const open = state?.tabs.find(
+    (tab) =>
+      tab.kind === "routine" &&
+      tab.schema === schema &&
+      tab.name === name &&
+      tab.arguments === args,
+  );
+  if (state && open) return { ...state, activeId: open.id };
+
+  return opened(state, {
+    kind: "routine",
+    id,
+    title: `${schema}.${name}`,
+    schema,
+    name,
+    arguments: args,
   });
 }
 
@@ -180,6 +216,21 @@ if (import.meta.vitest) {
 
   const three = (): TabsState => openSqlTab(openSqlTab(openSqlTab(undefined, "a"), "b"), "c");
   const ids = (state: TabsState) => state.tabs.map((tab) => tab.id);
+
+  describe("openRoutineTab", () => {
+    it("opens an overload once, and another overload beside it", () => {
+      const first = openRoutineTab(openSqlTab(undefined, "a"), "r1", "public", "add", "a integer");
+      expect(first.tabs[1]).toMatchObject({ kind: "routine", title: "public.add" });
+
+      const again = openRoutineTab(activateTab(first, "a"), "r2", "public", "add", "a integer");
+      expect(again.tabs).toHaveLength(2);
+      expect(again.activeId).toBe("r1");
+
+      const other = openRoutineTab(first, "r3", "public", "add", "a text");
+      expect(other.tabs).toHaveLength(3);
+      expect(other.activeId).toBe("r3");
+    });
+  });
 
   describe("openSqlTab", () => {
     it("starts a first tab and focuses it", () => {

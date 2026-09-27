@@ -46,6 +46,20 @@ impl App {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("{schema}.{table}")))
     }
+
+    pub async fn routine_definition(
+        &self,
+        connection_id: &str,
+        schema: &str,
+        name: &str,
+        arguments: &str,
+    ) -> Result<String, AppError> {
+        self.session(connection_id)
+            .await?
+            .routine_definition(schema, name, arguments)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("{schema}.{name}({arguments})")))
+    }
 }
 
 #[cfg(test)]

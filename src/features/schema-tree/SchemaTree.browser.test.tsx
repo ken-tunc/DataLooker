@@ -16,14 +16,16 @@ const tree: Tree = {
   schemas: [
     {
       name: "shop",
+      routines: [],
       tables: [
         { name: "orders", kind: "table", comment: null },
         { name: "recent_orders", kind: "view", comment: null },
       ],
     },
-    { name: "analytics", tables: [{ name: "daily", kind: "table", comment: null }] },
+    { name: "analytics", routines: [], tables: [{ name: "daily", kind: "table", comment: null }] },
     {
       name: "logs",
+      routines: [],
       tables: [
         { name: "events_20250101", kind: "table", comment: null },
         { name: "events_20250102", kind: "table", comment: null },
@@ -41,12 +43,13 @@ const columns = [
 async function schemaTree(replies: Parameters<typeof stubIpc>[0] = {}) {
   const ipc = stubIpc({ schema_tree: tree, table_columns: columns, ...replies });
   const onOpenTable = vi.fn();
+  const onOpenRoutine = vi.fn();
   const screen = await renderApp(
     <div className="h-96">
-      <SchemaTree connectionId="c1" onOpenTable={onOpenTable} />
+      <SchemaTree connectionId="c1" onOpenTable={onOpenTable} onOpenRoutine={onOpenRoutine} />
     </div>,
   );
-  return { ipc, screen, onOpenTable };
+  return { ipc, screen, onOpenTable, onOpenRoutine };
 }
 
 describe("SchemaTree", () => {
@@ -136,7 +139,7 @@ describe("SchemaTree", () => {
           <button type="button" onClick={() => setTyped(`${typed}x`)}>
             Type
           </button>
-          <SchemaTree connectionId="c1" onOpenTable={() => typed} />
+          <SchemaTree connectionId="c1" onOpenTable={() => typed} onOpenRoutine={() => {}} />
         </div>
       );
     }
@@ -157,6 +160,7 @@ describe("SchemaTree", () => {
         schemas: [
           {
             name: "shop",
+            routines: [],
             tables: [{ name: "orders", kind: "table", comment: "What was bought" }],
           },
         ],
@@ -175,6 +179,59 @@ describe("SchemaTree", () => {
     await screen.getByLabelText("Expand orders").click();
     await expect.element(screen.getByText("In cents")).toBeVisible();
     await expect.element(screen.getByTitle("In cents")).toHaveTextContent("total");
+  });
+
+  it("keeps a schema's routines in a folder, and opens the one a reader clicks", async () => {
+    const { onOpenRoutine, screen } = await schemaTree({
+      schema_tree: {
+        schemas: [
+          {
+            name: "shop",
+            tables: [{ name: "orders", kind: "table", comment: null }],
+            routines: [
+              { name: "add", kind: "function", arguments: "a integer", comment: null },
+              { name: "add", kind: "function", arguments: "a text", comment: null },
+              { name: "tidy", kind: "procedure", arguments: "", comment: null },
+            ],
+          },
+        ],
+      },
+    });
+    await screen.getByText("shop").click();
+
+    await expect.element(screen.getByText("Routines")).toBeVisible();
+    expect(screen.getByText("tidy").elements()).toEqual([]);
+
+    await screen.getByText("Routines").click();
+    await expect.element(screen.getByText("() procedure")).toBeVisible();
+    await screen.getByText("(a text)").click();
+
+    expect(onOpenRoutine).toHaveBeenCalledWith("shop", "add", "a text");
+  });
+
+  it("filters routines by name as it filters tables", async () => {
+    const { screen } = await schemaTree({
+      schema_tree: {
+        schemas: [
+          {
+            name: "shop",
+            tables: [{ name: "orders", kind: "table", comment: null }],
+            routines: [{ name: "tidy_orders", kind: "procedure", arguments: "", comment: null }],
+          },
+          {
+            name: "other",
+            tables: [],
+            routines: [{ name: "tidy", kind: "function", arguments: "", comment: null }],
+          },
+        ],
+      },
+    });
+
+    await screen.getByPlaceholder("Filter by name").fill("orders");
+
+    await expect.element(screen.getByText("tidy_orders")).toBeVisible();
+    await expect.element(screen.getByText("orders", { exact: true })).toBeVisible();
+    expect(screen.getByText("other").elements()).toEqual([]);
   });
 
   it("opens the table a reader clicks, rather than its columns", async () => {

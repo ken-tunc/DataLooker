@@ -3,7 +3,7 @@ use serde_json::Value;
 use super::api::{Client, Field, Query};
 use super::query::{collect, region};
 use super::value::{canonical, repeated};
-use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
+use crate::drivers::{Column, Routine, RoutineKind, Schema, SchemaTree, Table, TableKind};
 use crate::error::AppError;
 
 /// No columns: a project can hold tens of thousands of tables.
@@ -21,8 +21,49 @@ pub async fn tree(
           AND o.option_name = 'description' \
          ORDER BY t.table_schema, t.table_name"
     );
-    let rows = collect(client, project_id, Query::new(&sql, location)).await?;
-    Ok(assemble(&rows))
+    // Position 0 is what a function returns rather than an argument. A
+    // templated parameter has no type, and would drop out of CONCAT.
+    let routines = format!(
+        "SELECT r.routine_schema, r.routine_name, r.routine_type, \
+                STRING_AGG(IF(p.specific_name IS NULL, NULL, \
+                              TRIM(CONCAT(IFNULL(p.parameter_name, ''), ' ', \
+                                          IFNULL(p.data_type, 'ANY TYPE')))), ', ' \
+                           ORDER BY p.ordinal_position) \
+         FROM `{region}`.INFORMATION_SCHEMA.ROUTINES r \
+         LEFT JOIN `{region}`.INFORMATION_SCHEMA.PARAMETERS p \
+           ON p.specific_schema = r.routine_schema AND p.specific_name = r.routine_name \
+          AND p.ordinal_position > 0 \
+         GROUP BY 1, 2, 3 \
+         ORDER BY 1, 2"
+    );
+    let (tables, routines) = tokio::try_join!(
+        collect(client, project_id, Query::new(&sql, location)),
+        collect(client, project_id, Query::new(&routines, location)),
+    )?;
+    let mut tree = assemble(&tables);
+    add_routines(&mut tree, &routines);
+    Ok(tree)
+}
+
+/// The statement that would make the routine again. BigQuery has no
+/// overloads, so its name is enough.
+pub async fn routine_definition(
+    client: &Client,
+    project_id: &str,
+    location: &str,
+    dataset: &str,
+    name: &str,
+) -> Result<Option<String>, AppError> {
+    let sql = format!(
+        "SELECT ddl FROM `{}`.INFORMATION_SCHEMA.ROUTINES \
+         WHERE routine_schema = @dataset AND routine_name = @name",
+        region(location)
+    );
+    let query = Query::new(&sql, location)
+        .text("dataset", dataset)
+        .text("name", name);
+    let rows = collect(client, project_id, query).await?;
+    Ok(rows.first().and_then(|row| text(row.first())))
 }
 
 /// The names are sent as parameters rather than written into the statement.
@@ -133,6 +174,7 @@ fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
             schemas.push(Schema {
                 name: dataset,
                 tables: Vec::new(),
+                routines: Vec::new(),
             });
         }
         let schema = schemas.last_mut().expect("just pushed");
@@ -146,6 +188,43 @@ fn assemble(rows: &[Vec<Value>]) -> SchemaTree {
     }
 
     SchemaTree { schemas }
+}
+
+/// A dataset that holds routines and no tables is still a dataset.
+fn add_routines(tree: &mut SchemaTree, rows: &[Vec<Value>]) {
+    for row in rows {
+        let (Some(dataset), Some(name)) = (text(row.first()), text(row.get(1))) else {
+            continue;
+        };
+        let routine = Routine {
+            name,
+            kind: routine_kind(text(row.get(2)).as_deref()),
+            arguments: text(row.get(3)).unwrap_or_default(),
+            comment: None,
+        };
+        match tree
+            .schemas
+            .iter_mut()
+            .find(|schema| schema.name == dataset)
+        {
+            Some(schema) => schema.routines.push(routine),
+            None => tree.schemas.push(Schema {
+                name: dataset,
+                tables: Vec::new(),
+                routines: vec![routine],
+            }),
+        }
+    }
+    tree.schemas.sort_by(|a, b| a.name.cmp(&b.name));
+}
+
+fn routine_kind(routine_type: Option<&str>) -> RoutineKind {
+    match routine_type {
+        Some("PROCEDURE") => RoutineKind::Procedure,
+        Some("TABLE FUNCTION") => RoutineKind::TableFunction,
+        Some("AGGREGATE FUNCTION") => RoutineKind::Aggregate,
+        _ => RoutineKind::Function,
+    }
 }
 
 /// `TABLE_OPTIONS` writes an option's value as the literal that would set it:
@@ -262,6 +341,35 @@ mod tests {
     }
 
     #[test]
+    fn a_routine_joins_its_dataset_whether_or_not_it_holds_tables() {
+        let mut tree = assemble(&[row("shop", "orders", "BASE TABLE")]);
+        add_routines(
+            &mut tree,
+            &[
+                vec![
+                    json!("functions"),
+                    json!("add"),
+                    json!("FUNCTION"),
+                    json!("a INT64, b INT64"),
+                ],
+                vec![
+                    json!("shop"),
+                    json!("refresh"),
+                    json!("PROCEDURE"),
+                    Value::Null,
+                ],
+            ],
+        );
+
+        let names: Vec<&str> = tree.schemas.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["functions", "shop"]);
+        assert_eq!(tree.schemas[0].routines[0].arguments, "a INT64, b INT64");
+        assert_eq!(tree.schemas[1].tables.len(), 1);
+        assert_eq!(tree.schemas[1].routines[0].kind, RoutineKind::Procedure);
+        assert_eq!(tree.schemas[1].routines[0].arguments, "");
+    }
+
+    #[test]
     fn a_project_with_nothing_in_it_is_a_tree_with_nothing_in_it() {
         assert!(assemble(&[]).schemas.is_empty());
     }
@@ -287,7 +395,7 @@ mod live {
 
     use crate::drivers::bigquery::testing::*;
 
-    use crate::drivers::TableKind;
+    use crate::drivers::{RoutineKind, TableKind};
 
     #[tokio::test]
     async fn a_project_says_which_datasets_hold_which_tables() {
@@ -386,6 +494,67 @@ mod live {
             .map(|column| column.comment)
             .collect();
         assert_eq!(comments, [None, Some("As they wrote it".to_string())]);
+
+        dataset.drop_it().await;
+    }
+
+    #[tokio::test]
+    async fn a_dataset_s_routines_are_listed_and_written_back_out() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "routines").await;
+        let name = dataset.name.clone();
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE FUNCTION {name}.add(a INT64, b INT64) AS (a + b)"
+            ))
+            .await;
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE PROCEDURE {name}.tidy() BEGIN SELECT 1; END"
+            ))
+            .await;
+        dataset
+            .run(&format!(
+                "CREATE OR REPLACE FUNCTION {name}.first(items ANY TYPE) AS (items[OFFSET(0)])"
+            ))
+            .await;
+
+        let tree = dataset.session.schema_tree().await.expect("the tree");
+        let found = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == name)
+            .expect("a dataset holding only routines is in the tree");
+        let routines: Vec<(&str, &str, RoutineKind)> = found
+            .routines
+            .iter()
+            .map(|r| (r.name.as_str(), r.arguments.as_str(), r.kind))
+            .collect();
+        assert_eq!(
+            routines,
+            [
+                ("add", "a INT64, b INT64", RoutineKind::Function),
+                ("first", "items ANY TYPE", RoutineKind::Function),
+                ("tidy", "", RoutineKind::Procedure),
+            ]
+        );
+
+        let text = dataset
+            .session
+            .routine_definition(&name, "add")
+            .await
+            .expect("an answer")
+            .expect("the function just made");
+        assert!(text.contains("FUNCTION"), "{text}");
+        assert!(text.contains("a + b"), "{text}");
+        assert!(dataset
+            .session
+            .routine_definition(&name, "nothing")
+            .await
+            .expect("an answer")
+            .is_none());
 
         dataset.drop_it().await;
     }

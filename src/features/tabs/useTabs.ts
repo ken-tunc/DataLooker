@@ -3,6 +3,7 @@ import {
   activateTab,
   adoptSql,
   closeTab,
+  openRoutineTab,
   openSqlTab,
   openTableTab,
   setSql,
@@ -64,6 +65,11 @@ export function useTabs() {
       write(
         connectionId,
         openTableTab(byConnection[connectionId], crypto.randomUUID(), schema, table, shows),
+      ),
+    openRoutine: (connectionId: string, schema: string, name: string, args: string) =>
+      write(
+        connectionId,
+        openRoutineTab(byConnection[connectionId], crypto.randomUUID(), schema, name, args),
       ),
     close: (connectionId: string, id: string) =>
       change(connectionId, (state) => closeTab(state, id)),

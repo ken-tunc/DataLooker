@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::app::App;
-use crate::commands::{ConnectionArgs, TableArgs};
+use crate::commands::{ConnectionArgs, RoutineArgs, TableArgs};
 use crate::drivers::session::Whose;
 use crate::drivers::{Column, SchemaTree, TableDefinition};
 use crate::error::AppError;
@@ -37,4 +37,18 @@ pub async fn table_definition(
 ) -> Result<TableDefinition, AppError> {
     app.table_definition(&args.connection_id, &args.schema, &args.table)
         .await
+}
+
+#[tauri::command]
+pub async fn routine_definition(
+    args: RoutineArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<String, AppError> {
+    app.routine_definition(
+        &args.connection_id,
+        &args.schema,
+        &args.name,
+        &args.arguments,
+    )
+    .await
 }

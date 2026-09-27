@@ -135,8 +135,16 @@ if (import.meta.vitest) {
   });
   const tree: SchemaTree = {
     schemas: [
-      { name: "public", tables: [table("people"), table("orders"), table("order_items")] },
-      { name: "analytics", tables: [table("people_daily"), table("peoplesoft_export")] },
+      {
+        name: "public",
+        routines: [],
+        tables: [table("people"), table("orders"), table("order_items")],
+      },
+      {
+        name: "analytics",
+        routines: [],
+        tables: [table("people_daily"), table("peoplesoft_export")],
+      },
     ],
   };
 

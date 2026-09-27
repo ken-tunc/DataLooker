@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { QueryTabPane } from "../query/QueryTabPane";
+import { RoutinePane } from "../routine/RoutinePane";
 import { TablePreviewPane } from "../table-preview/TablePreviewPane";
 import { DiscardChangesDialog } from "../tabs/DiscardChangesDialog";
 import type { Tab } from "../tabs/tabs";
@@ -57,6 +58,14 @@ export function Workspace({ connectionId, tabs, hidden, onFindTable }: Props) {
               tabs.openTable(connectionId, schema, table, "structure")
             }
             onFindTable={onFindTable}
+          />
+        ) : tab.kind === "routine" ? (
+          <RoutinePane
+            key={tab.id}
+            connectionId={connectionId}
+            tab={tab}
+            hidden={hidden || tab.id !== state.activeId}
+            onEdit={(sql) => tabs.open(connectionId, sql, tab.title)}
           />
         ) : (
           <TablePreviewPane
