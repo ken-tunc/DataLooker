@@ -22,11 +22,19 @@ pub struct AgentAccess {
 }
 
 impl App {
+    /// Reads the keychain only while the door is open, which is when the token
+    /// is shown.
     pub async fn agent_access(&self) -> Result<AgentAccess, AppError> {
+        let turning = self.turning.lock().await;
         let access = agent::find(&self.pool).await?;
+        let token = if access.enabled {
+            self.token(&turning)?
+        } else {
+            String::new()
+        };
         Ok(AgentAccess {
             enabled: access.enabled,
-            token: self.secrets.get(AGENTS)?.unwrap_or_default(),
+            token,
             port: access.port,
         })
     }
@@ -39,15 +47,12 @@ impl App {
     ) -> Result<AgentAccess, AppError> {
         let turning = self.turning.lock().await;
         // Shutting does not read the keychain, so a reader who refused it can
-        // still shut the door. The token is shown only while it is open.
-        let mut token = String::new();
-        if enabled {
-            token = self.secrets.get(AGENTS)?.unwrap_or_default();
-            if token.is_empty() {
-                token = uuid::Uuid::new_v4().to_string();
-                self.secrets.set(AGENTS, &token)?;
-            }
-        }
+        // still shut the door.
+        let token = if enabled {
+            self.token(&turning)?
+        } else {
+            String::new()
+        };
         let port = self.turn(&turning, enabled).await?;
         Ok(AgentAccess {
             enabled,
@@ -71,6 +76,18 @@ impl App {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// The token, made if there is none: startup opens the door without
+    /// reading the keychain, so a token lost from it is made again here, when
+    /// the reader looks for it.
+    fn token(&self, _turning: &tokio::sync::MutexGuard<'_, ()>) -> Result<String, AppError> {
+        if let Some(token) = self.secrets.get(AGENTS)?.filter(|token| !token.is_empty()) {
+            return Ok(token);
+        }
+        let token = uuid::Uuid::new_v4().to_string();
+        self.secrets.set(AGENTS, &token)?;
+        Ok(token)
     }
 
     /// Opens or shuts the door and records it, answering with the port. The
@@ -211,6 +228,32 @@ mod tests {
         // Nor is it asked to shut the door again.
         let shut = app.set_agent_access(false).await.unwrap();
         assert!(!shut.enabled);
+    }
+
+    #[tokio::test]
+    async fn makes_the_token_again_for_an_open_door_that_lost_it() {
+        let pool = crate::db::open_in_memory().await.unwrap();
+        agent::save(
+            &pool,
+            Access {
+                enabled: true,
+                port: 0,
+            },
+        )
+        .await
+        .unwrap();
+        let app = Arc::new(App::new(
+            pool,
+            std::env::temp_dir().join("datalooker-test"),
+            Box::new(crate::secrets::InMemorySecretStore::default()),
+        ));
+        app.answer_agents_if_open().await.unwrap();
+
+        let access = app.agent_access().await.unwrap();
+        assert!(access.enabled);
+        assert!(!access.token.is_empty());
+        assert_eq!(app.agent_access().await.unwrap().token, access.token);
+        app.stop_answering_agents();
     }
 
     #[tokio::test]
