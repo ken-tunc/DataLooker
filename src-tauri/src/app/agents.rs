@@ -28,14 +28,17 @@ impl App {
         let mut access = agent::find(&self.pool).await?;
         let mut token = String::new();
         if access.enabled {
-            token = self.token().await?;
+            let read = self.token().await;
             // Asked again: the door may have been shut while the keychain
-            // waited on the reader.
+            // waited on the reader, and then a refusal no longer matters.
             access = agent::find(&self.pool).await?;
+            if access.enabled {
+                token = read?;
+            }
         }
         Ok(AgentAccess {
             enabled: access.enabled,
-            token: if access.enabled { token } else { String::new() },
+            token,
             port: access.port,
         })
     }
@@ -269,12 +272,20 @@ mod tests {
     /// test lets go of the gate.
     struct Waiting {
         gate: Arc<std::sync::Mutex<()>>,
+        /// Told each time the keychain is asked, before it waits.
+        asked: tokio::sync::mpsc::UnboundedSender<()>,
+        /// Whether the reader, when they answer, refuses.
+        refuses: Arc<std::sync::atomic::AtomicBool>,
         store: crate::secrets::InMemorySecretStore,
     }
 
     impl crate::secrets::SecretStore for Waiting {
         fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+            let _ = self.asked.send(());
             let _answered = self.gate.lock().unwrap();
+            if self.refuses.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(AppError::Secret("the reader refused".into()));
+            }
             self.store.get(id)
         }
         fn set(&self, id: &str, secret: &str) -> Result<(), AppError> {
@@ -285,32 +296,47 @@ mod tests {
         }
     }
 
-    // Two threads: a read that wrongly blocks one must still leave the test a
-    // thread to notice it on.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shuts_the_door_while_the_keychain_waits_on_the_reader() {
+        shut_while_the_keychain_asks(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refusal_that_comes_after_the_door_was_shut_is_not_an_error() {
+        shut_while_the_keychain_asks(true).await;
+    }
+
+    /// Run on two threads: a read that wrongly blocks one must still leave
+    /// the test a thread to notice it on.
     #[expect(
         clippy::await_holding_lock,
         reason = "the gate is the reader, who has not answered yet"
     )]
-    async fn shuts_the_door_while_the_keychain_waits_on_the_reader() {
+    async fn shut_while_the_keychain_asks(refuses: bool) {
         let gate = Arc::new(std::sync::Mutex::new(()));
+        let (asked_tx, mut asked) = tokio::sync::mpsc::unbounded_channel();
+        let refusing = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let app = Arc::new(App::new(
             crate::db::open_in_memory().await.unwrap(),
             std::env::temp_dir().join("datalooker-test"),
             Box::new(Waiting {
                 gate: Arc::clone(&gate),
+                asked: asked_tx,
+                refuses: Arc::clone(&refusing),
                 store: crate::secrets::InMemorySecretStore::default(),
             }),
         ));
         app.set_agent_access(true).await.unwrap();
 
+        // What opening the door asked is behind us.
+        while asked.try_recv().is_ok() {}
+        refusing.store(refuses, std::sync::atomic::Ordering::SeqCst);
         let asking = gate.lock().unwrap();
         let looking = tokio::spawn({
             let app = Arc::clone(&app);
             async move { app.agent_access().await }
         });
-        // Long enough for the read to be waiting at the gate.
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        asked.recv().await.expect("the keychain asked");
         let shut = tokio::time::timeout(Duration::from_secs(5), app.set_agent_access(false))
             .await
             .expect("shut while the keychain was asked")
