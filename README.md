@@ -29,7 +29,9 @@ PostgreSQL and BigQuery.
 - **Schema tree** — schemas and tables, filterable; day-named tables such as
   `events_20250101` are folded into one row.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
-  indexes and triggers. PostgreSQL tables with a primary key can be edited in place.
+  indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
+  BigQuery table can be read as it was at any point in its time-travel window, after
+  showing what the query would scan.
 - **History** — every statement run is logged and can be reopened.
 - **Templates** — statements kept under a name, with `@name` blanks. Using one asks for
   each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the

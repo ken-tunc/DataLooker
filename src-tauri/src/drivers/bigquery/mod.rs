@@ -11,6 +11,7 @@ use gcp_bigquery_client::model::job::Job;
 use gcp_bigquery_client::model::job_configuration::JobConfiguration;
 use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
 use gcp_bigquery_client::model::job_reference::JobReference;
+use gcp_bigquery_client::model::job_statistics2::JobStatistics2;
 use gcp_bigquery_client::model::query_request::QueryRequest;
 use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
@@ -68,6 +69,20 @@ impl BigQuerySession {
         sql: &str,
         cancel: &CancellationToken,
     ) -> Result<String, AppError> {
+        self.dry_run(sql, cancel)
+            .await?
+            .statement_type
+            .ok_or_else(|| {
+                AppError::Database("BigQuery did not say what the statement is".to_string())
+            })
+    }
+
+    /// Plans `sql` without running it, which is not billed.
+    async fn dry_run(
+        &self,
+        sql: &str,
+        cancel: &CancellationToken,
+    ) -> Result<JobStatistics2, AppError> {
         let client = tokio::select! {
             client = self.client() => client?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -102,10 +117,7 @@ impl BigQuerySession {
         planned
             .statistics
             .and_then(|statistics| statistics.query)
-            .and_then(|query| query.statement_type)
-            .ok_or_else(|| {
-                AppError::Database("BigQuery did not say what the statement is".to_string())
-            })
+            .ok_or_else(|| AppError::Database("BigQuery did not plan the statement".to_string()))
     }
 
     pub async fn execute(
@@ -168,6 +180,34 @@ impl BigQuerySession {
             () = cancel.cancelled() => return Err(AppError::Cancelled),
         };
         preview::preview(client, &self.project_id, &self.location, request, cancel).await
+    }
+
+    /// Only what a query would scan: a page that can be listed costs nothing,
+    /// and one read in the past is always a query.
+    pub async fn preview_cost(
+        &self,
+        request: &Preview<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<u64, AppError> {
+        if request.as_of.is_some() {
+            let client = tokio::select! {
+                client = self.client() => client?,
+                () = cancel.cancelled() => return Err(AppError::Cancelled),
+            };
+            tokio::select! {
+                kept = preview::keeps_its_past(client, &self.project_id, request) => kept?,
+                () = cancel.cancelled() => return Err(AppError::Cancelled),
+            }
+        }
+        let planned = self
+            .dry_run(&preview::preview_sql(&self.project_id, request), cancel)
+            .await?;
+        planned
+            .total_bytes_processed
+            .and_then(|bytes| bytes.parse().ok())
+            .ok_or_else(|| {
+                AppError::Database("BigQuery did not say what it would scan".to_string())
+            })
     }
 
     pub async fn test(&self) -> Result<(), AppError> {

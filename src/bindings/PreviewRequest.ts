@@ -11,6 +11,10 @@ filter: string, sort: Sort | null,
  */
 versioned: boolean, page: number, 
 /**
+ * An RFC 3339 point to read the table as it was then, or null for now.
+ */
+as_of: string | null, 
+/**
  * So `cancel_query` stops a preview too.
  */
 query_id: string, };

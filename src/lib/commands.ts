@@ -134,6 +134,10 @@ export function previewTable(request: PreviewRequest) {
   return invoke("preview_table", request);
 }
 
+export function previewCost(request: PreviewRequest) {
+  return invoke("preview_cost", request);
+}
+
 export function tableShape(connectionId: string, schema: string, table: string) {
   return invoke("table_shape", { connection_id: connectionId, schema, table });
 }

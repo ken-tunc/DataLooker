@@ -5,6 +5,8 @@ export type TableView = {
   filter: string;
   sort: Sort | null;
   page: number;
+  /** An ISO 8601 point in UTC to read the rows as they were then, or null for now. */
+  asOf: string | null;
   /** Its rows, or what it is made of. */
   shows: "rows" | "structure";
 };
@@ -77,6 +79,7 @@ export function openTableTab(
     filter: "",
     sort: null,
     page: 0,
+    asOf: null,
     shows,
     unsaved: false,
   });
@@ -134,10 +137,10 @@ export function setUnsaved(state: TabsState, id: string, unsaved: boolean): Tabs
   };
 }
 
-/** Only a filter or a sort starts again from the first page. */
+/** Only a filter, a sort or a point in time starts again from the first page. */
 function nextPage(tab: TableView, view: Partial<TableView>): number {
   if (view.page !== undefined) return view.page;
-  const rows = view.filter !== undefined || view.sort !== undefined;
+  const rows = view.filter !== undefined || view.sort !== undefined || view.asOf !== undefined;
   return rows ? 0 : tab.page;
 }
 
@@ -185,6 +188,7 @@ if (import.meta.vitest) {
         filter: "",
         sort: null,
         page: 0,
+        asOf: null,
         shows: "rows",
         unsaved: false,
       });
@@ -221,6 +225,12 @@ if (import.meta.vitest) {
       const paged = setTableView(table(), "t1", { page: 3 });
       const filtered = setTableView(paged, "t1", { filter: "id > 10" });
       expect(filtered.tabs[0]).toMatchObject({ filter: "id > 10", page: 0 });
+    });
+
+    it("starts again from the first page when another point in time is read", () => {
+      const paged = setTableView(table(), "t1", { page: 3 });
+      const past = setTableView(paged, "t1", { asOf: "2025-01-02T01:00:00.000Z" });
+      expect(past.tabs[0]).toMatchObject({ asOf: "2025-01-02T01:00:00.000Z", page: 0 });
     });
 
     it("stays on its page while the structure is read", () => {

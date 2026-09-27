@@ -1,0 +1,141 @@
+import { offsetAt } from "../query/cell";
+
+const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+
+/** Seconds east of UTC, or UTC's own for a zone this cannot place. */
+function offsetOf(at: Date, timeZone: string): number {
+  try {
+    return offsetAt(at, timeZone) ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** `at` on the wall clock of `timeZone`, to the second: `2025-01-02 10:00:00`. */
+export function wallClock(at: Date, timeZone: string): string {
+  const wall = new Date(at.getTime() + offsetOf(at, timeZone) * 1000);
+  return (
+    `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())} ` +
+    `${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}:${pad(wall.getUTCSeconds())}`
+  );
+}
+
+const WALL_CLOCK =
+  /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?\s*(?:(Z)|([+-])(\d{2}):?(\d{2})?)?$/i;
+
+/**
+ * What the reader typed, read on the wall clock of `timeZone` unless it names
+ * its own offset. Null for anything that is not a date and a time, or names a
+ * day or an hour that does not exist.
+ */
+export function parseWallClock(text: string, timeZone: string): Date | null {
+  const parts = WALL_CLOCK.exec(text.trim());
+  if (!parts) return null;
+  const [, year, month, day, hour, minute, second = "0", millis = "0", utc, sign, oh, om = "0"] =
+    parts;
+  const [y, mo, d, h, mi, s] = [year, month, day, hour, minute, second].map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+
+  // Built field by field: `Date.UTC` reads a year below 100 as 19xx.
+  const wall = new Date(0);
+  wall.setUTCFullYear(y, mo - 1, d);
+  wall.setUTCHours(h, mi, s, Number(millis.padEnd(3, "0")));
+  // A 31st of February rolls over into March rather than failing.
+  if (
+    wall.getUTCFullYear() !== y ||
+    wall.getUTCMonth() !== mo - 1 ||
+    wall.getUTCDate() !== d ||
+    wall.getUTCHours() !== h ||
+    wall.getUTCMinutes() !== mi ||
+    wall.getUTCSeconds() !== s
+  ) {
+    return null;
+  }
+
+  if (utc) return wall;
+  if (sign) {
+    const offset = (sign === "-" ? -1 : 1) * (Number(oh) * 3600 + Number(om) * 60);
+    return new Date(wall.getTime() - offset * 1000);
+  }
+  // The offset depends on the instant it is asked for, which is what is being
+  // found: asked twice, it settles on the offset in force at that wall time.
+  const first = new Date(wall.getTime() - offsetOf(wall, timeZone) * 1000);
+  return new Date(wall.getTime() - offsetOf(first, timeZone) * 1000);
+}
+
+/** In the binary units BigQuery bills by, labelled as its console labels them. */
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return unit === 0 ? `${bytes} B` : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+if (import.meta.vitest) {
+  const { describe, expect, it } = import.meta.vitest;
+
+  const utc = (iso: string) => new Date(iso);
+
+  describe("wallClock", () => {
+    it("reads a point on the zone's wall clock", () => {
+      expect(wallClock(utc("2025-01-02T01:00:00.900Z"), "Asia/Tokyo")).toBe("2025-01-02 10:00:00");
+      expect(wallClock(utc("2025-07-01T12:00:00Z"), "America/New_York")).toBe(
+        "2025-07-01 08:00:00",
+      );
+    });
+
+    it("falls back to UTC for a zone that does not exist", () => {
+      expect(wallClock(utc("2025-01-02T01:00:00Z"), "Mars/Olympus")).toBe("2025-01-02 01:00:00");
+    });
+  });
+
+  describe("parseWallClock", () => {
+    it("reads a wall time in the zone, whichever offset is in force then", () => {
+      expect(parseWallClock("2025-01-02 10:00:00", "Asia/Tokyo")).toEqual(
+        utc("2025-01-02T01:00:00Z"),
+      );
+      expect(parseWallClock("2025-01-15 08:00", "America/New_York")).toEqual(
+        utc("2025-01-15T13:00:00Z"),
+      );
+      expect(parseWallClock("2025-07-15T08:00:00.25", "America/New_York")).toEqual(
+        utc("2025-07-15T12:00:00.250Z"),
+      );
+    });
+
+    it("keeps an offset the text names over the zone's", () => {
+      expect(parseWallClock("2025-01-02 10:00:00+09", "UTC")).toEqual(utc("2025-01-02T01:00:00Z"));
+      expect(parseWallClock("2025-01-02 10:00:00 -05:30", "Asia/Tokyo")).toEqual(
+        utc("2025-01-02T15:30:00Z"),
+      );
+      expect(parseWallClock("2025-01-02T01:00:00Z", "Asia/Tokyo")).toEqual(
+        utc("2025-01-02T01:00:00Z"),
+      );
+    });
+
+    it("refuses what is not a date and a time", () => {
+      for (const text of ["", "yesterday", "2025-01-02", "2025-02-30 10:00", "2025-01-02 25:00"]) {
+        expect(parseWallClock(text, "UTC"), text).toBeNull();
+      }
+    });
+  });
+
+  describe("formatBytes", () => {
+    it("names the largest unit that keeps a number above one", () => {
+      expect(formatBytes(0)).toBe("0 B");
+      expect(formatBytes(1023)).toBe("1023 B");
+      expect(formatBytes(1536)).toBe("1.5 KB");
+      expect(formatBytes(250 * 1024 ** 2)).toBe("250 MB");
+      expect(formatBytes(3 * 1024 ** 4)).toBe("3.0 TB");
+    });
+  });
+}

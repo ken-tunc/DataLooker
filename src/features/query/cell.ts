@@ -29,7 +29,7 @@ const OFFSET = /^GMT(?:([+-])(\d{2}):(\d{2})(?::(\d{2}))?)?$/;
 const offsetFormats = new Map<string, Intl.DateTimeFormat>();
 
 /** Seconds east of UTC in `timeZone` at `at`. Throws for a zone that does not exist. */
-function offsetAt(at: Date, timeZone: string): number | null {
+export function offsetAt(at: Date, timeZone: string): number | null {
   let format = offsetFormats.get(timeZone);
   if (!format) {
     format = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" });

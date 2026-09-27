@@ -101,6 +101,8 @@ pub struct Preview<'a> {
     pub sort: Option<&'a Sort>,
     pub limit: usize,
     pub offset: usize,
+    /// Read the table as it was at this point, which only BigQuery keeps.
+    pub as_of: Option<time::OffsetDateTime>,
 }
 
 /// Values are the text the reader typed, or null for SQL NULL. `version` is

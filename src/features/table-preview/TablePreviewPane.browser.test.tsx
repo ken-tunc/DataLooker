@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { TableEdits } from "../../bindings/TableEdits";
-import { renderApp, stubIpc } from "../../test/harness";
+import { type Ipc, renderApp, stubIpc } from "../../test/harness";
 import type { TableTab } from "./hooks";
 import { TablePreviewPane } from "./TablePreviewPane";
 
@@ -14,6 +14,7 @@ const tab: TableTab = {
   filter: "",
   sort: null,
   page: 0,
+  asOf: null,
   shows: "rows",
   unsaved: false,
 };
@@ -53,7 +54,7 @@ const definition = {
 
 async function preview(
   replies: Partial<Parameters<typeof stubIpc>[0]> = {},
-  shows: TableTab["shows"] = "rows",
+  view: Partial<TableTab> = {},
 ) {
   const ipc = stubIpc({
     table_shape: shape,
@@ -66,7 +67,7 @@ async function preview(
   const screen = await renderApp(
     <TablePreviewPane
       connectionId="c1"
-      tab={{ ...tab, shows }}
+      tab={{ ...tab, ...view }}
       hidden={false}
       onView={onView}
       onUnsaved={() => {}}
@@ -84,6 +85,11 @@ async function preview(
   const saved = (): TableEdits | null => ipc.sent("commit_table_edits") ?? null;
 
   return { ipc, screen, type, saved, onView };
+}
+
+/** The connections are read from the app's own store, not the server. */
+function askedOfTheServer(ipc: Ipc): string[] {
+  return ipc.calls.map((call) => call.command).filter((command) => command !== "list_connections");
 }
 
 describe("TablePreviewPane", () => {
@@ -290,7 +296,7 @@ describe("TablePreviewPane showing the structure", () => {
   });
 
   it("shows the statement that would make the table again", async () => {
-    const { ipc, screen } = await preview({}, "structure");
+    const { ipc, screen } = await preview({}, { shows: "structure" });
 
     // Once Monaco has coloured it, its spaces are non-breaking.
     await expect.element(screen.getByText(/CREATE\sTABLE\s"shop"\."people"/)).toBeVisible();
@@ -304,16 +310,16 @@ describe("TablePreviewPane showing the structure", () => {
   });
 
   it("asks the server for nothing but the structure", async () => {
-    const { ipc, screen } = await preview({}, "structure");
+    const { ipc, screen } = await preview({}, { shows: "structure" });
 
     await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     // One connection serves a connection's queries in turn, so a page nobody
     // is looking at would hold up the definition that is on screen.
-    expect(ipc.calls.map((call) => call.command)).toEqual(["table_definition"]);
+    expect(askedOfTheServer(ipc)).toEqual(["table_definition"]);
   });
 
   it("leaves the filter and the row buttons behind with the rows", async () => {
-    const { screen } = await preview({}, "structure");
+    const { screen } = await preview({}, { shows: "structure" });
 
     await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     expect(screen.getByPlaceholder("WHERE …").elements()).toEqual([]);
@@ -321,13 +327,13 @@ describe("TablePreviewPane showing the structure", () => {
   });
 
   it("reads the structure again when refreshed, and nothing else", async () => {
-    const { ipc, screen } = await preview({}, "structure");
+    const { ipc, screen } = await preview({}, { shows: "structure" });
 
     await expect.element(screen.getByText(/CREATE\sTABLE/)).toBeVisible();
     await screen.getByRole("button", { name: "Refresh" }).click();
 
     await expect
-      .poll(() => ipc.calls.map((call) => call.command))
+      .poll(() => askedOfTheServer(ipc))
       .toEqual(["table_definition", "table_definition"]);
   });
 
@@ -338,9 +344,86 @@ describe("TablePreviewPane showing the structure", () => {
           throw { kind: "NotFound", message: "shop.people" };
         },
       },
-      "structure",
+      { shows: "structure" },
     );
 
     await expect.element(screen.getByRole("alert")).toBeVisible();
+  });
+});
+
+describe("TablePreviewPane on BigQuery", () => {
+  const bigquery = {
+    list_connections: [
+      {
+        id: "c1",
+        label: "Warehouse",
+        config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
+        command: null,
+        command_while_selected: false,
+        time_zone: "Asia/Tokyo",
+        created_at: "2026-09-20T00:00:00Z",
+      },
+    ],
+    table_shape: () => {
+      throw { kind: "Unsupported", message: "A BigQuery table cannot be edited." };
+    },
+    preview_cost: { bytes: 1536 },
+  };
+
+  it("reads a point the reader wrote in the connection's zone, after saying what it costs", async () => {
+    const { ipc, screen, onView } = await preview(bigquery);
+
+    await screen.getByRole("button", { name: "Time travel" }).click();
+    await screen.getByRole("textbox", { name: "Point in time" }).fill("2025-01-02 10:00:00");
+
+    await expect
+      .poll(() => ipc.sent("preview_cost"))
+      .toMatchObject({
+        as_of: "2025-01-02T01:00:00.000Z",
+      });
+    await expect.element(screen.getByText(/Reading a page scans 1\.5 KB\./)).toBeVisible();
+    await screen.getByRole("button", { name: "Read" }).click();
+    expect(onView).toHaveBeenCalledWith({ asOf: "2025-01-02T01:00:00.000Z" });
+  });
+
+  it("says the rows are from the past, and goes back to now", async () => {
+    const { ipc, screen, onView } = await preview(bigquery, { asOf: "2025-01-02T01:00:00.000Z" });
+
+    await expect
+      .element(screen.getByText("Showing the table as it was at 2025-01-02 10:00:00 (Asia/Tokyo)."))
+      .toBeVisible();
+    await expect
+      .poll(() => ipc.sent("preview_table"))
+      .toMatchObject({
+        as_of: "2025-01-02T01:00:00.000Z",
+      });
+    await screen.getByRole("button", { name: "Back to now" }).click();
+    expect(onView).toHaveBeenCalledWith({ asOf: null });
+  });
+
+  it("shows why a relation cannot be read in the past before it is read", async () => {
+    const { ipc, screen } = await preview({
+      ...bigquery,
+      preview_cost: () => {
+        throw {
+          kind: "Unsupported",
+          message: "Only a table can be read as it was, and BigQuery calls this a VIEW.",
+        };
+      },
+    });
+
+    await screen.getByRole("button", { name: "Time travel" }).click();
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("Only a table can be read as it was, and BigQuery calls this a VIEW.");
+    expect(ipc.sent("preview_table")).toMatchObject({ as_of: null });
+  });
+
+  it("offers no past for PostgreSQL, which keeps none", async () => {
+    const { screen } = await preview();
+
+    await expect.element(screen.getByText("Ada")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Time travel" }).query()).toBeNull();
   });
 });

@@ -620,6 +620,7 @@ mod live {
                     limit: 10,
                     offset: 0,
                     versioned: true,
+                    as_of: None,
                 },
                 &CancellationToken::new(),
             )

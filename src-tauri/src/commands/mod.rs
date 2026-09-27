@@ -24,7 +24,7 @@ use crate::app::agents::AgentAccess;
 use crate::app::completion::Completion;
 use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
-use crate::app::preview::PreviewRequest;
+use crate::app::preview::{PreviewCost, PreviewRequest};
 use crate::app::syntax::SyntaxError;
 use crate::app::templates::SaveTemplateInput;
 use crate::app::App;
@@ -111,6 +111,7 @@ commands! {
     schema::table_columns(TableArgs) -> Vec<Column>;
     schema::table_definition(TableArgs) -> TableDefinition;
     preview::preview_table(PreviewRequest) -> TablePage;
+    preview::preview_cost(PreviewRequest) -> PreviewCost;
     edit::table_shape(TableArgs) -> TableShape;
     edit::commit_table_edits(TableEdits) -> u32;
     shell::run_connection_command(ConnectionArgs) -> ();
