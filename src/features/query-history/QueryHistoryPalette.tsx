@@ -45,12 +45,14 @@ export function QueryHistoryPalette({ connectionId, onOpenQuery, onClose }: Prop
           <span className="truncate font-mono">{oneLine(entry.sql)}</span>
           {/* Whose run this was, said only where it was not the reader's: the
               log is mostly theirs, and a mark on every line marks nothing. */}
-          {entry.source === "agent" && (
+          {entry.source !== "reader" && (
             <span className="badge badge-soft badge-secondary badge-xs shrink-0">agent</span>
           )}
           <span className="grow" />
           <span className="shrink-0 text-xs">
-            {entry.error ? (
+            {entry.source === "handoff" ? (
+              <span className="text-faint">handed over, not run</span>
+            ) : entry.error ? (
               <span className="text-error">failed</span>
             ) : (
               <span className="text-faint">

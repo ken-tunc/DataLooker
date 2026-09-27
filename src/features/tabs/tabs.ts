@@ -10,7 +10,14 @@ export type TableView = {
 };
 
 export type Tab =
-  | { kind: "sql"; id: string; title: string; sql: string }
+  | {
+      kind: "sql";
+      id: string;
+      title: string;
+      sql: string;
+      /** Written by an agent and not yet edited or run by the reader. */
+      fromAgent: boolean;
+    }
   | ({
       kind: "table";
       id: string;
@@ -42,12 +49,14 @@ export function openSqlTab(
   id: string,
   sql = "",
   title?: string,
+  fromAgent = false,
 ): TabsState {
   return opened(state, {
     kind: "sql",
     id,
     title: title ?? nextQueryTitle(state?.tabs ?? []),
     sql,
+    fromAgent,
   });
 }
 
@@ -106,10 +115,32 @@ export function shiftTab(state: TabsState, by: number): TabsState {
   return { ...state, activeId: next.id };
 }
 
+/** An edit makes the statement the reader's, whoever wrote it first. */
 export function setSql(state: TabsState, id: string, sql: string): TabsState {
   return {
     ...state,
-    tabs: state.tabs.map((tab) => (tab.id === id && tab.kind === "sql" ? { ...tab, sql } : tab)),
+    tabs: state.tabs.map((tab) =>
+      tab.id === id && tab.kind === "sql" && tab.sql !== sql
+        ? { ...tab, sql, fromAgent: false }
+        : tab,
+    ),
+  };
+}
+
+/**
+ * Running an agent's statement makes it the reader's too. Hands back the same
+ * state when nothing changed, as this is called on every run.
+ */
+export function adoptSql(state: TabsState, id: string): TabsState {
+  const tab = state.tabs.find((candidate) => candidate.id === id);
+  if (tab?.kind !== "sql" || !tab.fromAgent) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((candidate) =>
+      candidate.id === id && candidate.kind === "sql"
+        ? { ...candidate, fromAgent: false }
+        : candidate,
+    ),
   };
 }
 
@@ -150,7 +181,7 @@ if (import.meta.vitest) {
   describe("openSqlTab", () => {
     it("starts a first tab and focuses it", () => {
       expect(openSqlTab(undefined, "a")).toEqual({
-        tabs: [{ kind: "sql", id: "a", title: "Query 1", sql: "" }],
+        tabs: [{ kind: "sql", id: "a", title: "Query 1", sql: "", fromAgent: false }],
         activeId: "a",
       });
     });
@@ -252,6 +283,34 @@ if (import.meta.vitest) {
       const state = table();
       expect(setUnsaved(state, "t1", false)).toBe(state);
       expect(setUnsaved(state, "a", true)).toBe(state);
+    });
+  });
+
+  describe("an agent's tab", () => {
+    const handed = () => openSqlTab(undefined, "a", "DELETE FROM orders", "Clean up", true);
+
+    it("is marked until the reader edits it", () => {
+      expect(handed().tabs[0]).toMatchObject({ title: "Clean up", fromAgent: true });
+      expect(setSql(handed(), "a", "DELETE FROM orders WHERE id = 1").tabs[0]).toMatchObject({
+        fromAgent: false,
+      });
+    });
+
+    it("stays marked when the editor hands back what it already holds", () => {
+      expect(setSql(handed(), "a", "DELETE FROM orders").tabs[0]).toMatchObject({
+        fromAgent: true,
+      });
+    });
+
+    it("is marked until the reader runs it", () => {
+      expect(adoptSql(handed(), "a").tabs[0]).toMatchObject({ fromAgent: false });
+    });
+
+    it("hands back the same state when there is nothing to adopt", () => {
+      const own = openSqlTab(undefined, "a");
+      expect(adoptSql(own, "a")).toBe(own);
+      const adopted = adoptSql(handed(), "a");
+      expect(adoptSql(adopted, "a")).toBe(adopted);
     });
   });
 

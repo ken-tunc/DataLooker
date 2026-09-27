@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   activateTab,
+  adoptSql,
   closeTab,
   openSqlTab,
   openTableTab,
@@ -28,6 +29,12 @@ export function useTabs() {
     });
   }
 
+  // From the state being updated: an agent can hand over two statements before
+  // the next render.
+  function add(connectionId: string, update: (state: TabsState | undefined) => TabsState) {
+    setByConnection((current) => ({ ...current, [connectionId]: update(current[connectionId]) }));
+  }
+
   // From the state being updated, not this render's: otherwise two changes
   // before the next render would each start from the same tabs.
   function change(connectionId: string, update: (state: TabsState) => TabsState | null) {
@@ -48,6 +55,11 @@ export function useTabs() {
     of: (connectionId: string): TabsState | undefined => byConnection[connectionId],
     open: (connectionId: string, sql?: string, title?: string) =>
       write(connectionId, openSqlTab(byConnection[connectionId], crypto.randomUUID(), sql, title)),
+    /** A statement an agent handed over, marked as the agent's until adopted. */
+    openFromAgent: (connectionId: string, sql: string, title?: string) => {
+      const id = crypto.randomUUID();
+      add(connectionId, (state) => openSqlTab(state, id, sql, title, true));
+    },
     openTable: (connectionId: string, schema: string, table: string, shows?: TableView["shows"]) =>
       write(
         connectionId,
@@ -61,6 +73,8 @@ export function useTabs() {
       change(connectionId, (state) => shiftTab(state, by)),
     writeSql: (connectionId: string, id: string, sql: string) =>
       change(connectionId, (state) => setSql(state, id, sql)),
+    adopt: (connectionId: string, id: string) =>
+      change(connectionId, (state) => adoptSql(state, id)),
     readTable: (connectionId: string, id: string, view: Partial<TableView>) =>
       change(connectionId, (state) => setTableView(state, id, view)),
     markUnsaved: (connectionId: string, id: string, unsaved: boolean) =>

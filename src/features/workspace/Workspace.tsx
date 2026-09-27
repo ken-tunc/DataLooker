@@ -52,6 +52,7 @@ export function Workspace({ connectionId, tabs, hidden, onFindTable }: Props) {
             sql={tab.sql}
             hidden={hidden || tab.id !== state.activeId}
             onSqlChange={(sql) => tabs.writeSql(connectionId, tab.id, sql)}
+            onRun={() => tabs.adopt(connectionId, tab.id)}
             onOpenStructure={(schema, table) =>
               tabs.openTable(connectionId, schema, table, "structure")
             }

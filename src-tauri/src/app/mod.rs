@@ -3,6 +3,7 @@ pub mod agents;
 pub mod completion;
 pub mod connections;
 pub mod edit;
+pub mod handoffs;
 pub mod history;
 pub mod lsp;
 pub mod preview;
@@ -26,10 +27,14 @@ use crate::mcp::Listening;
 use crate::secrets::SecretStore;
 use crate::shell::{ShellExit, ShellRegistry};
 use completion::Catalogs;
+use handoffs::{Handed, Handoff};
 use query::QueryRegistry;
 
 /// Room for a busy listener, not a backlog.
 const EXITS_HELD: usize = 16;
+
+/// The window takes each one as it comes; an agent is held to a few a minute.
+const HANDOFFS_HELD: usize = 16;
 
 /// A server answers every keystroke, so falling this far behind means the
 /// window stopped listening.
@@ -55,6 +60,8 @@ pub struct App {
     analyzer: Analyzer,
     catalogs: Catalogs,
     agents: std::sync::Mutex<Option<Listening>>,
+    handoffs: broadcast::Sender<Handoff>,
+    handed: Handed,
     /// Held across opening or shutting: two at once could each stop what the
     /// other started, leaving a server nothing holds.
     turning: tokio::sync::Mutex<()>,
@@ -75,6 +82,8 @@ impl App {
             notices: broadcast::channel(NOTICES_HELD).0,
             catalogs: Catalogs::default(),
             agents: std::sync::Mutex::new(None),
+            handoffs: broadcast::channel(HANDOFFS_HELD).0,
+            handed: Handed::default(),
             turning: tokio::sync::Mutex::new(()),
         }
     }
