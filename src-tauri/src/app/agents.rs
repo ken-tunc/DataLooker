@@ -37,8 +37,50 @@ impl App {
         self: &Arc<Self>,
         enabled: bool,
     ) -> Result<AgentAccess, AppError> {
-        let _turning = self.turning.lock().await;
-        let mut access = self.agent_access().await?;
+        let turning = self.turning.lock().await;
+        // Shutting does not read the keychain, so a reader who refused it can
+        // still shut the door. The token is shown only while it is open.
+        let mut token = String::new();
+        if enabled {
+            token = self.secrets.get(AGENTS)?.unwrap_or_default();
+            if token.is_empty() {
+                token = uuid::Uuid::new_v4().to_string();
+                self.secrets.set(AGENTS, &token)?;
+            }
+        }
+        let port = self.turn(&turning, enabled).await?;
+        Ok(AgentAccess {
+            enabled,
+            token,
+            port,
+        })
+    }
+
+    /// Called once at startup. If the port has been taken, the door is
+    /// recorded as shut, so the reader is not shown a server that is not there.
+    /// The keychain is not read here but at an agent's first request: reading
+    /// it can ask the reader for their password, and at startup they have
+    /// chosen nothing yet.
+    pub async fn answer_agents_if_open(self: &Arc<Self>) -> Result<(), AppError> {
+        let turning = self.turning.lock().await;
+        if !agent::find(&self.pool).await?.enabled {
+            return Ok(());
+        }
+        if let Err(e) = self.turn(&turning, true).await {
+            self.turn(&turning, false).await?;
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Opens or shuts the door and records it, answering with the port. The
+    /// guard is asked for so that only one turn happens at a time.
+    async fn turn(
+        self: &Arc<Self>,
+        _turning: &tokio::sync::MutexGuard<'_, ()>,
+        enabled: bool,
+    ) -> Result<u16, AppError> {
+        let mut port = agent::find(&self.pool).await?.port;
         // Awaited: the port is asked for again next.
         let listening = self.agents.lock().unwrap().take();
         if let Some(listening) = listening {
@@ -47,27 +89,16 @@ impl App {
         let mut opened = None;
 
         if enabled {
-            if access.token.is_empty() {
-                access.token = uuid::Uuid::new_v4().to_string();
-                self.secrets.set(AGENTS, &access.token)?;
-            }
-            let listening =
-                mcp::listen(Arc::clone(self), access.token.clone(), access.port).await?;
-            access.port = listening.port;
+            let app = Arc::clone(self);
+            let token: mcp::Token = Arc::new(move || app.secrets.get(AGENTS));
+            let listening = mcp::listen(Arc::clone(self), token, port).await?;
+            port = listening.port;
             // Kept only once recorded as open, so a failed save does not leave
             // a server nothing knows about.
             opened = Some(listening);
         }
 
-        access.enabled = enabled;
-        let written = agent::save(
-            &self.pool,
-            Access {
-                enabled,
-                port: access.port,
-            },
-        )
-        .await;
+        let written = agent::save(&self.pool, Access { enabled, port }).await;
         match (written, opened) {
             (Err(e), Some(listening)) => {
                 listening.stop().await;
@@ -76,22 +107,9 @@ impl App {
             (Err(e), None) => Err(e),
             (Ok(()), opened) => {
                 *self.agents.lock().unwrap() = opened;
-                Ok(access)
+                Ok(port)
             }
         }
-    }
-
-    /// Called once at startup. If the port has been taken, the door is
-    /// recorded as shut, so the reader is not shown a server that is not there.
-    pub async fn answer_agents_if_open(self: &Arc<Self>) -> Result<(), AppError> {
-        if !self.agent_access().await?.enabled {
-            return Ok(());
-        }
-        if let Err(e) = self.set_agent_access(true).await {
-            self.set_agent_access(false).await?;
-            return Err(e);
-        }
-        Ok(())
     }
 
     pub fn stop_answering_agents(&self) {
@@ -115,13 +133,11 @@ mod tests {
 
         let shut = app.set_agent_access(false).await.unwrap();
         assert!(!shut.enabled);
-        // What an agent was configured with is still what it was configured
-        // with; the door is only shut.
-        assert_eq!(shut.token, opened.token);
         assert_eq!(shut.port, opened.port);
 
-        // The same port, asked for again at once: the door has to be all the
-        // way shut before it can be opened.
+        // What an agent was configured with is still what it was configured
+        // with; the door was only shut. And the same port, asked for again at
+        // once: the door has to be all the way shut before it can be opened.
         let reopened = app.set_agent_access(true).await.unwrap();
         assert_eq!(reopened.port, opened.port);
         assert_eq!(reopened.token, opened.token);
@@ -141,6 +157,60 @@ mod tests {
         assert!(app.agent_access().await.unwrap().enabled);
 
         app.set_agent_access(false).await.unwrap();
+    }
+
+    /// A keychain that must not be asked.
+    struct Unasked;
+
+    impl crate::secrets::SecretStore for Unasked {
+        fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn set(&self, id: &str, _: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn delete(&self, id: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+    }
+
+    #[tokio::test]
+    async fn a_shut_door_is_left_shut_without_asking_the_keychain() {
+        let app = Arc::new(App::new(
+            crate::db::open_in_memory().await.unwrap(),
+            std::env::temp_dir().join("datalooker-test"),
+            Box::new(Unasked),
+        ));
+
+        app.answer_agents_if_open().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_open_door_is_opened_and_shut_without_asking_the_keychain() {
+        let pool = crate::db::open_in_memory().await.unwrap();
+        agent::save(
+            &pool,
+            Access {
+                enabled: true,
+                port: 0,
+            },
+        )
+        .await
+        .unwrap();
+        let app = Arc::new(App::new(
+            pool,
+            std::env::temp_dir().join("datalooker-test"),
+            Box::new(Unasked),
+        ));
+
+        app.answer_agents_if_open().await.unwrap();
+        let access = agent::find(&app.pool).await.unwrap();
+        assert!(access.enabled);
+        assert!(access.port > 0);
+
+        // Nor is it asked to shut the door again.
+        let shut = app.set_agent_access(false).await.unwrap();
+        assert!(!shut.enabled);
     }
 
     #[tokio::test]
