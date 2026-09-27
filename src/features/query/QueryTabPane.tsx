@@ -189,7 +189,9 @@ export function QueryTabPane({
 
       <Splitter pane={EDITOR} axis="y" label="Resize the editor" />
 
-      {asking && (
+      {/* Asked only in front: a modal from a tab behind would hold the one the
+        reader moved to. It waits, and is asked when its tab comes back. */}
+      {asking && !hidden && (
         <RiskDialog
           risks={asking.risks}
           onRun={() => start({ sql: asking.sql, explain: null })}

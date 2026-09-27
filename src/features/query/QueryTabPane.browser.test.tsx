@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { QueryPlan } from "../../bindings/QueryPlan";
+import type { Risk } from "../../bindings/Risk";
 import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { AppShell } from "../shell/AppShell";
 import { editor as monaco } from "../sql-editor/monaco";
@@ -475,5 +476,37 @@ describe("a statement that cannot be asked about", () => {
 
     await expect.element(screen.getByText("the connection could not be read")).toBeVisible();
     expect(ipc.sent("execute_query")).toBeUndefined();
+  });
+});
+
+describe("a statement asked about from a tab behind", () => {
+  it("waits for its tab to come back before asking", async () => {
+    let answer: (risks: Risk[]) => void = () => {};
+    const { screen, editor } = await shell(postgres, {
+      statement_risks: () => new Promise<Risk[]>((resolve) => (answer = resolve)),
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+    editor.setValue("DELETE FROM public.users");
+
+    await screen.getByRole("button", { name: "Run" }).click();
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+    await expect
+      .element(screen.getByRole("tab", { name: "Query 2" }))
+      .toHaveAttribute("aria-selected", "true");
+    answer([
+      {
+        statement: "DELETE FROM public.users",
+        hazard: "delete_without_where",
+        targets: ["public.users"],
+      },
+    ]);
+
+    const dialog = screen.getByRole("dialog", { name: "Run this statement?" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect.element(dialog).not.toBeInTheDocument();
+
+    await screen.getByRole("tab", { name: "Query 1" }).click();
+
+    await expect.element(dialog).toBeVisible();
   });
 });
