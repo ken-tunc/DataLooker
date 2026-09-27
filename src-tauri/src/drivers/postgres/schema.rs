@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use futures_util::TryStreamExt;
 use sqlx::{PgConnection, Row};
 
-use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
+use crate::drivers::{Column, Routine, RoutineKind, Schema, SchemaTree, Table, TableKind};
 
 /// `pg_catalog` rather than `information_schema`: it knows about materialized
 /// views, and has no permission-filtered views in between.
@@ -19,6 +21,62 @@ const TREE: &str = "
      ORDER BY n.nspname, c.relname
 ";
 
+/// What an extension installed is the extension's, and would bury the
+/// reader's own functions under hundreds of its.
+const ROUTINES: &str = "
+    SELECT n.nspname AS schema_name,
+           p.proname AS name,
+           p.prokind AS kind,
+           pg_get_function_identity_arguments(p.oid) AS arguments,
+           obj_description(p.oid, 'pg_proc') AS comment
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND n.nspname NOT LIKE 'pg\\_toast%'
+       AND n.nspname NOT LIKE 'pg\\_temp%'
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_depend d
+            WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
+       )
+     ORDER BY n.nspname, p.proname, arguments
+";
+
+/// Overloads share a name, and the arguments tell them apart.
+///
+/// `pg_get_functiondef` refuses an aggregate, so one is written from
+/// `pg_aggregate`: its state, final, combine and (de)serialization functions,
+/// starting value and sort operator. The moving-aggregate and parallel options
+/// are left out.
+/// An ordered-set aggregate's `ORDER BY` is already in its arguments.
+const ROUTINE_DEFINITION: &str = "
+    SELECT CASE WHEN p.prokind <> 'a' THEN pg_get_functiondef(p.oid) ELSE
+           format(E'CREATE OR REPLACE AGGREGATE %I.%I(%s) (\\n    %s\\n);',
+                  n.nspname, p.proname, pg_get_function_identity_arguments(p.oid),
+                  concat_ws(E',\\n    ',
+                      'SFUNC = ' || a.aggtransfn::regproc,
+                      'STYPE = ' || format_type(a.aggtranstype, NULL),
+                      CASE WHEN a.aggfinalfn <> 0 THEN 'FINALFUNC = ' || a.aggfinalfn::regproc END,
+                      CASE WHEN a.aggfinalextra THEN 'FINALFUNC_EXTRA' END,
+                      CASE WHEN a.aggcombinefn <> 0
+                           THEN 'COMBINEFUNC = ' || a.aggcombinefn::regproc END,
+                      CASE WHEN a.aggserialfn <> 0
+                           THEN 'SERIALFUNC = ' || a.aggserialfn::regproc END,
+                      CASE WHEN a.aggdeserialfn <> 0
+                           THEN 'DESERIALFUNC = ' || a.aggdeserialfn::regproc END,
+                      CASE WHEN a.agginitval IS NOT NULL
+                           THEN 'INITCOND = ' || quote_literal(a.agginitval) END,
+                      (SELECT 'SORTOP = OPERATOR(' || quote_ident(os.nspname) || '.' || o.oprname || ')'
+                         FROM pg_operator o JOIN pg_namespace os ON os.oid = o.oprnamespace
+                        WHERE o.oid = a.aggsortop),
+                      CASE WHEN a.aggkind = 'h' THEN 'HYPOTHETICAL' END))
+           END
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      LEFT JOIN pg_aggregate a ON a.aggfnoid = p.oid
+     WHERE n.nspname = $1 AND p.proname = $2
+       AND pg_get_function_identity_arguments(p.oid) = $3
+";
+
 const COLUMNS: &str = "
     SELECT a.attname AS column_name,
            format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -34,7 +92,7 @@ const COLUMNS: &str = "
 
 pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
     let mut schemas: Vec<Schema> = Vec::new();
-    let mut rows = sqlx::query(TREE).fetch(conn);
+    let mut rows = sqlx::query(TREE).fetch(&mut *conn);
 
     while let Some(row) = rows.try_next().await? {
         let schema_name: String = row.try_get("schema_name")?;
@@ -44,6 +102,7 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
             schemas.push(Schema {
                 name: schema_name,
                 tables: Vec::new(),
+                routines: Vec::new(),
             });
         }
         // A schema with no tables still has a row, with the left join's nulls
@@ -57,8 +116,45 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
             comment: row.try_get("table_comment")?,
         });
     }
+    drop(rows);
+
+    // Looked up rather than walked in step: the server orders names by its
+    // collation, which need not be the order Rust compares them in.
+    let at: HashMap<String, usize> = schemas
+        .iter()
+        .enumerate()
+        .map(|(at, schema)| (schema.name.clone(), at))
+        .collect();
+    let mut rows = sqlx::query(ROUTINES).fetch(conn);
+    while let Some(row) = rows.try_next().await? {
+        let schema_name: String = row.try_get("schema_name")?;
+        let Some(&at) = at.get(&schema_name) else {
+            continue;
+        };
+        schemas[at].routines.push(Routine {
+            name: row.try_get("name")?,
+            kind: routine_kind(row.try_get::<i8, _>("kind")? as u8 as char),
+            arguments: row.try_get("arguments")?,
+            comment: row.try_get("comment")?,
+        });
+    }
 
     Ok(SchemaTree { schemas })
+}
+
+/// `None` when no routine of that name takes those arguments.
+pub async fn routine_definition(
+    conn: &mut PgConnection,
+    schema: &str,
+    name: &str,
+    arguments: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(ROUTINE_DEFINITION)
+        .bind(schema)
+        .bind(name)
+        .bind(arguments)
+        .fetch_optional(conn)
+        .await
 }
 
 pub async fn columns(
@@ -80,6 +176,15 @@ pub async fn columns(
     Ok(columns)
 }
 
+fn routine_kind(prokind: char) -> RoutineKind {
+    match prokind {
+        'p' => RoutineKind::Procedure,
+        'a' => RoutineKind::Aggregate,
+        'w' => RoutineKind::Window,
+        _ => RoutineKind::Function,
+    }
+}
+
 fn table_kind(relkind: char) -> TableKind {
     match relkind {
         'v' => TableKind::View,
@@ -92,6 +197,14 @@ fn table_kind(relkind: char) -> TableKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_a_routine_is_follows_its_prokind() {
+        assert_eq!(routine_kind('f'), RoutineKind::Function);
+        assert_eq!(routine_kind('p'), RoutineKind::Procedure);
+        assert_eq!(routine_kind('a'), RoutineKind::Aggregate);
+        assert_eq!(routine_kind('w'), RoutineKind::Window);
+    }
 
     #[test]
     fn partitioned_tables_are_tables_like_any_other() {
@@ -109,7 +222,7 @@ mod live {
 
     use crate::drivers::postgres::testing::*;
 
-    use crate::drivers::TableKind;
+    use crate::drivers::{RoutineKind, TableKind};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_tree_carries_every_schema_with_its_tables_and_columns() {
@@ -228,6 +341,114 @@ mod live {
         assert_eq!(comments, [None, Some("As they wrote it".to_string())]);
 
         run(&session, "DROP SCHEMA tree_comments CASCADE")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_schema_s_routines_are_listed_by_what_they_take() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_routines CASCADE",
+            "CREATE SCHEMA tree_routines",
+            "CREATE FUNCTION tree_routines.add(a integer, b integer) RETURNS integer \
+                 LANGUAGE sql AS 'SELECT a + b'",
+            "CREATE FUNCTION tree_routines.add(a text, b text) RETURNS text \
+                 LANGUAGE sql AS 'SELECT a || b'",
+            "CREATE PROCEDURE tree_routines.tidy() LANGUAGE sql AS 'SELECT 1'",
+            "COMMENT ON PROCEDURE tree_routines.tidy() IS 'Run nightly'",
+            "CREATE AGGREGATE tree_routines.total(integer) \
+                 (SFUNC = int4pl, STYPE = integer, INITCOND = '0')",
+            // A final function handed the aggregate's arguments as well.
+            "CREATE FUNCTION tree_routines.finish(s integer, x integer) RETURNS integer \
+                 LANGUAGE sql AS 'SELECT s'",
+            "CREATE AGGREGATE tree_routines.finished(integer) (SFUNC = int4pl, STYPE = integer, \
+                 FINALFUNC = tree_routines.finish, FINALFUNC_EXTRA)",
+            // What an extension brings is its own, not the schema's.
+            "CREATE EXTENSION citext SCHEMA tree_routines",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+
+        let tree = session.schema_tree().await.unwrap();
+        let schema = tree
+            .schemas
+            .iter()
+            .find(|schema| schema.name == "tree_routines")
+            .unwrap();
+        let routines: Vec<(&str, &str, RoutineKind, Option<&str>)> = schema
+            .routines
+            .iter()
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.arguments.as_str(),
+                    r.kind,
+                    r.comment.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            routines,
+            [
+                ("add", "a integer, b integer", RoutineKind::Function, None),
+                ("add", "a text, b text", RoutineKind::Function, None),
+                (
+                    "finish",
+                    "s integer, x integer",
+                    RoutineKind::Function,
+                    None
+                ),
+                ("finished", "integer", RoutineKind::Aggregate, None),
+                ("tidy", "", RoutineKind::Procedure, Some("Run nightly")),
+                ("total", "integer", RoutineKind::Aggregate, None),
+            ]
+        );
+
+        // Written out, an aggregate makes itself again.
+        let aggregate = session
+            .routine_definition("tree_routines", "total", "integer")
+            .await
+            .unwrap()
+            .expect("the aggregate just made");
+        assert_eq!(
+            aggregate,
+            "CREATE OR REPLACE AGGREGATE tree_routines.total(integer) (\n    \
+             SFUNC = int4pl,\n    STYPE = integer,\n    INITCOND = '0'\n);"
+        );
+        run(&session, &aggregate).await.unwrap();
+        let finished = session
+            .routine_definition("tree_routines", "finished", "integer")
+            .await
+            .unwrap()
+            .expect("the aggregate just made");
+        assert!(
+            finished.contains("FINALFUNC = tree_routines.finish,\n    FINALFUNC_EXTRA"),
+            "{finished}"
+        );
+        run(&session, &finished).await.unwrap();
+
+        let text = session
+            .routine_definition("tree_routines", "add", "a text, b text")
+            .await
+            .unwrap()
+            .expect("the overload just made");
+        assert!(
+            text.starts_with("CREATE OR REPLACE FUNCTION tree_routines.add(a text, b text)"),
+            "{text}"
+        );
+        assert!(text.contains("a || b"), "{text}");
+        assert_eq!(
+            session
+                .routine_definition("tree_routines", "add", "a bigint")
+                .await
+                .unwrap(),
+            None
+        );
+
+        run(&session, "DROP SCHEMA tree_routines CASCADE")
             .await
             .unwrap();
     }

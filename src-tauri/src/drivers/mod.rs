@@ -95,6 +95,7 @@ pub struct SchemaTree {
 pub struct Schema {
     pub name: String,
     pub tables: Vec<Table>,
+    pub routines: Vec<Routine>,
 }
 
 /// No columns: a project can hold tens of thousands of tables, so a table's
@@ -116,6 +117,29 @@ pub enum TableKind {
     View,
     MaterializedView,
     ForeignTable,
+}
+
+/// A function or procedure. Its definition is asked for when it is opened.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Routine {
+    pub name: String,
+    pub kind: RoutineKind,
+    /// What it takes, as `a integer, b text`. PostgreSQL tells overloads of one
+    /// name apart by it, so it is also what names the one to open.
+    pub arguments: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum RoutineKind {
+    Function,
+    Procedure,
+    Aggregate,
+    Window,
+    TableFunction,
 }
 
 #[derive(Debug, Serialize, TS)]

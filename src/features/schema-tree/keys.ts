@@ -9,4 +9,6 @@ export const schemaKeys = {
   tree: (connectionId: string) => [...schemaKeys.of(connectionId), "tree"] as const,
   columns: (connectionId: string, schema: string, table: string) =>
     [...schemaKeys.of(connectionId), "columns", schema, table] as const,
+  routine: (connectionId: string, schema: string, name: string, args: string) =>
+    [...schemaKeys.of(connectionId), "routine", schema, name, args] as const,
 };

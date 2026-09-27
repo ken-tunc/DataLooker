@@ -121,6 +121,7 @@ commands! {
     schema::schema_tree(ConnectionArgs) -> SchemaTree;
     schema::table_columns(TableArgs) -> Vec<Column>;
     schema::table_definition(TableArgs) -> TableDefinition;
+    schema::routine_definition(RoutineArgs) -> String;
     preview::preview_table(PreviewRequest) -> TablePage;
     preview::preview_cost(PreviewRequest) -> PreviewCost;
     edit::table_shape(TableArgs) -> TableShape;
@@ -165,6 +166,16 @@ pub struct TableArgs {
     pub connection_id: String,
     pub schema: String,
     pub table: String,
+}
+
+/// A function or procedure of a connection, as the tree names it.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct RoutineArgs {
+    pub connection_id: String,
+    pub schema: String,
+    pub name: String,
+    pub arguments: String,
 }
 
 /// `query_id` is the caller's handle on the running statement, and what

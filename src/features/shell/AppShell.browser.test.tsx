@@ -25,7 +25,9 @@ const local: ConnectionRecord = {
 const staging: ConnectionRecord = { ...local, id: "id-2", label: "Staging" };
 
 const tree: SchemaTree = {
-  schemas: [{ name: "shop", tables: [{ name: "people", kind: "table", comment: null }] }],
+  schemas: [
+    { name: "shop", routines: [], tables: [{ name: "people", kind: "table", comment: null }] },
+  ],
 };
 
 const definition = {
@@ -148,6 +150,47 @@ describe("AppShell", () => {
 
     await userEvent.keyboard("{Control>}{Shift>}{Tab}{/Shift}{/Control}");
     await expect.poll(selected).toBe("Query 2");
+  });
+
+  it("opens a routine's definition, and a copy of it in a query tab to edit", async () => {
+    const { ipc, screen, titles, selected, open } = await shell({
+      schema_tree: {
+        schemas: [
+          {
+            name: "shop",
+            tables: [],
+            routines: [{ name: "tidy", kind: "procedure", arguments: "", comment: null }],
+          },
+        ],
+      },
+      routine_definition: "CREATE OR REPLACE PROCEDURE shop.tidy()\n AS $$ SELECT 1 $$",
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+    await open("Local");
+
+    await screen.getByText("shop").click();
+    await screen.getByText("Routines").click();
+    await screen.getByText("tidy").click();
+
+    await expect.poll(titles).toEqual(["Query 1", "shop.tidy()"]);
+    await expect
+      .element(screen.getByText("CREATE OR REPLACE PROCEDURE", { exact: false }))
+      .toBeVisible();
+    expect(ipc.sent("routine_definition")).toEqual({
+      connection_id: "id-1",
+      schema: "shop",
+      name: "tidy",
+      arguments: "",
+    });
+
+    await screen.getByRole("button", { name: "Edit in a query tab" }).click();
+
+    await expect.poll(titles).toEqual(["Query 1", "shop.tidy()", "Edit shop.tidy()"]);
+    expect(selected()).toBe("Edit shop.tidy()");
+    await screen.getByRole("button", { name: "Run", exact: true }).click();
+    await expect
+      .poll(() => ipc.sent("execute_query")?.sql)
+      .toBe("CREATE OR REPLACE PROCEDURE shop.tidy()\n AS $$ SELECT 1 $$");
   });
 
   it("opens the table a reader finds through ⌘O", async () => {

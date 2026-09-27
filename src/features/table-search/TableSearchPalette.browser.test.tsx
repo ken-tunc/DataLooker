@@ -8,9 +8,14 @@ const table = (name: string) => ({ name, kind: "table" as const, columns: [], co
 
 const tree: SchemaTree = {
   schemas: [
-    { name: "public", tables: [table("people"), table("orders"), table("order_items")] },
+    {
+      name: "public",
+      routines: [],
+      tables: [table("people"), table("orders"), table("order_items")],
+    },
     {
       name: "analytics",
+      routines: [],
       tables: [{ ...table("people_daily"), kind: "view" as const, comment: null }],
     },
   ],

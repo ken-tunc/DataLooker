@@ -197,6 +197,18 @@ impl PostgresSession {
             .await
     }
 
+    pub async fn routine_definition(
+        &self,
+        schema: &str,
+        name: &str,
+        arguments: &str,
+    ) -> Result<Option<String>, AppError> {
+        self.on_catalog(async |conn| {
+            Ok(schema::routine_definition(conn, schema, name, arguments).await?)
+        })
+        .await
+    }
+
     pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {
         self.on_catalog(async |conn| Ok(schema::columns(conn, schema, table).await?))
             .await

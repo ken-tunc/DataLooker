@@ -1,4 +1,7 @@
 import type { Column } from "../../bindings/Column";
+import type { Routine } from "../../bindings/Routine";
+import type { RoutineKind } from "../../bindings/RoutineKind";
+import type { Schema } from "../../bindings/Schema";
 import type { SchemaTree } from "../../bindings/SchemaTree";
 import type { Table } from "../../bindings/Table";
 import type { TableKind } from "../../bindings/TableKind";
@@ -10,6 +13,14 @@ export const KIND_LABELS: Record<TableKind, string> = {
   foreign_table: "foreign table",
 };
 
+export const ROUTINE_LABELS: Record<RoutineKind, string> = {
+  function: "function",
+  procedure: "procedure",
+  aggregate: "aggregate",
+  window: "window function",
+  table_function: "table function",
+};
+
 export type NamedTable = { schema: string; table: string };
 
 /** What is known about an opened table's columns, which are read on demand. */
@@ -18,22 +29,34 @@ export type ColumnsState =
   | { status: "failed"; message: string }
   | { status: "read"; columns: Column[] };
 
-export type TreeRow = { id: string; indent: number } & (
-  | { kind: "schema"; name: string; tables: number; expanded: boolean }
-  /** The one row a set of date-sharded tables is shown as. */
-  | { kind: "shards"; schema: string; prefix: string; shards: number; expanded: boolean }
-  | {
-      kind: "table";
-      schema: string;
-      name: string;
-      tableKind: TableKind;
-      comment: string | null;
-      expanded: boolean;
-    }
-  | { kind: "column"; name: string; dataType: string; nullable: boolean; comment: string | null }
-  /** Where a table's columns would be, while they are on their way or lost. */
-  | { kind: "note"; text: string }
-);
+export type TreeRow = { id: string; indent: number } &
+  /** `items` counts what is shown under it: tables, and whatever the folders hold. */
+  (
+    | { kind: "schema"; name: string; items: number; expanded: boolean }
+    /** Where a schema keeps what is not a table, so its tables stay near the top. */
+    | { kind: "folder"; title: string; count: number; expanded: boolean }
+    /** The one row a set of date-sharded tables is shown as. */
+    | { kind: "shards"; schema: string; prefix: string; shards: number; expanded: boolean }
+    | {
+        kind: "table";
+        schema: string;
+        name: string;
+        tableKind: TableKind;
+        comment: string | null;
+        expanded: boolean;
+      }
+    | { kind: "column"; name: string; dataType: string; nullable: boolean; comment: string | null }
+    | {
+        kind: "routine";
+        schema: string;
+        name: string;
+        arguments: string;
+        routineKind: RoutineKind;
+        comment: string | null;
+      }
+    /** Where a table's columns would be, while they are on their way or lost. */
+    | { kind: "note"; text: string }
+  );
 
 /**
  * An id has to survive the periods a schema, table or column name may contain,
@@ -44,6 +67,9 @@ const rowId = (...parts: string[]) => JSON.stringify(parts);
 export const schemaRowId = (schema: string) => rowId("schema", schema);
 export const tableRowId = (schema: string, table: string) => rowId("table", schema, table);
 export const shardsRowId = (schema: string, prefix: string) => rowId("shards", schema, prefix);
+export const folderRowId = (schema: string, folder: string) => rowId("folder", schema, folder);
+const routineRowId = (schema: string, routine: Routine) =>
+  rowId("routine", schema, routine.name, routine.arguments);
 
 /** The tables whose columns are wanted, read back out of the open rows' ids. */
 export function openTables(expanded: ReadonlySet<string>): NamedTable[] {
@@ -169,11 +195,38 @@ function tableRows(
   ];
 }
 
+type Folder = { key: string; title: string; items: TreeRow[] };
+
+/**
+ * What a schema keeps besides its tables, a folder per kind, holding what
+ * `named` lets through. Items are laid out at the indent a folder's go at.
+ */
+function folders(schema: Schema, named: (name: string) => boolean): Folder[] {
+  const routines = schema.routines.filter((routine) => named(routine.name));
+  return [
+    {
+      key: "routines",
+      title: "Routines",
+      items: routines.map((routine): TreeRow => ({
+        kind: "routine",
+        id: routineRowId(schema.name, routine),
+        indent: 2,
+        schema: schema.name,
+        name: routine.name,
+        arguments: routine.arguments,
+        routineKind: routine.kind,
+        comment: routine.comment,
+      })),
+    },
+  ];
+}
+
 /**
  * Flat, because a virtualizer counts rows, not nesting.
  *
- * A filter matches table names. Schemas and shard groups with a match open
- * whether or not they were expanded, and the rest drop out.
+ * A filter matches names — of tables, and of what the folders hold. Schemas,
+ * folders and shard groups with a match open whether or not they were
+ * expanded, and the rest drop out.
  */
 export function treeRows(
   tree: SchemaTree,
@@ -184,7 +237,8 @@ export function treeRows(
   const needle = filter.trim().toLowerCase();
   const rows: TreeRow[] = [];
 
-  const matches = (table: Table) => needle === "" || table.name.toLowerCase().includes(needle);
+  const named = (name: string) => needle === "" || name.toLowerCase().includes(needle);
+  const matches = (table: Table) => named(table.name);
 
   for (const schema of tree.schemas) {
     // Grouped before filtering: a set narrowed to one day is still a set.
@@ -193,21 +247,37 @@ export function treeRows(
       const shards = group.shards.filter(matches);
       return shards.length === 0 ? [] : [{ ...group, shards }];
     });
-    if (needle !== "" && groups.length === 0) continue;
+    const held = folders(schema, named).filter((folder) => folder.items.length > 0);
+    if (needle !== "" && groups.length === 0 && held.length === 0) continue;
 
     const schemaOpen = needle !== "" || expanded.has(schemaRowId(schema.name));
+    const tables = groups.reduce(
+      (count, group) => count + (group.kind === "table" ? 1 : group.shards.length),
+      0,
+    );
     rows.push({
       kind: "schema",
       id: schemaRowId(schema.name),
       indent: 0,
       name: schema.name,
-      tables: groups.reduce(
-        (count, group) => count + (group.kind === "table" ? 1 : group.shards.length),
-        0,
-      ),
+      items: held.reduce((count, folder) => count + folder.items.length, tables),
       expanded: schemaOpen,
     });
     if (!schemaOpen) continue;
+
+    for (const folder of held) {
+      const id = folderRowId(schema.name, folder.key);
+      const open = needle !== "" || expanded.has(id);
+      rows.push({
+        kind: "folder",
+        id,
+        indent: 1,
+        title: folder.title,
+        count: folder.items.length,
+        expanded: open,
+      });
+      if (open) rows.push(...folder.items);
+    }
 
     for (const group of groups) {
       if (group.kind === "table") {
@@ -244,12 +314,17 @@ if (import.meta.vitest) {
     schemas: [
       {
         name: "public",
+        routines: [],
         tables: [
           { name: "people", kind: "table", comment: null },
           { name: "orders", kind: "table", comment: null },
         ],
       },
-      { name: "analytics", tables: [{ name: "daily_people", kind: "view", comment: null }] },
+      {
+        name: "analytics",
+        routines: [],
+        tables: [{ name: "daily_people", kind: "view", comment: null }],
+      },
     ],
   };
 
@@ -269,6 +344,7 @@ if (import.meta.vitest) {
     schemas: [
       {
         name: "logs",
+        routines: [],
         tables: [
           { name: "events_20250101", kind: "table", comment: null },
           { name: "events_20250103", kind: "table", comment: null },
@@ -337,6 +413,7 @@ if (import.meta.vitest) {
         schemas: [
           {
             name: "public",
+            routines: [],
             tables: [
               { name: "a.b", kind: "table", comment: null },
               { name: "a", kind: "table", comment: null },
@@ -386,9 +463,63 @@ if (import.meta.vitest) {
       expect(openTables(open)).toEqual([{ schema: "public", table: "a.b" }]);
     });
 
-    it("counts the tables it is showing, not the ones it filtered out", () => {
+    it("counts what it is showing, not what it filtered out", () => {
       const [schema] = treeRows(tree, new Set(), "orders", read);
-      expect(schema).toMatchObject({ kind: "schema", name: "public", tables: 1 });
+      expect(schema).toMatchObject({ kind: "schema", name: "public", items: 1 });
+    });
+
+    it("keeps routines in a folder ahead of the tables, and leaves out an empty one", () => {
+      const withRoutines: SchemaTree = {
+        schemas: [
+          {
+            name: "public",
+            tables: [{ name: "people", kind: "table", comment: null }],
+            routines: [{ name: "add", kind: "function", arguments: "a int", comment: null }],
+          },
+          { name: "empty", tables: [], routines: [] },
+        ],
+      };
+      const open = new Set([schemaRowId("public"), schemaRowId("empty")]);
+
+      expect(treeRows(withRoutines, open, "", read).map((row) => row.kind)).toEqual([
+        "schema",
+        "folder",
+        "table",
+        "schema",
+      ]);
+      expect(treeRows(withRoutines, open, "", read)[0]).toMatchObject({ items: 2 });
+
+      const inside = treeRows(
+        withRoutines,
+        new Set([...open, folderRowId("public", "routines")]),
+        "",
+        read,
+      );
+      expect(inside[2]).toMatchObject({ kind: "routine", name: "add", indent: 2 });
+
+      // A routine matching the filter keeps its schema and opens its folder.
+      expect(treeRows(withRoutines, new Set(), "ad", read).map((row) => row.kind)).toEqual([
+        "schema",
+        "folder",
+        "routine",
+      ]);
+    });
+
+    it("tells overloads apart", () => {
+      const overloaded: SchemaTree = {
+        schemas: [
+          {
+            name: "public",
+            tables: [],
+            routines: [
+              { name: "add", kind: "function", arguments: "a int", comment: null },
+              { name: "add", kind: "function", arguments: "a text", comment: null },
+            ],
+          },
+        ],
+      };
+      const rows = treeRows(overloaded, new Set(), "add", read);
+      expect(new Set(ids(rows)).size).toBe(rows.length);
     });
 
     it("shows a set of shards as one row, and its days once it is opened", () => {

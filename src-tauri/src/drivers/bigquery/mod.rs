@@ -205,6 +205,21 @@ impl BigQuerySession {
         schema::tree(self.client().await?, &self.project_id, &self.location).await
     }
 
+    pub async fn routine_definition(
+        &self,
+        dataset: &str,
+        name: &str,
+    ) -> Result<Option<String>, AppError> {
+        schema::routine_definition(
+            self.client().await?,
+            &self.project_id,
+            &self.location,
+            dataset,
+            name,
+        )
+        .await
+    }
+
     pub async fn columns(&self, dataset: &str, table: &str) -> Result<Vec<Column>, AppError> {
         schema::columns(
             self.client().await?,

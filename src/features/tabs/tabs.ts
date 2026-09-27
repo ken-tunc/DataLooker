@@ -30,7 +30,16 @@ export type Tab =
       table: string;
       /** The edits are the pane's; the strip only marks the tab and asks before closing. */
       unsaved: boolean;
-    } & TableView);
+    } & TableView)
+  | {
+      kind: "routine";
+      id: string;
+      title: string;
+      schema: string;
+      name: string;
+      /** Which of PostgreSQL's overloads of the name, as the tree lists it. */
+      arguments: string;
+    };
 
 export type TabsState = { tabs: Tab[]; activeId: string };
 
@@ -108,10 +117,14 @@ const sameTable = (tab: Tab, saved: SavedTab) =>
 
 /**
  * What is kept across a restart. A statement an agent handed over and nobody
- * took up is left out: it was handed over to be run now, not kept.
+ * took up is left out: it was handed over to be run now, not kept. So is a
+ * routine's definition, which holds nothing of the reader's and is one click
+ * away in the tree.
  */
 export function toSaved(state: TabsState | undefined): SavedTabs {
-  const kept = (state?.tabs ?? []).filter((tab) => !(tab.kind === "sql" && tab.fromAgent));
+  const kept = (state?.tabs ?? []).flatMap((tab): Exclude<Tab, { kind: "routine" }>[] =>
+    tab.kind === "routine" || (tab.kind === "sql" && tab.fromAgent) ? [] : [tab],
+  );
   return {
     tabs: kept.map((tab): SavedTab =>
       tab.kind === "sql"
@@ -147,6 +160,34 @@ export function restoreTabs(
   const activeId =
     state?.activeId ?? (restored.some((tab) => tab.id === active) ? active : first.id);
   return { tabs: [...restored, ...(state?.tabs ?? [])], activeId: activeId ?? first.id };
+}
+
+/** A routine's definition opens once, as a table does. */
+export function openRoutineTab(
+  state: TabsState | undefined,
+  id: string,
+  schema: string,
+  name: string,
+  args: string,
+): TabsState {
+  const open = state?.tabs.find(
+    (tab) =>
+      tab.kind === "routine" &&
+      tab.schema === schema &&
+      tab.name === name &&
+      tab.arguments === args,
+  );
+  if (state && open) return { ...state, activeId: open.id };
+
+  return opened(state, {
+    kind: "routine",
+    id,
+    // Overloads share a name, and are told apart by what they take.
+    title: `${schema}.${name}(${args})`,
+    schema,
+    name,
+    arguments: args,
+  });
 }
 
 /** Closing the active tab moves to its right neighbour, else its left. */
@@ -235,6 +276,25 @@ if (import.meta.vitest) {
 
   const three = (): TabsState => openSqlTab(openSqlTab(openSqlTab(undefined, "a"), "b"), "c");
   const ids = (state: TabsState) => state.tabs.map((tab) => tab.id);
+
+  describe("openRoutineTab", () => {
+    it("opens an overload once, and another overload beside it", () => {
+      const first = openRoutineTab(openSqlTab(undefined, "a"), "r1", "public", "add", "a integer");
+      expect(first.tabs[1]).toMatchObject({ kind: "routine", title: "public.add(a integer)" });
+
+      const again = openRoutineTab(activateTab(first, "a"), "r2", "public", "add", "a integer");
+      expect(again.tabs).toHaveLength(2);
+      expect(again.activeId).toBe("r1");
+
+      const other = openRoutineTab(first, "r3", "public", "add", "a text");
+      expect(other.tabs.map((tab) => tab.title)).toEqual([
+        "Query 1",
+        "public.add(a integer)",
+        "public.add(a text)",
+      ]);
+      expect(other.activeId).toBe("r3");
+    });
+  });
 
   describe("openSqlTab", () => {
     it("starts a first tab and focuses it", () => {
@@ -391,6 +451,20 @@ if (import.meta.vitest) {
   });
 
   describe("toSaved", () => {
+    it("leaves a routine's definition out of what is kept", () => {
+      const state = openRoutineTab(
+        openSqlTab(undefined, "a", "SELECT 1"),
+        "r",
+        "public",
+        "add",
+        "",
+      );
+      expect(toSaved(state)).toEqual({
+        tabs: [{ kind: "sql", title: "Query 1", sql: "SELECT 1" }],
+        active: 0,
+      });
+    });
+
     it("keeps each tab's statement or table, in order, and which is in front", () => {
       const state = activateTab(
         openTableTab(openSqlTab(undefined, "a", "SELECT 1"), "t1", "public", "people"),

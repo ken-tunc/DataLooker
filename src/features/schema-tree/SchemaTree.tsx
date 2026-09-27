@@ -7,6 +7,7 @@ import {
   type ColumnsState,
   KIND_LABELS,
   openTables,
+  ROUTINE_LABELS,
   tableRowId,
   type TreeRow,
   treeRows,
@@ -17,12 +18,15 @@ const ROW_HEIGHT = 26;
 /** Indent per depth: a flat list has no nesting of its own. */
 const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14"];
 
-type Props = {
-  connectionId: string;
+/** What a row can open: a table, or a routine's definition. */
+export type Openers = {
   onOpenTable: (schema: string, table: string) => void;
+  onOpenRoutine: (schema: string, name: string, args: string) => void;
 };
 
-export function SchemaTree({ connectionId, onOpenTable }: Props) {
+type Props = { connectionId: string } & Openers;
+
+export function SchemaTree({ connectionId, ...openers }: Props) {
   const tree = useSchemaTree(connectionId);
   const refresh = useRefreshSchemaTree(connectionId);
   // State, not a ref: see ResultGrid.
@@ -49,7 +53,7 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
       <div className="flex shrink-0 items-center gap-1 p-2">
         <input
           className="input input-sm grow"
-          placeholder="Filter tables"
+          placeholder="Filter by name"
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
         />
@@ -84,12 +88,12 @@ export function SchemaTree({ connectionId, onOpenTable }: Props) {
 
       {tree.data && rows.length === 0 && (
         <p className="text-faint p-3 text-sm">
-          {filter.trim() === "" ? "This database has no tables." : "No table matches the filter."}
+          {filter.trim() === "" ? "This database has no schemas." : "Nothing matches the filter."}
         </p>
       )}
 
       <div ref={setScroller} className="min-h-0 flex-1 overflow-auto">
-        <Rows rows={rows} scroller={scroller} onToggle={toggle} onOpenTable={onOpenTable} />
+        <Rows rows={rows} scroller={scroller} onToggle={toggle} {...openers} />
       </div>
     </div>
   );
@@ -99,13 +103,12 @@ function Rows({
   rows,
   scroller,
   onToggle,
-  onOpenTable,
+  ...openers
 }: {
   rows: TreeRow[];
   scroller: HTMLDivElement | null;
   onToggle: (id: string) => void;
-  onOpenTable: (schema: string, table: string) => void;
-}) {
+} & Openers) {
   // eslint-disable-next-line react/incompatible-library
   const virtual = useVirtualizer({
     count: rows.length,
@@ -125,7 +128,7 @@ function Rows({
             className="absolute flex w-full items-center"
             style={{ height: item.size, transform: `translateY(${item.start}px)` }}
           >
-            <Row row={row} onToggle={onToggle} onOpenTable={onOpenTable} />
+            <Row row={row} onToggle={onToggle} {...openers} />
           </li>
         );
       })}
@@ -137,11 +140,11 @@ function Row({
   row,
   onToggle,
   onOpenTable,
+  onOpenRoutine,
 }: {
   row: TreeRow;
   onToggle: (id: string) => void;
-  onOpenTable: (schema: string, table: string) => void;
-}) {
+} & Openers) {
   const indent = INDENTS[row.indent] ?? "pl-14";
 
   if (row.kind === "note") {
@@ -168,13 +171,32 @@ function Row({
     );
   }
 
-  // A schema or a shard group only expands. A table's row is two controls: the
-  // chevron shows its columns, and the name opens the table.
-  if (row.kind === "schema" || row.kind === "shards") {
+  if (row.kind === "routine") {
+    return (
+      <button
+        type="button"
+        className={`hover:bg-base-200 flex w-full min-w-0 cursor-pointer items-baseline gap-2 py-0.5 pr-2 text-left text-sm ${indent}`}
+        title={`Open ${row.schema}.${row.name}(${row.arguments})${row.comment ? `\n\n${row.comment}` : ""}`}
+        onClick={() => onOpenRoutine(row.schema, row.name, row.arguments)}
+      >
+        <span className="truncate">{row.name}</span>
+        <span className="text-faint truncate text-xs">
+          ({row.arguments})
+          {row.routineKind === "function" ? "" : ` ${ROUTINE_LABELS[row.routineKind]}`}
+        </span>
+      </button>
+    );
+  }
+
+  // A schema, a folder or a shard group only expands. A table's row is two
+  // controls: the chevron shows its columns, and the name opens the table.
+  if (row.kind === "schema" || row.kind === "folder" || row.kind === "shards") {
     const [name, beside] =
       row.kind === "schema"
-        ? [row.name, String(row.tables)]
-        : [`${row.prefix}_*`, `${row.shards} shard${row.shards === 1 ? "" : "s"}`];
+        ? [row.name, String(row.items)]
+        : row.kind === "folder"
+          ? [row.title, String(row.count)]
+          : [`${row.prefix}_*`, `${row.shards} shard${row.shards === 1 ? "" : "s"}`];
     return (
       <button
         type="button"

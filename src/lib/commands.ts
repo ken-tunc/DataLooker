@@ -109,6 +109,21 @@ export function tableDefinition(connectionId: string, schema: string, table: str
   return invoke("table_definition", { connection_id: connectionId, schema, table });
 }
 
+/** `args` is the routine's arguments as the tree lists them, naming one overload. */
+export function routineDefinition(
+  connectionId: string,
+  schema: string,
+  name: string,
+  args: string,
+) {
+  return invoke("routine_definition", {
+    connection_id: connectionId,
+    schema,
+    name,
+    arguments: args,
+  });
+}
+
 /** It runs until it is stopped, it fails, or the app quits. */
 export function runConnectionCommand(connectionId: string) {
   return invoke("run_connection_command", { connection_id: connectionId });

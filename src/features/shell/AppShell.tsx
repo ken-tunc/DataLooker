@@ -126,6 +126,7 @@ export function AppShell() {
             key={selectedId}
             connectionId={selectedId}
             onOpenTable={(schema, table) => tabs.openTable(selectedId, schema, table)}
+            onOpenRoutine={(schema, name, args) => tabs.openRoutine(selectedId, schema, name, args)}
           />
         </section>
       )}
