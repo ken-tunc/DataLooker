@@ -127,7 +127,12 @@ export function highlight(
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
-  const table = (name: string) => ({ name, kind: "table" as TableKind, columns: [] });
+  const table = (name: string) => ({
+    name,
+    kind: "table" as TableKind,
+    columns: [],
+    comment: null,
+  });
   const tree: SchemaTree = {
     schemas: [
       { name: "public", tables: [table("people"), table("orders"), table("order_items")] },

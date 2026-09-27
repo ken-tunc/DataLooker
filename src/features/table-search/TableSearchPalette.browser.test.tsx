@@ -4,12 +4,15 @@ import type { SchemaTree } from "../../bindings/SchemaTree";
 import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { TableSearchPalette } from "./TableSearchPalette";
 
-const table = (name: string) => ({ name, kind: "table" as const, columns: [] });
+const table = (name: string) => ({ name, kind: "table" as const, columns: [], comment: null });
 
 const tree: SchemaTree = {
   schemas: [
     { name: "public", tables: [table("people"), table("orders"), table("order_items")] },
-    { name: "analytics", tables: [{ ...table("people_daily"), kind: "view" as const }] },
+    {
+      name: "analytics",
+      tables: [{ ...table("people_daily"), kind: "view" as const, comment: null }],
+    },
   ],
 };
 

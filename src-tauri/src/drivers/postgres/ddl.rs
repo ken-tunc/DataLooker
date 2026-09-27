@@ -63,6 +63,17 @@ const INDEXES: &str = "
      ORDER BY c.relname
 ";
 
+/// The relation's own comment first, then its columns' in their order. The
+/// server quotes the text, which it knows how to escape.
+const COMMENTS: &str = "
+    SELECT a.attname AS column_name, quote_literal(d.description) AS literal
+      FROM pg_description d
+      LEFT JOIN pg_attribute a
+             ON a.attrelid = d.objoid AND a.attnum = d.objsubid AND d.objsubid > 0
+     WHERE d.objoid = $1 AND d.classoid = 'pg_class'::regclass
+     ORDER BY d.objsubid
+";
+
 /// `tgisinternal` triggers enforce foreign keys; nobody wrote them.
 const TRIGGERS: &str = "
     SELECT tgname AS name, pg_get_triggerdef(oid) AS definition
@@ -119,10 +130,23 @@ pub async fn definition(
             .zip(row.try_get::<Option<String>, _>("partition_bound")?),
     };
 
-    let definition = match relkind {
+    let mut definition = match relkind {
         'v' | 'm' => view(conn, &relation, schema, table).await?,
         _ => table_statement(conn, &relation, schema, table).await?,
     };
+    // A comment is part of what makes the table again.
+    let rows = sqlx::query(COMMENTS)
+        .bind(oid)
+        .fetch_all(&mut *conn)
+        .await?;
+    let mut comments = Vec::with_capacity(rows.len());
+    for row in &rows {
+        comments.push((row.try_get("column_name")?, row.try_get("literal")?));
+    }
+    for statement in comment_statements(relkind, schema, table, &comments) {
+        definition.push('\n');
+        definition.push_str(&statement);
+    }
 
     Ok(Some(TableDefinition {
         definition,
@@ -280,6 +304,35 @@ fn column(column: &ColumnDefinition) -> String {
     text
 }
 
+/// `comments` holds each quoted comment with the column it is on, or `None`
+/// for the relation's own.
+fn comment_statements(
+    relkind: char,
+    schema: &str,
+    table: &str,
+    comments: &[(Option<String>, String)],
+) -> Vec<String> {
+    let relation = format!("{}.{}", quote(schema), quote(table));
+    comments
+        .iter()
+        .map(|(column, literal)| match column {
+            Some(column) => format!(
+                "COMMENT ON COLUMN {relation}.{} IS {literal};",
+                quote(column)
+            ),
+            None => {
+                let kind = match relkind {
+                    'v' => "VIEW",
+                    'm' => "MATERIALIZED VIEW",
+                    'f' => "FOREIGN TABLE",
+                    _ => "TABLE",
+                };
+                format!("COMMENT ON {kind} {relation} IS {literal};")
+            }
+        })
+        .collect()
+}
+
 async fn named(
     conn: &mut PgConnection,
     sql: &'static str,
@@ -354,6 +407,25 @@ mod tests {
                 "    CONSTRAINT \"orders_pkey\" PRIMARY KEY (id)\n",
                 ");"
             )
+        );
+    }
+
+    #[test]
+    fn a_comment_is_on_what_the_relation_is_or_on_one_of_its_columns() {
+        let comments = [
+            (None, "'Who bought'".to_string()),
+            (Some("e\"mail".to_string()), "'Where to write'".to_string()),
+        ];
+        assert_eq!(
+            comment_statements('m', "public", "people", &comments),
+            [
+                r#"COMMENT ON MATERIALIZED VIEW "public"."people" IS 'Who bought';"#,
+                r#"COMMENT ON COLUMN "public"."people"."e""mail" IS 'Where to write';"#,
+            ]
+        );
+        assert_eq!(
+            comment_statements('p', "s", "t", &comments[..1]),
+            [r#"COMMENT ON TABLE "s"."t" IS 'Who bought';"#]
         );
     }
 
@@ -595,6 +667,43 @@ mod live {
                 .starts_with("CREATE TRIGGER people_touched BEFORE UPDATE"),
             "{:?}",
             found.triggers[0]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_comment_follows_the_statement_it_belongs_to() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS ddl_comments CASCADE",
+            "CREATE SCHEMA ddl_comments",
+            "CREATE TABLE ddl_comments.people (id int, email text, name text)",
+            "COMMENT ON TABLE ddl_comments.people IS 'Who bought'",
+            "COMMENT ON COLUMN ddl_comments.people.name IS 'As they wrote it'",
+            "COMMENT ON COLUMN ddl_comments.people.email IS 'It''s where to write'",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+
+        let found = session
+            .definition("ddl_comments", "people")
+            .await
+            .unwrap()
+            .unwrap();
+
+        let comments: Vec<&str> = found
+            .definition
+            .lines()
+            .skip_while(|line| !line.starts_with("COMMENT"))
+            .collect();
+        assert_eq!(
+            comments,
+            [
+                r#"COMMENT ON TABLE "ddl_comments"."people" IS 'Who bought';"#,
+                r#"COMMENT ON COLUMN "ddl_comments"."people"."email" IS 'It''s where to write';"#,
+                r#"COMMENT ON COLUMN "ddl_comments"."people"."name" IS 'As they wrote it';"#,
+            ]
         );
     }
 

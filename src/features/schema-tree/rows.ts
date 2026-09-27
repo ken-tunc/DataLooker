@@ -22,8 +22,15 @@ export type TreeRow = { id: string; indent: number } & (
   | { kind: "schema"; name: string; tables: number; expanded: boolean }
   /** The one row a set of date-sharded tables is shown as. */
   | { kind: "shards"; schema: string; prefix: string; shards: number; expanded: boolean }
-  | { kind: "table"; schema: string; name: string; tableKind: TableKind; expanded: boolean }
-  | { kind: "column"; name: string; dataType: string; nullable: boolean }
+  | {
+      kind: "table";
+      schema: string;
+      name: string;
+      tableKind: TableKind;
+      comment: string | null;
+      expanded: boolean;
+    }
+  | { kind: "column"; name: string; dataType: string; nullable: boolean; comment: string | null }
   /** Where a table's columns would be, while they are on their way or lost. */
   | { kind: "note"; text: string }
 );
@@ -132,6 +139,7 @@ function tableRows(
     schema,
     name: table.name,
     tableKind: table.kind,
+    comment: table.comment,
     expanded: open,
   };
   if (!open) return [row];
@@ -156,6 +164,7 @@ function tableRows(
       name: column.name,
       dataType: column.data_type,
       nullable: column.nullable,
+      comment: column.comment,
     })),
   ];
 }
@@ -236,11 +245,11 @@ if (import.meta.vitest) {
       {
         name: "public",
         tables: [
-          { name: "people", kind: "table" },
-          { name: "orders", kind: "table" },
+          { name: "people", kind: "table", comment: null },
+          { name: "orders", kind: "table", comment: null },
         ],
       },
-      { name: "analytics", tables: [{ name: "daily_people", kind: "view" }] },
+      { name: "analytics", tables: [{ name: "daily_people", kind: "view", comment: null }] },
     ],
   };
 
@@ -250,8 +259,8 @@ if (import.meta.vitest) {
       ? {
           status: "read",
           columns: [
-            { name: "id", data_type: "integer", nullable: false },
-            { name: "email", data_type: "text", nullable: true },
+            { name: "id", data_type: "integer", nullable: false, comment: null },
+            { name: "email", data_type: "text", nullable: true, comment: null },
           ],
         }
       : { status: "read", columns: [] };
@@ -261,9 +270,9 @@ if (import.meta.vitest) {
       {
         name: "logs",
         tables: [
-          { name: "events_20250101", kind: "table" },
-          { name: "events_20250103", kind: "table" },
-          { name: "events_20250102", kind: "table" },
+          { name: "events_20250101", kind: "table", comment: null },
+          { name: "events_20250103", kind: "table", comment: null },
+          { name: "events_20250102", kind: "table", comment: null },
         ],
       },
     ],
@@ -329,8 +338,8 @@ if (import.meta.vitest) {
           {
             name: "public",
             tables: [
-              { name: "a.b", kind: "table" },
-              { name: "a", kind: "table" },
+              { name: "a.b", kind: "table", comment: null },
+              { name: "a", kind: "table", comment: null },
             ],
           },
         ],
@@ -339,7 +348,10 @@ if (import.meta.vitest) {
         awkward,
         new Set([schemaRowId("public"), tableRowId("public", "a")]),
         "",
-        () => ({ status: "read", columns: [{ name: "b", data_type: "text", nullable: true }] }),
+        () => ({
+          status: "read",
+          columns: [{ name: "b", data_type: "text", nullable: true, comment: null }],
+        }),
       );
       expect(new Set(ids(rows)).size).toBe(ids(rows).length);
     });
@@ -420,7 +432,10 @@ if (import.meta.vitest) {
           tableRowId("logs", "events_20250103"),
         ]),
         "",
-        () => ({ status: "read", columns: [{ name: "id", data_type: "int64", nullable: true }] }),
+        () => ({
+          status: "read",
+          columns: [{ name: "id", data_type: "int64", nullable: true, comment: null }],
+        }),
       );
       expect(columns(rows)[0]).toMatchObject({ name: "id", indent: 3 });
     });
@@ -453,25 +468,25 @@ if (import.meta.vitest) {
     it("folds a set where it starts, and leaves the rest where they are", () => {
       expect(
         shardGroups([
-          { name: "customers", kind: "table" },
-          { name: "events_20250101", kind: "table" },
-          { name: "orders", kind: "table" },
-          { name: "events_20250102", kind: "table" },
+          { name: "customers", kind: "table", comment: null },
+          { name: "events_20250101", kind: "table", comment: null },
+          { name: "orders", kind: "table", comment: null },
+          { name: "events_20250102", kind: "table", comment: null },
         ]).map((group) => (group.kind === "table" ? group.table.name : `${group.prefix}_*`)),
       ).toEqual(["customers", "events_*", "orders"]);
     });
 
     it("leaves a lone day as the table it is", () => {
-      const groups = shardGroups([{ name: "events_20250101", kind: "table" }]);
+      const groups = shardGroups([{ name: "events_20250101", kind: "table", comment: null }]);
       expect(groups).toEqual([
-        { kind: "table", table: { name: "events_20250101", kind: "table" } },
+        { kind: "table", table: { name: "events_20250101", kind: "table", comment: null } },
       ]);
     });
 
     it("folds tables and not views, which are named like a day by coincidence", () => {
       const groups = shardGroups([
-        { name: "events_20250101", kind: "view" },
-        { name: "events_20250102", kind: "view" },
+        { name: "events_20250101", kind: "view", comment: null },
+        { name: "events_20250102", kind: "view", comment: null },
       ]);
       expect(groups.every((group) => group.kind === "table")).toBe(true);
     });

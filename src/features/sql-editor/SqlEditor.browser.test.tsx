@@ -488,7 +488,7 @@ describe("SqlEditor completion of BigQuery", () => {
           path: ["sales"],
         },
         schema_tree: {
-          schemas: [{ name: "sales", tables: [{ name: "orders", kind: "table" }] }],
+          schemas: [{ name: "sales", tables: [{ name: "orders", kind: "table", comment: null }] }],
         },
       },
       "SELECT * FROM sales.",

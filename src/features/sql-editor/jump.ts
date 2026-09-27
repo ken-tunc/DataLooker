@@ -147,7 +147,7 @@ if (import.meta.vitest) {
   });
 
   describe("tablesNamed", () => {
-    const table = (name: string) => ({ name, kind: "table" as const, columns: [] });
+    const table = (name: string) => ({ name, kind: "table" as const, columns: [], comment: null });
     const tree: SchemaTree = {
       schemas: [
         { name: "public", tables: [table("orders"), table("people")] },

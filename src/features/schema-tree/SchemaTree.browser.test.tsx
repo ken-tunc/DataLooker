@@ -17,25 +17,25 @@ const tree: Tree = {
     {
       name: "shop",
       tables: [
-        { name: "orders", kind: "table" },
-        { name: "recent_orders", kind: "view" },
+        { name: "orders", kind: "table", comment: null },
+        { name: "recent_orders", kind: "view", comment: null },
       ],
     },
-    { name: "analytics", tables: [{ name: "daily", kind: "table" }] },
+    { name: "analytics", tables: [{ name: "daily", kind: "table", comment: null }] },
     {
       name: "logs",
       tables: [
-        { name: "events_20250101", kind: "table" },
-        { name: "events_20250102", kind: "table" },
-        { name: "events_20250103", kind: "table" },
+        { name: "events_20250101", kind: "table", comment: null },
+        { name: "events_20250102", kind: "table", comment: null },
+        { name: "events_20250103", kind: "table", comment: null },
       ],
     },
   ],
 };
 
 const columns = [
-  { name: "id", data_type: "bigint", nullable: false },
-  { name: "total", data_type: "numeric", nullable: true },
+  { name: "id", data_type: "bigint", nullable: false, comment: null },
+  { name: "total", data_type: "numeric", nullable: true, comment: null },
 ];
 
 async function schemaTree(replies: Parameters<typeof stubIpc>[0] = {}) {
@@ -149,6 +149,32 @@ describe("SchemaTree", () => {
     await screen.getByText("Type").click();
     await screen.getByText("Type").click();
     expect(vi.mocked(treeRows).mock.calls.length).toBe(laidOut);
+  });
+
+  it("shows what a table and its columns were commented with", async () => {
+    const { screen } = await schemaTree({
+      schema_tree: {
+        schemas: [
+          {
+            name: "shop",
+            tables: [{ name: "orders", kind: "table", comment: "What was bought" }],
+          },
+        ],
+      },
+      table_columns: [
+        { name: "id", data_type: "bigint", nullable: false, comment: null },
+        { name: "total", data_type: "numeric", nullable: true, comment: "In cents" },
+      ],
+    });
+    await screen.getByText("shop").click();
+
+    await expect
+      .element(screen.getByTitle("Open shop.orders", { exact: false }))
+      .toHaveAttribute("title", "Open shop.orders\n\nWhat was bought");
+
+    await screen.getByLabelText("Expand orders").click();
+    await expect.element(screen.getByText("In cents")).toBeVisible();
+    await expect.element(screen.getByTitle("In cents")).toHaveTextContent("total");
   });
 
   it("opens the table a reader clicks, rather than its columns", async () => {

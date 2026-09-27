@@ -150,12 +150,20 @@ function Row({
 
   if (row.kind === "column") {
     return (
-      <span className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}>
+      <span
+        className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}
+        title={row.comment ?? undefined}
+      >
         <span className="truncate">{row.name}</span>
         <span className="text-faint truncate text-xs">
           {row.dataType}
           {row.nullable ? "" : " not null"}
         </span>
+        {row.comment && (
+          <span className="text-faint min-w-8 shrink-[2] truncate text-xs italic">
+            {row.comment}
+          </span>
+        )}
       </span>
     );
   }
@@ -197,7 +205,7 @@ function Row({
       <button
         type="button"
         className="flex min-w-0 grow cursor-pointer items-baseline gap-2 text-left"
-        title={`Open ${row.schema}.${row.name}`}
+        title={`Open ${row.schema}.${row.name}${row.comment ? `\n\n${row.comment}` : ""}`}
         onClick={() => onOpenTable(row.schema, row.name)}
       >
         <span className="truncate">{row.name}</span>

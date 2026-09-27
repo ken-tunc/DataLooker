@@ -37,6 +37,8 @@ pub struct Table {
     pub name: String,
     /// `table`, `view`, `materialized_view` or `foreign_table`.
     pub kind: String,
+    /// What whoever made the table wrote about it, if anything.
+    pub comment: Option<String>,
 }
 
 /// What a statement run for an agent came back with. The rows are whatever
@@ -77,6 +79,9 @@ pub struct Held {
     /// The type as the database itself names it.
     pub data_type: String,
     pub nullable: bool,
+    /// What whoever made the column wrote about it: often what it means, or
+    /// in what unit it is kept.
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -206,6 +211,7 @@ impl Agent {
                         schema: schema.name.clone(),
                         name: table.name,
                         kind: kind_name(table.kind).to_string(),
+                        comment: table.comment,
                     })
                 })
                 .collect(),
@@ -214,7 +220,7 @@ impl Agent {
 
     #[tool(
         name = "describe_table",
-        description = "What one table holds: its columns, their types and whether each may be null. Ask for this before writing a statement about a table."
+        description = "What one table holds: its columns, their types, whether each may be null and what its comment says. Ask for this before writing a statement about a table."
     )]
     async fn describe_table(
         &self,
@@ -236,6 +242,7 @@ impl Agent {
                     name: column.name,
                     data_type: column.data_type,
                     nullable: column.nullable,
+                    comment: column.comment,
                 })
                 .collect(),
         ))
@@ -534,6 +541,8 @@ mod live {
         for statement in [
             format!("CREATE SCHEMA {schema}"),
             format!("CREATE TABLE {schema}.orders (id integer PRIMARY KEY, note text)"),
+            format!("COMMENT ON TABLE {schema}.orders IS 'What was bought'"),
+            format!("COMMENT ON COLUMN {schema}.orders.note IS 'As the buyer wrote it'"),
             format!("CREATE VIEW {schema}.notes AS SELECT note FROM {schema}.orders"),
             format!(
                 "CREATE MATERIALIZED VIEW {schema}.totals AS SELECT count(*) FROM {schema}.orders"
@@ -569,15 +578,21 @@ mod live {
         let mut ours: Vec<_> = tables
             .iter()
             .filter(|table| table.schema == schema)
-            .map(|table| (table.name.as_str(), table.kind.as_str()))
+            .map(|table| {
+                (
+                    table.name.as_str(),
+                    table.kind.as_str(),
+                    table.comment.as_deref(),
+                )
+            })
             .collect();
         ours.sort_unstable();
         assert_eq!(
             ours,
             [
-                ("notes", "view"),
-                ("orders", "table"),
-                ("totals", "materialized_view")
+                ("notes", "view", None),
+                ("orders", "table", Some("What was bought")),
+                ("totals", "materialized_view", None)
             ]
         );
 
@@ -605,12 +620,16 @@ mod live {
                     column.name.as_str(),
                     column.data_type.as_str(),
                     column.nullable,
+                    column.comment.as_deref(),
                 )
             })
             .collect();
         assert_eq!(
             described,
-            [("id", "integer", false), ("note", "text", true)]
+            [
+                ("id", "integer", false, None),
+                ("note", "text", true, Some("As the buyer wrote it"))
+            ]
         );
 
         drop_schema(&agent, &id, &schema).await;

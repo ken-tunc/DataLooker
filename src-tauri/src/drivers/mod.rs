@@ -104,6 +104,8 @@ pub struct Schema {
 pub struct Table {
     pub name: String,
     pub kind: TableKind,
+    /// PostgreSQL's `COMMENT ON`, or BigQuery's description.
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS, PartialEq, Eq)]
@@ -122,6 +124,8 @@ pub struct Column {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
+    /// PostgreSQL's `COMMENT ON`, or BigQuery's description.
+    pub comment: Option<String>,
 }
 
 /// How a table preview is ordered. `column` is an identifier the caller took
