@@ -257,7 +257,9 @@ impl PostgresSession {
             // reached the wire.
             Some(Err(e)) => matches!(
                 e,
-                DriverError::Sql(sqlx::Error::Database(_)) | DriverError::Refused(_)
+                DriverError::Sql(sqlx::Error::Database(_))
+                    | DriverError::Refused(_)
+                    | DriverError::InTransaction(_)
             ),
         };
         if keep {

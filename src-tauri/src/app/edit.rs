@@ -157,7 +157,7 @@ mod tests {
         run(&app, &id, "ROLLBACK").await;
 
         assert!(
-            matches!(refused, Err(AppError::Conflict(_))),
+            matches!(refused, Err(AppError::InTransaction(_))),
             "{refused:?} is not a refusal"
         );
         // The reader's insert went with their ROLLBACK, which it could only
@@ -175,6 +175,54 @@ mod tests {
 
         // Once the reader's transaction is over, the same save goes through.
         assert_eq!(rename(&app, &id, &table, "renamed").await.unwrap(), 1);
+        run(&app, &id, &format!("DROP TABLE {table}")).await;
+    }
+
+    #[tokio::test]
+    async fn a_save_is_refused_inside_the_readers_failed_transaction_too() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        let table = format!("failed_tx_{}", uuid::Uuid::new_v4().simple());
+        run(
+            &app,
+            &id,
+            &format!("CREATE TABLE {table} (id integer PRIMARY KEY, name text)"),
+        )
+        .await;
+        run(
+            &app,
+            &id,
+            &format!("INSERT INTO {table} VALUES (1, 'before')"),
+        )
+        .await;
+
+        run(&app, &id, "BEGIN").await;
+        app.execute_query(&id, "SELEC 1", "failing")
+            .await
+            .unwrap_err();
+        // The page cannot be read inside the failed transaction, and the
+        // refusal comes before any version is looked at.
+        let refused = app
+            .commit_table_edits(TableEdits {
+                connection_id: id.clone(),
+                schema: "public".into(),
+                table: table.clone(),
+                inserts: Vec::new(),
+                updates: vec![RowUpdate {
+                    key: HashMap::from([("id".into(), Some("1".into()))]),
+                    set: HashMap::from([("name".into(), Some("renamed".into()))]),
+                    version: "0".into(),
+                }],
+                deletes: Vec::new(),
+            })
+            .await;
+        run(&app, &id, "ROLLBACK").await;
+
+        assert!(
+            matches!(refused, Err(AppError::InTransaction(_))),
+            "{refused:?} is not a refusal for the reader's transaction"
+        );
         run(&app, &id, &format!("DROP TABLE {table}")).await;
     }
 

@@ -87,14 +87,9 @@ async function preview(
   return { ipc, screen, type, saved, onView };
 }
 
-/**
- * The connections are read from the app's own store, and the transaction's
- * state is what the last statement left, so neither reaches the server.
- */
+/** The connections are read from the app's own store, not the server. */
 function askedOfTheServer(ipc: Ipc): string[] {
-  return ipc.calls
-    .map((call) => call.command)
-    .filter((command) => command !== "list_connections" && command !== "transaction_state");
+  return ipc.calls.map((call) => call.command).filter((command) => command !== "list_connections");
 }
 
 describe("TablePreviewPane", () => {
@@ -249,9 +244,8 @@ describe("TablePreviewPane", () => {
 
   it("points at the reader's open transaction when a save is refused for it", async () => {
     const { screen, type } = await preview({
-      transaction_state: "open",
       commit_table_edits: () => {
-        throw { kind: "Conflict", message: "a transaction is open in the editor." };
+        throw { kind: "InTransaction", message: "a transaction is open in the editor." };
       },
     });
 

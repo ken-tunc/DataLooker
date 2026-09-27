@@ -4,8 +4,8 @@ use futures_util::TryStreamExt;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 
 use crate::drivers::postgres::quote;
-use crate::drivers::postgres::transaction::in_transaction;
-use crate::drivers::{DriverError, RowDelete, RowInsert, RowUpdate, TableShape};
+use crate::drivers::postgres::transaction;
+use crate::drivers::{DriverError, RowDelete, RowInsert, RowUpdate, TableShape, TransactionState};
 
 const SHAPE: &str = "
     SELECT a.attname AS column_name,
@@ -98,8 +98,8 @@ pub fn plan(
 pub async fn apply(conn: &mut PgConnection, plan: &Plan) -> Result<u32, DriverError> {
     // The reader may have left a transaction open on this session, and this
     // save's COMMIT would end it.
-    if in_transaction(conn).await? {
-        return Err(DriverError::Refused(
+    if transaction::state(conn).await? != TransactionState::Idle {
+        return Err(DriverError::InTransaction(
             "a transaction is open in the editor, so nothing was saved; commit or roll it back first"
                 .into(),
         ));

@@ -188,6 +188,9 @@ pub struct TablePage {
 pub enum DriverError {
     Sql(sqlx::Error),
     Refused(String),
+    /// Declined, before any statement, because the reader's transaction is
+    /// open on the session; it is theirs to end.
+    InTransaction(String),
     /// A connection in an unknown state, such as a transaction that would not
     /// end, which the next caller must not inherit.
     Broken(String),
@@ -204,6 +207,7 @@ impl From<DriverError> for AppError {
         match e {
             DriverError::Sql(e) => e.into(),
             DriverError::Refused(message) => AppError::Conflict(message),
+            DriverError::InTransaction(message) => AppError::InTransaction(message),
             DriverError::Broken(message) => AppError::Database(message),
         }
     }
