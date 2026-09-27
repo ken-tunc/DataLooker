@@ -180,7 +180,7 @@ describe("AppShell", () => {
     await screen.getByText("Routines").click();
     await screen.getByText("tidy").click();
 
-    await expect.poll(titles).toEqual(["Query 1", "shop.tidy"]);
+    await expect.poll(titles).toEqual(["Query 1", "shop.tidy()"]);
     await expect
       .element(screen.getByText("CREATE OR REPLACE PROCEDURE", { exact: false }))
       .toBeVisible();
@@ -193,8 +193,8 @@ describe("AppShell", () => {
 
     await screen.getByRole("button", { name: "Edit in a query tab" }).click();
 
-    await expect.poll(titles).toEqual(["Query 1", "shop.tidy", "shop.tidy"]);
-    expect(selected()).toBe("shop.tidy");
+    await expect.poll(titles).toEqual(["Query 1", "shop.tidy()", "shop.tidy()"]);
+    expect(selected()).toBe("shop.tidy()");
     await screen.getByRole("button", { name: "Run", exact: true }).click();
     await expect
       .poll(() => ipc.sent("execute_query")?.sql)
