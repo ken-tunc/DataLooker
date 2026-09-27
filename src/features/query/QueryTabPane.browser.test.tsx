@@ -111,7 +111,7 @@ describe("explaining a statement", () => {
     });
   });
 
-  it("analyzes on ⌘⇧E in the editor and shows what each step measured", async () => {
+  it("analyzes on ⇧⌘E in the editor and shows what each step measured", async () => {
     const { ipc, screen, editor } = await shell(postgres, { explain_query: analyzed });
 
     editor.focus();
@@ -339,7 +339,7 @@ describe("explaining a statement", () => {
 describe("going to the table a name means", () => {
   const table = (name: string) => ({ name, kind: "table" as const });
 
-  /** ⌘⇧D with the cursor in `orders`, which `shell` writes. */
+  /** ⇧⌘D with the cursor in `orders`, which `shell` writes. */
   async function jump(replies: Replies) {
     const { screen, editor } = await shell(postgres, replies);
     editor.focus();

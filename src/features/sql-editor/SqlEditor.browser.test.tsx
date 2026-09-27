@@ -91,7 +91,7 @@ describe("SqlEditor asked what a name is", () => {
   /** The column before `orders`, counting from one as Monaco does. */
   const ON_ORDERS = STATEMENT.indexOf("orders") + 1;
 
-  it("answers with the name under the cursor when ⌘⇧D is pressed", async () => {
+  it("answers with the name under the cursor when ⇧⌘D is pressed", async () => {
     const { onJump } = await editor({ check_syntax: [] }, STATEMENT);
     const instance = monaco.getEditors()[0];
 
@@ -585,7 +585,7 @@ describe("SqlEditor asked to format", () => {
     return made;
   }
 
-  it("lays the statement out on ⌘⇧F, and ⌘Z takes it back in one step", async () => {
+  it("lays the statement out on ⇧⌘F, and ⌘Z takes it back in one step", async () => {
     const made = await postgres("select a, b from t");
     const instance = monaco.getEditors()[0];
     instance?.focus();
@@ -597,7 +597,7 @@ describe("SqlEditor asked to format", () => {
     expect(made.text()).toBe("select a, b from t");
   });
 
-  it("leaves ⇧⌥F, Monaco's own key for the document, doing nothing", async () => {
+  it("leaves ⌥⇧F, Monaco's own key for the document, doing nothing", async () => {
     const made = await postgres("select a from t");
     monaco.getEditors()[0]?.focus();
 

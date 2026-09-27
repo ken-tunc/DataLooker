@@ -40,7 +40,7 @@ export {
   languages,
 } from "monaco-editor/editor/editor.api.js";
 
-// ⌘⇧F formats (`SqlEditor`), so Monaco's own key for the document alone is
+// ⇧⌘F formats (`SqlEditor`), so Monaco's own key for the document alone is
 // taken away rather than left to do half of it.
 editor.addKeybindingRule({
   keybinding: KeyMod.Shift | KeyMod.Alt | KeyCode.KeyF,

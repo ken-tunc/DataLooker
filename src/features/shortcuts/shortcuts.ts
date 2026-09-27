@@ -36,9 +36,9 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     shortcuts: [
       { keys: ["⌘Enter"], what: "Run the editor's query" },
       { keys: ["⌘E"], what: "Show how PostgreSQL would run it" },
-      { keys: ["⌘⇧E"], what: "Run it read-only and time each step" },
-      { keys: ["⌘⇧D", "⌘-click"], what: "Open the table named under the cursor" },
-      { keys: ["⌘⇧F"], what: "Format the statement, or the selection" },
+      { keys: ["⇧⌘E"], what: "Run it read-only and time each step" },
+      { keys: ["⇧⌘D", "⌘-click"], what: "Open the table named under the cursor" },
+      { keys: ["⇧⌘F"], what: "Format the statement, or the selection" },
     ],
   },
   {
@@ -72,6 +72,16 @@ if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest;
 
   describe("shortcuts", () => {
+    it("name their modifiers in the order macOS menus do", () => {
+      const order = "⌃⌥⇧⌘";
+      for (const keys of SHORTCUT_GROUPS.flatMap((group) =>
+        group.shortcuts.flatMap((s) => s.keys),
+      )) {
+        const ranks = (keys.match(/[⌃⌥⇧⌘]/gu) ?? []).map((glyph) => order.indexOf(glyph));
+        expect(ranks, keys).toEqual([...ranks].sort((a, b) => a - b));
+      }
+    });
+
     it("are the ones README's table lists, in the same order", async () => {
       const { default: readme } = await import("../../../README.md?raw");
       const section = readme.split("## Keyboard")[1]?.split("\n## ")[0] ?? "";

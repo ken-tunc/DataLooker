@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
+import { Keys } from "../../components/Keys";
 import { useToast } from "../../components/useToast";
 import { saveTextFile } from "../../lib/files";
 import { describeError } from "../../lib/invoke";
@@ -491,7 +492,7 @@ function GridMenu({
               }}
             >
               {item.label}
-              {item.keys && <kbd className="kbd kbd-xs">{item.keys}</kbd>}
+              {item.keys && <Keys keys={item.keys} size="xs" />}
             </button>
           </li>
         ),

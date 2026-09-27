@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { Keys } from "../../components/Keys";
 import { SHORTCUT_GROUPS } from "./shortcuts";
 
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
@@ -29,9 +30,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
                   <div key={shortcut.what} className="contents">
                     <dt className="flex gap-1 whitespace-nowrap">
                       {shortcut.keys.map((keys) => (
-                        <kbd key={keys} className="kbd kbd-sm">
-                          {keys}
-                        </kbd>
+                        <Keys key={keys} keys={keys} size="sm" />
                       ))}
                     </dt>
                     <dd>{shortcut.what}</dd>

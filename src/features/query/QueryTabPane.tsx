@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import type { Risk } from "../../bindings/Risk";
 import { EmptyState } from "../../components/EmptyState";
+import { Keys } from "../../components/Keys";
 import { Splitter } from "../../components/Splitter";
 import { useToast } from "../../components/useToast";
 import { statementRisks } from "../../lib/commands";
@@ -121,7 +122,7 @@ export function QueryTabPane({
           </button>
         )}
         <span className="text-faint text-xs">
-          <kbd className="kbd kbd-xs">⌘</kbd> <kbd className="kbd kbd-xs">Enter</kbd>
+          <Keys keys="⌘Enter" size="xs" />
         </span>
         {explains && (
           <div className="join">
@@ -138,7 +139,7 @@ export function QueryTabPane({
               type="button"
               className="btn btn-sm join-item"
               disabled={sql.trim() === "" || busy}
-              title="Run it read-only and time each step (⌘⇧E)"
+              title="Run it read-only and time each step (⇧⌘E)"
               onClick={() => submit("analyze")}
             >
               Analyze
