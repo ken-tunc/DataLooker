@@ -65,7 +65,8 @@ export function Workspace({ connectionId, tabs, hidden, onFindTable }: Props) {
             connectionId={connectionId}
             tab={tab}
             hidden={hidden || tab.id !== state.activeId}
-            onEdit={(sql) => tabs.open(connectionId, sql, tab.title)}
+            // Named apart from the definition's own tab, which stays read-only.
+            onEdit={(sql) => tabs.open(connectionId, sql, `Edit ${tab.title}`)}
           />
         ) : (
           <TablePreviewPane
