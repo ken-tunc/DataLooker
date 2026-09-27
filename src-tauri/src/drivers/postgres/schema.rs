@@ -44,8 +44,9 @@ const ROUTINES: &str = "
 /// Overloads share a name, and the arguments tell them apart.
 ///
 /// `pg_get_functiondef` refuses an aggregate, so one is written from
-/// `pg_aggregate`: its state, final and combine functions, starting value and
-/// sort operator. The moving-aggregate and parallel options are left out.
+/// `pg_aggregate`: its state, final, combine and (de)serialization functions,
+/// starting value and sort operator. The moving-aggregate and parallel options
+/// are left out.
 /// An ordered-set aggregate's `ORDER BY` is already in its arguments.
 const ROUTINE_DEFINITION: &str = "
     SELECT CASE WHEN p.prokind <> 'a' THEN pg_get_functiondef(p.oid) ELSE
@@ -55,8 +56,13 @@ const ROUTINE_DEFINITION: &str = "
                       'SFUNC = ' || a.aggtransfn::regproc,
                       'STYPE = ' || format_type(a.aggtranstype, NULL),
                       CASE WHEN a.aggfinalfn <> 0 THEN 'FINALFUNC = ' || a.aggfinalfn::regproc END,
+                      CASE WHEN a.aggfinalextra THEN 'FINALFUNC_EXTRA' END,
                       CASE WHEN a.aggcombinefn <> 0
                            THEN 'COMBINEFUNC = ' || a.aggcombinefn::regproc END,
+                      CASE WHEN a.aggserialfn <> 0
+                           THEN 'SERIALFUNC = ' || a.aggserialfn::regproc END,
+                      CASE WHEN a.aggdeserialfn <> 0
+                           THEN 'DESERIALFUNC = ' || a.aggdeserialfn::regproc END,
                       CASE WHEN a.agginitval IS NOT NULL
                            THEN 'INITCOND = ' || quote_literal(a.agginitval) END,
                       (SELECT 'SORTOP = OPERATOR(' || quote_ident(os.nspname) || '.' || o.oprname || ')'
@@ -355,6 +361,11 @@ mod live {
             "COMMENT ON PROCEDURE tree_routines.tidy() IS 'Run nightly'",
             "CREATE AGGREGATE tree_routines.total(integer) \
                  (SFUNC = int4pl, STYPE = integer, INITCOND = '0')",
+            // A final function handed the aggregate's arguments as well.
+            "CREATE FUNCTION tree_routines.finish(s integer, x integer) RETURNS integer \
+                 LANGUAGE sql AS 'SELECT s'",
+            "CREATE AGGREGATE tree_routines.finished(integer) (SFUNC = int4pl, STYPE = integer, \
+                 FINALFUNC = tree_routines.finish, FINALFUNC_EXTRA)",
             // What an extension brings is its own, not the schema's.
             "CREATE EXTENSION citext SCHEMA tree_routines",
         ] {
@@ -384,6 +395,13 @@ mod live {
             [
                 ("add", "a integer, b integer", RoutineKind::Function, None),
                 ("add", "a text, b text", RoutineKind::Function, None),
+                (
+                    "finish",
+                    "s integer, x integer",
+                    RoutineKind::Function,
+                    None
+                ),
+                ("finished", "integer", RoutineKind::Aggregate, None),
                 ("tidy", "", RoutineKind::Procedure, Some("Run nightly")),
                 ("total", "integer", RoutineKind::Aggregate, None),
             ]
@@ -401,6 +419,16 @@ mod live {
              SFUNC = int4pl,\n    STYPE = integer,\n    INITCOND = '0'\n);"
         );
         run(&session, &aggregate).await.unwrap();
+        let finished = session
+            .routine_definition("tree_routines", "finished", "integer")
+            .await
+            .unwrap()
+            .expect("the aggregate just made");
+        assert!(
+            finished.contains("FINALFUNC = tree_routines.finish,\n    FINALFUNC_EXTRA"),
+            "{finished}"
+        );
+        run(&session, &finished).await.unwrap();
 
         let text = session
             .routine_definition("tree_routines", "add", "a text, b text")
