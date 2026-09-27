@@ -182,7 +182,8 @@ export function openRoutineTab(
   return opened(state, {
     kind: "routine",
     id,
-    title: `${schema}.${name}`,
+    // Overloads share a name, and are told apart by what they take.
+    title: `${schema}.${name}(${args})`,
     schema,
     name,
     arguments: args,
@@ -279,14 +280,18 @@ if (import.meta.vitest) {
   describe("openRoutineTab", () => {
     it("opens an overload once, and another overload beside it", () => {
       const first = openRoutineTab(openSqlTab(undefined, "a"), "r1", "public", "add", "a integer");
-      expect(first.tabs[1]).toMatchObject({ kind: "routine", title: "public.add" });
+      expect(first.tabs[1]).toMatchObject({ kind: "routine", title: "public.add(a integer)" });
 
       const again = openRoutineTab(activateTab(first, "a"), "r2", "public", "add", "a integer");
       expect(again.tabs).toHaveLength(2);
       expect(again.activeId).toBe("r1");
 
       const other = openRoutineTab(first, "r3", "public", "add", "a text");
-      expect(other.tabs).toHaveLength(3);
+      expect(other.tabs.map((tab) => tab.title)).toEqual([
+        "Query 1",
+        "public.add(a integer)",
+        "public.add(a text)",
+      ]);
       expect(other.activeId).toBe("r3");
     });
   });
