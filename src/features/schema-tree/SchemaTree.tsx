@@ -3,9 +3,11 @@ import { ChevronRight, RotateCw } from "lucide-react";
 import { useState } from "react";
 import type { UserTypeKind } from "../../bindings/UserTypeKind";
 import { describeError } from "../../lib/invoke";
-import { useColumnsOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
+import { formatBytes } from "../query-estimate/format";
+import { useColumnsOf, useIndexesOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
 import {
   type ColumnsState,
+  type IndexesState,
   KIND_LABELS,
   openTables,
   ROUTINE_LABELS,
@@ -17,7 +19,7 @@ import {
 const ROW_HEIGHT = 26;
 
 /** Indent per depth: a flat list has no nesting of its own. */
-const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14"];
+const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14", "pl-18"];
 
 /** What a row can open: a table, or a routine's definition. */
 export type Openers = {
@@ -47,7 +49,10 @@ export function SchemaTree({ connectionId, ...openers }: Props) {
   const columns = useColumnsOf(connectionId, openTables(expanded));
   const columnsOf = (schema: string, table: string): ColumnsState =>
     columns.get(tableRowId(schema, table)) ?? { status: "reading" };
-  const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf) : [];
+  const indexes = useIndexesOf(connectionId, openTables(expanded));
+  const indexesOf = (schema: string, table: string): IndexesState =>
+    indexes.get(tableRowId(schema, table)) ?? { status: "reading" };
+  const rows = tree.data ? treeRows(tree.data, expanded, filter, columnsOf, indexesOf) : [];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -146,7 +151,7 @@ function Row({
   row: TreeRow;
   onToggle: (id: string) => void;
 } & Openers) {
-  const indent = INDENTS[row.indent] ?? "pl-14";
+  const indent = INDENTS[row.indent] ?? "pl-18";
 
   if (row.kind === "note") {
     return <span className={`text-faint truncate py-0.5 pr-2 text-xs ${indent}`}>{row.text}</span>;
@@ -185,6 +190,20 @@ function Row({
       >
         <span className="truncate">{row.name}</span>
         <span className="text-faint truncate text-xs">{beside}</span>
+      </span>
+    );
+  }
+
+  if (row.kind === "index") {
+    const traits = [
+      `${row.method} (${row.keys})`,
+      row.primary ? "primary key" : row.unique ? "unique" : null,
+      formatBytes(row.bytes),
+    ];
+    return (
+      <span className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}>
+        <span className="truncate">{row.name}</span>
+        <span className="text-faint truncate text-xs">{traits.filter(Boolean).join(" · ")}</span>
       </span>
     );
   }

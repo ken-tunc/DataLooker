@@ -1,7 +1,7 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { schemaTree, tableColumns } from "../../lib/commands";
+import { schemaTree, tableColumns, tableIndexes } from "../../lib/commands";
 import { describeError } from "../../lib/invoke";
-import type { ColumnsState, NamedTable } from "./rows";
+import type { ColumnsState, IndexesState, NamedTable } from "./rows";
 import { schemaKeys } from "./keys";
 import { tableRowId } from "./rows";
 
@@ -43,6 +43,33 @@ export function useColumnsOf(
               : result.isError
                 ? { status: "failed", message: describeError(result.error) }
                 : { status: "read", columns: result.data };
+          return [tableRowId(named.schema, named.table), state];
+        }),
+      ),
+  });
+}
+
+/** As `useColumnsOf`, for the indexes listed beside the columns. */
+export function useIndexesOf(
+  connectionId: string,
+  tables: readonly NamedTable[],
+): Map<string, IndexesState> {
+  return useQueries({
+    queries: tables.map(({ schema, table }) => ({
+      queryKey: schemaKeys.indexes(connectionId, schema, table),
+      queryFn: () => tableIndexes(connectionId, schema, table),
+      staleTime: STALE_TIME,
+    })),
+    combine: (results) =>
+      new Map(
+        tables.map((named, at) => {
+          const result = results[at];
+          const state: IndexesState =
+            !result || result.isPending
+              ? { status: "reading" }
+              : result.isError
+                ? { status: "failed", message: describeError(result.error) }
+                : { status: "read", indexes: result.data };
           return [tableRowId(named.schema, named.table), state];
         }),
       ),

@@ -34,7 +34,7 @@ use crate::db::history::HistoryEntry;
 use crate::db::template::QueryTemplate;
 use crate::drivers::bigquery::Estimate;
 use crate::drivers::{
-    Column, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, Index, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -113,6 +113,7 @@ commands! {
     template::delete_template(TemplateArgs) -> ();
     schema::schema_tree(ConnectionArgs) -> SchemaTree;
     schema::table_columns(TableArgs) -> Vec<Column>;
+    schema::table_indexes(TableArgs) -> Vec<Index>;
     schema::table_definition(TableArgs) -> TableDefinition;
     schema::routine_definition(RoutineArgs) -> String;
     preview::preview_table(PreviewRequest) -> TablePage;

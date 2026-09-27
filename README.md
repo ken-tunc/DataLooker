@@ -33,13 +33,14 @@ PostgreSQL and BigQuery.
   outright: a sort or hash on disk, a lossy bitmap, missing workers, a filter that throws
   most rows away. Every key of a node is a click away. The plan can also be drawn as a
   graph, each line as wide as the rows it carries.
-- **Schema tree** — schemas, their tables and, a folder each, their functions and
+- **Schema tree** — schemas and their tables, with a folder each for functions and
   procedures (BigQuery's routines), sequences with their value and owning column, and
-  types — an enum's labels, a composite's attributes, what a domain narrows —
-  filterable by name; day-named tables such as
-  `events_20250101` are folded into one row. Opening a routine shows the statement that
-  would make it, which can be copied into a query tab to edit. A table's and a column's comment (a
-  BigQuery description) is shown beside it.
+  types: an enum's labels, a composite's attributes, what a domain narrows. An open
+  table lists its columns and, with their size, its indexes. Comments (BigQuery's
+  descriptions) are shown beside what they are on. Everything is filterable by name,
+  and day-named tables such as `events_20250101` are folded into one row. Opening a
+  routine shows the statement that would make it, which can be copied into a query tab
+  to edit.
 - **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
   comments, indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
   BigQuery table can be read as it was at any point in its time-travel window, after

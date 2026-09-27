@@ -20,8 +20,8 @@ pub use crate::drivers::postgres::edit::{Edits, Plan};
 pub use crate::drivers::postgres::explain::statement as explain_statement;
 pub use crate::drivers::postgres::risks::risks;
 use crate::drivers::{
-    Column, DriverError, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage,
-    TableShape,
+    Column, DriverError, Index, Preview, QueryPlan, QueryResult, SchemaTree, TableDefinition,
+    TablePage, TableShape,
 };
 use crate::error::AppError;
 
@@ -198,6 +198,11 @@ impl PostgresSession {
             Ok(schema::routine_definition(conn, schema, name, arguments).await?)
         })
         .await
+    }
+
+    pub async fn indexes(&self, schema: &str, table: &str) -> Result<Vec<Index>, AppError> {
+        self.on_catalog(async |conn| Ok(schema::indexes(conn, schema, table).await?))
+            .await
     }
 
     pub async fn columns(&self, schema: &str, table: &str) -> Result<Vec<Column>, AppError> {

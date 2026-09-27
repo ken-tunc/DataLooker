@@ -4,8 +4,8 @@ use futures_util::TryStreamExt;
 use sqlx::{PgConnection, Row};
 
 use crate::drivers::{
-    Column, Routine, RoutineKind, Schema, SchemaTree, Sequence, Table, TableKind, TypeMember,
-    UserType, UserTypeKind,
+    Column, Index, Routine, RoutineKind, Schema, SchemaTree, Sequence, Table, TableKind,
+    TypeMember, UserType, UserTypeKind,
 };
 
 /// `pg_catalog` rather than `information_schema`: it knows about materialized
@@ -119,6 +119,28 @@ const ROUTINE_DEFINITION: &str = "
        AND pg_get_function_identity_arguments(p.oid) = $3
 ";
 
+/// Every index, those backing a constraint too: the tree is where a reader
+/// looks for what an index costs.
+const INDEXES: &str = "
+    SELECT ic.relname AS name,
+           am.amname AS method,
+           array_to_string(ARRAY(
+               SELECT pg_get_indexdef(i.indexrelid, k, true)
+                 FROM generate_series(1, i.indnkeyatts) k
+                ORDER BY k
+           ), ', ') AS keys,
+           i.indisunique AS is_unique,
+           i.indisprimary AS is_primary,
+           pg_relation_size(i.indexrelid) AS bytes
+      FROM pg_index i
+      JOIN pg_class ic ON ic.oid = i.indexrelid
+      JOIN pg_am am ON am.oid = ic.relam
+      JOIN pg_class c ON c.oid = i.indrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1 AND c.relname = $2
+     ORDER BY i.indisprimary DESC, ic.relname
+";
+
 const COLUMNS: &str = "
     SELECT a.attname AS column_name,
            format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -230,6 +252,30 @@ pub async fn routine_definition(
         .bind(arguments)
         .fetch_optional(conn)
         .await
+}
+
+pub async fn indexes(
+    conn: &mut PgConnection,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<Index>, sqlx::Error> {
+    let rows = sqlx::query(INDEXES)
+        .bind(schema)
+        .bind(table)
+        .fetch_all(conn)
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(Index {
+                name: row.try_get("name")?,
+                method: row.try_get("method")?,
+                keys: row.try_get("keys")?,
+                unique: row.try_get("is_unique")?,
+                primary: row.try_get("is_primary")?,
+                bytes: row.try_get::<i64, _>("bytes")?.max(0) as u64,
+            })
+        })
+        .collect()
 }
 
 pub async fn columns(
@@ -608,6 +654,57 @@ mod live {
         );
 
         run(&session, "DROP SCHEMA tree_kinds CASCADE")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_table_s_indexes_are_listed_with_their_keys_and_size() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_indexes CASCADE",
+            "CREATE SCHEMA tree_indexes",
+            "CREATE TABLE tree_indexes.people (id int PRIMARY KEY, email text UNIQUE, name text)",
+            "CREATE INDEX by_name ON tree_indexes.people USING hash (lower(name))",
+            "CREATE INDEX covering ON tree_indexes.people (name, id) INCLUDE (email)",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+
+        let indexes = session.indexes("tree_indexes", "people").await.unwrap();
+
+        let listed: Vec<(&str, &str, &str, bool, bool)> = indexes
+            .iter()
+            .map(|i| {
+                (
+                    i.name.as_str(),
+                    i.method.as_str(),
+                    i.keys.as_str(),
+                    i.unique,
+                    i.primary,
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("people_pkey", "btree", "id", true, true),
+                ("by_name", "hash", "lower(name)", false, false),
+                ("covering", "btree", "name, id", false, false),
+                ("people_email_key", "btree", "email", true, false),
+            ]
+        );
+        // Even an empty index has its metapage.
+        assert!(indexes.iter().all(|index| index.bytes > 0), "{indexes:?}");
+        assert!(session
+            .indexes("tree_indexes", "nothing")
+            .await
+            .unwrap()
+            .is_empty());
+
+        run(&session, "DROP SCHEMA tree_indexes CASCADE")
             .await
             .unwrap();
     }

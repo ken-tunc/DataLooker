@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::drivers::session::Whose;
-use crate::drivers::{Column, SchemaTree, TableDefinition};
+use crate::drivers::{Column, Index, SchemaTree, TableDefinition};
 use crate::error::AppError;
 
 impl App {
@@ -32,6 +32,18 @@ impl App {
                 .await
         })
         .await
+    }
+
+    pub async fn table_indexes(
+        &self,
+        connection_id: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<Index>, AppError> {
+        self.session(connection_id)
+            .await?
+            .indexes(schema, table)
+            .await
     }
 
     pub async fn table_definition(

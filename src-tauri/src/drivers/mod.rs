@@ -184,6 +184,22 @@ pub struct Column {
     pub comment: Option<String>,
 }
 
+/// An index of a table, as the tree lists it under the table.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct Index {
+    pub name: String,
+    /// `btree`, `gin`, …
+    pub method: String,
+    /// The key columns or expressions, as `a, lower(b)`.
+    pub keys: String,
+    pub unique: bool,
+    pub primary: bool,
+    /// On disk. Far below 2^53, so a JSON number holds it.
+    #[ts(type = "number")]
+    pub bytes: u64,
+}
+
 /// How a table preview is ordered. `column` is an identifier the caller took
 /// from the table's own columns.
 #[derive(Debug, Deserialize, TS)]
