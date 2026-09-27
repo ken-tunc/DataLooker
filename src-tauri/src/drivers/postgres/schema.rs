@@ -111,10 +111,31 @@ const TYPES: &str = "
 ";
 
 /// Overloads share a name, and the arguments tell them apart.
+///
+/// `pg_get_functiondef` refuses an aggregate, so one is written from
+/// `pg_aggregate`: its state, final and combine functions, starting value and
+/// sort operator. The moving-aggregate and parallel options are left out.
+/// An ordered-set aggregate's `ORDER BY` is already in its arguments.
 const ROUTINE_DEFINITION: &str = "
-    SELECT pg_get_functiondef(p.oid)
+    SELECT CASE WHEN p.prokind <> 'a' THEN pg_get_functiondef(p.oid) ELSE
+           format(E'CREATE OR REPLACE AGGREGATE %I.%I(%s) (\\n    %s\\n);',
+                  n.nspname, p.proname, pg_get_function_identity_arguments(p.oid),
+                  concat_ws(E',\\n    ',
+                      'SFUNC = ' || a.aggtransfn::regproc,
+                      'STYPE = ' || format_type(a.aggtranstype, NULL),
+                      CASE WHEN a.aggfinalfn <> 0 THEN 'FINALFUNC = ' || a.aggfinalfn::regproc END,
+                      CASE WHEN a.aggcombinefn <> 0
+                           THEN 'COMBINEFUNC = ' || a.aggcombinefn::regproc END,
+                      CASE WHEN a.agginitval IS NOT NULL
+                           THEN 'INITCOND = ' || quote_literal(a.agginitval) END,
+                      (SELECT 'SORTOP = OPERATOR(' || quote_ident(os.nspname) || '.' || o.oprname || ')'
+                         FROM pg_operator o JOIN pg_namespace os ON os.oid = o.oprnamespace
+                        WHERE o.oid = a.aggsortop),
+                      CASE WHEN a.aggkind = 'h' THEN 'HYPOTHETICAL' END))
+           END
       FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace
+      LEFT JOIN pg_aggregate a ON a.aggfnoid = p.oid
      WHERE n.nspname = $1 AND p.proname = $2
        AND pg_get_function_identity_arguments(p.oid) = $3
 ";
@@ -455,6 +476,8 @@ mod live {
                  LANGUAGE sql AS 'SELECT a || b'",
             "CREATE PROCEDURE tree_routines.tidy() LANGUAGE sql AS 'SELECT 1'",
             "COMMENT ON PROCEDURE tree_routines.tidy() IS 'Run nightly'",
+            "CREATE AGGREGATE tree_routines.total(integer) \
+                 (SFUNC = int4pl, STYPE = integer, INITCOND = '0')",
             // What an extension brings is its own, not the schema's.
             "CREATE EXTENSION citext SCHEMA tree_routines",
         ] {
@@ -485,8 +508,22 @@ mod live {
                 ("add", "a integer, b integer", RoutineKind::Function, None),
                 ("add", "a text, b text", RoutineKind::Function, None),
                 ("tidy", "", RoutineKind::Procedure, Some("Run nightly")),
+                ("total", "integer", RoutineKind::Aggregate, None),
             ]
         );
+
+        // Written out, an aggregate makes itself again.
+        let aggregate = session
+            .routine_definition("tree_routines", "total", "integer")
+            .await
+            .unwrap()
+            .expect("the aggregate just made");
+        assert_eq!(
+            aggregate,
+            "CREATE OR REPLACE AGGREGATE tree_routines.total(integer) (\n    \
+             SFUNC = int4pl,\n    STYPE = integer,\n    INITCOND = '0'\n);"
+        );
+        run(&session, &aggregate).await.unwrap();
 
         let text = session
             .routine_definition("tree_routines", "add", "a text, b text")
