@@ -64,6 +64,8 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
     table_shape: { types: { id: "bigint" }, primary_key: ["id"] },
     preview_table: page,
     statement_risks: [],
+    saved_tabs: { tabs: [], active: 0 },
+    save_tabs: null,
     ...replies,
   });
   // The shell fills the window it is given, and the tabs it holds are drawn at
@@ -290,6 +292,73 @@ describe("AppShell", () => {
     ipc.emit("agent:handoff", { connection_id: "id-1", sql: "SELECT 2", title: null });
 
     await expect.poll(titles).toEqual(["Query 1", "Query 2agent", "Query 3agent"]);
+  });
+
+  describe("across a restart", () => {
+    const saved = {
+      tabs: [
+        { kind: "sql" as const, title: "Orders", sql: "SELECT * FROM orders" },
+        { kind: "table" as const, schema: "shop", table: "people" },
+      ],
+      active: 1,
+    };
+
+    it("reopens the tabs a connection had, with the one that was in front", async () => {
+      const { ipc, screen, titles, selected } = await shell({ saved_tabs: saved });
+
+      await screen.getByRole("button", { name: "Local", exact: true }).click();
+
+      await expect.poll(titles).toEqual(["Orders", "shop.people"]);
+      expect(selected()).toBe("shop.people");
+      expect(ipc.sent("saved_tabs")).toEqual({ connection_id: "id-1" });
+      await screen.getByRole("tab", { name: /Orders/ }).click();
+      await expect.element(screen.getByText("SELECT * FROM orders")).toBeVisible();
+    });
+
+    it("puts what an agent hands over after what the connection had", async () => {
+      const { ipc, titles, selected } = await shell({ saved_tabs: saved });
+
+      ipc.emit("agent:handoff", { connection_id: "id-2", sql: "SELECT 1", title: "Handed" });
+
+      await expect.poll(titles).toEqual(["Orders", "shop.people", "Handedagent"]);
+      expect(selected()).toBe("Handedagent");
+    });
+
+    it("saves the tabs as they change, leaving out an agent's", async () => {
+      const { ipc, titles, open } = await shell();
+      await open("Local");
+
+      await userEvent.keyboard("{Meta>}t{/Meta}");
+      ipc.emit("agent:handoff", { connection_id: "id-1", sql: "SELECT 1", title: null });
+
+      await expect.poll(titles).toEqual(["Query 1", "Query 2", "Query 3agent"]);
+      await expect
+        .poll(() => ipc.sent("save_tabs"))
+        .toEqual({
+          connection_id: "id-1",
+          tabs: {
+            tabs: [
+              { kind: "sql", title: "Query 1", sql: "" },
+              { kind: "sql", title: "Query 2", sql: "" },
+            ],
+            active: 0,
+          },
+        });
+    });
+
+    it("saves nothing over tabs that could not be read back", async () => {
+      const { ipc, open } = await shell({
+        saved_tabs: () => {
+          throw { kind: "Database", message: "disk I/O error" };
+        },
+      });
+      await open("Local");
+
+      await userEvent.keyboard("{Meta>}t{/Meta}");
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      expect(ipc.sent("save_tabs")).toBeUndefined();
+    });
   });
 
   it("keeps the shortcuts quiet while a palette is in front", async () => {

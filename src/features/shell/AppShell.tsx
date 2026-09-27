@@ -50,7 +50,7 @@ export function AppShell() {
 
   function select(id: string) {
     bringForward(id);
-    if (!tabs.of(id)) tabs.open(id);
+    tabs.restore(id);
   }
 
   // The connection comes to the front with it: the backend has brought the

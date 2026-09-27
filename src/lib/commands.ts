@@ -1,5 +1,6 @@
 import type { PreviewRequest } from "../bindings/PreviewRequest";
 import type { SaveConnectionInput } from "../bindings/SaveConnectionInput";
+import type { SavedTabs } from "../bindings/SavedTabs";
 import type { SaveTemplateInput } from "../bindings/SaveTemplateInput";
 import type { TableEdits } from "../bindings/TableEdits";
 import { invoke } from "./invoke";
@@ -44,6 +45,11 @@ export function explainQuery(connectionId: string, sql: string, analyze: boolean
   });
 }
 
+/** Of the reader's session, as the last statement on it left it. */
+export function transactionState(connectionId: string) {
+  return invoke("transaction_state", { connection_id: connectionId });
+}
+
 export function cancelQuery(queryId: string) {
   return invoke("cancel_query", { query_id: queryId });
 }
@@ -65,6 +71,16 @@ export function statementRisks(connectionId: string, sql: string) {
 
 export function queryHistory(connectionId: string) {
   return invoke("query_history", { connection_id: connectionId });
+}
+
+/** The tabs the connection had open when it was last saved; none if never. */
+export function savedTabs(connectionId: string) {
+  return invoke("saved_tabs", { connection_id: connectionId });
+}
+
+/** Replaces what was kept, so a tab closed since stays closed. */
+export function saveTabs(connectionId: string, tabs: SavedTabs) {
+  return invoke("save_tabs", { connection_id: connectionId, tabs });
 }
 
 export function listTemplates() {

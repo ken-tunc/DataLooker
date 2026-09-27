@@ -4,6 +4,7 @@ import type { QueryPlan } from "../../bindings/QueryPlan";
 import type { QueryResult } from "../../bindings/QueryResult";
 import { cancelQuery, executeQuery, explainQuery } from "../../lib/commands";
 import { historyKeys } from "../query-history/keys";
+import { transactionKeys } from "../transaction/keys";
 
 /** What the editor asks of the database: its rows, or its plan. */
 export type Request = { sql: string; explain: "plan" | "analyze" | null };
@@ -32,10 +33,12 @@ export function useQueryRunner(connectionId: string) {
         runningId.current = null;
       }
     },
-    // Every run is logged, whatever became of it. Not returned, or the
-    // mutation would stay pending until the refetch came back.
+    // Every run is logged, and may have begun or ended a transaction,
+    // whatever became of it. Not returned, or the mutation would stay pending
+    // until the refetch came back.
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: historyKeys.of(connectionId) });
+      void queryClient.invalidateQueries({ queryKey: transactionKeys.of(connectionId) });
     },
   });
 
