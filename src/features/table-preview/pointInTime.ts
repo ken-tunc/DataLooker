@@ -75,7 +75,10 @@ export function parseWallClock(text: string, timeZone: string): Date | null {
   // The offset depends on the instant it is asked for, which is what is being
   // found: asked twice, it settles on the offset in force at that wall time.
   const first = new Date(wall.getTime() - offsetOf(wall, timeZone) * 1000);
-  return new Date(wall.getTime() - offsetOf(first, timeZone) * 1000);
+  const at = new Date(wall.getTime() - offsetOf(first, timeZone) * 1000);
+  // A time the clocks spring forward over never happens, and reading it as the
+  // hour beside it would read a point the reader did not write.
+  return at.getTime() + offsetOf(at, timeZone) * 1000 === wall.getTime() ? at : null;
 }
 
 if (import.meta.vitest) {
@@ -136,6 +139,14 @@ if (import.meta.vitest) {
       for (const text of ["", "yesterday", "2025-01-02", "2025-02-30 10:00", "2025-01-02 25:00"]) {
         expect(parseWallClock(text, "UTC"), text).toBeNull();
       }
+    });
+
+    it("refuses a time the zone's clocks spring forward over", () => {
+      // New York went from 02:00 straight to 03:00 on 9 March 2025.
+      expect(parseWallClock("2025-03-09 02:30", "America/New_York")).toBeNull();
+      expect(parseWallClock("2025-03-09 03:30", "America/New_York")).toEqual(
+        utc("2025-03-09T07:30:00Z"),
+      );
     });
   });
 }
