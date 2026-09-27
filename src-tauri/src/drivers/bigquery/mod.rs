@@ -1,3 +1,4 @@
+mod api;
 mod estimate;
 mod preview;
 mod query;
@@ -12,20 +13,13 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use futures_util::future::try_join_all;
-use gcp_bigquery_client::model::job::Job;
-use gcp_bigquery_client::model::job_configuration::JobConfiguration;
-use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
-use gcp_bigquery_client::model::job_reference::JobReference;
-use gcp_bigquery_client::model::job_statistics2::JobStatistics2;
-use gcp_bigquery_client::model::query_request::QueryRequest;
-use gcp_bigquery_client::model::table_reference::TableReference;
-use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
 use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
+use api::{Client, Plan, Query, TableReference};
 pub use estimate::Estimate;
 
 /// Bounds `test` and the dry run before a statement: neither the OAuth
@@ -77,15 +71,10 @@ impl BigQuerySession {
         })
     }
 
-    /// Built on first use. The scope is not read-only: what the reader may do
-    /// is the service account's to decide.
+    /// Built on first use.
     async fn client(&self) -> Result<&Client, AppError> {
         self.client
-            .get_or_try_init(|| async {
-                Client::from_service_account_key(self.key.clone(), false)
-                    .await
-                    .map_err(|e| AppError::Database(format!("BigQuery refused the key: {e}")))
-            })
+            .get_or_try_init(|| async { Ok(Client::new(self.key.clone()).await?) })
             .await
     }
 
@@ -175,45 +164,15 @@ impl BigQuerySession {
     }
 
     /// BigQuery plans the statement and says what it would do, billing nothing.
-    async fn dry_run(
-        &self,
-        sql: &str,
-        cancel: &CancellationToken,
-    ) -> Result<JobStatistics2, AppError> {
+    async fn dry_run(&self, sql: &str, cancel: &CancellationToken) -> Result<Plan, AppError> {
         let client = tokio::select! {
             client = self.client() => client?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
         };
-
-        let asking = Job {
-            // Without a location it is planned in the default region, where
-            // the tables it names are not.
-            job_reference: Some(JobReference {
-                job_id: None,
-                location: Some(self.location.clone()),
-                project_id: Some(self.project_id.clone()),
-            }),
-            configuration: Some(JobConfiguration {
-                dry_run: Some(true),
-                query: Some(JobConfigurationQuery {
-                    query: sql.to_string(),
-                    use_legacy_sql: Some(false),
-                    ..JobConfigurationQuery::default()
-                }),
-                ..JobConfiguration::default()
-            }),
-            ..Job::default()
-        };
-
-        let planned = tokio::select! {
-            planned = client.job().insert(&self.project_id, asking) => planned,
-            () = cancel.cancelled() => return Err(AppError::Cancelled),
-        };
-        planned
-            .map_err(query::refused)?
-            .statistics
-            .and_then(|statistics| statistics.query)
-            .ok_or_else(|| AppError::Database("BigQuery did not plan the statement".to_string()))
+        tokio::select! {
+            planned = client.dry_run(&self.project_id, &self.location, sql) => Ok(planned?),
+            () = cancel.cancelled() => Err(AppError::Cancelled),
+        }
     }
 
     pub async fn execute(
@@ -308,15 +267,8 @@ impl BigQuerySession {
 
     pub async fn test(&self) -> Result<(), AppError> {
         let attempt = async {
-            let mut request = QueryRequest::new(NOTHING_AT_ALL);
-            request.location = Some(self.location.clone());
-            request.use_legacy_sql = false;
-            self.client()
-                .await?
-                .job()
-                .query(&self.project_id, request)
-                .await
-                .map_err(|e| AppError::Database(e.to_string()))?;
+            let query = Query::new(NOTHING_AT_ALL, &self.location);
+            self.client().await?.query(&self.project_id, &query).await?;
             Ok(())
         };
         tokio::time::timeout(UNWATCHED, attempt)

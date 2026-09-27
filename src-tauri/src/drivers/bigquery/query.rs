@@ -1,13 +1,8 @@
 use std::time::Instant;
 
-use gcp_bigquery_client::error::BQError;
-use gcp_bigquery_client::model::get_query_results_parameters::GetQueryResultsParameters;
-use gcp_bigquery_client::model::query_request::QueryRequest;
-use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
-use gcp_bigquery_client::model::table_row::TableRow;
-use gcp_bigquery_client::Client;
 use tokio_util::sync::CancellationToken;
 
+use super::api::{Answer, Client, Field, Query, Row};
 use super::value::{decode, holds_instants, type_name};
 use crate::drivers::{QueryColumn, QueryResult};
 use crate::error::AppError;
@@ -25,12 +20,27 @@ pub fn region(location: &str) -> String {
 }
 
 struct Page {
-    fields: Vec<TableFieldSchema>,
-    rows: Vec<TableRow>,
+    fields: Vec<Field>,
+    rows: Vec<Row>,
     job: Option<String>,
     next: Option<String>,
     /// How many rows the whole result holds, once the job has finished.
     total: Option<u64>,
+}
+
+impl Page {
+    fn of(answer: Answer, job: Option<String>) -> Self {
+        Self {
+            fields: answer
+                .schema
+                .map(|schema| schema.fields)
+                .unwrap_or_default(),
+            rows: answer.rows.unwrap_or_default(),
+            job,
+            next: answer.page_token,
+            total: count(answer.total_rows.as_deref()),
+        }
+    }
 }
 
 pub async fn execute(
@@ -47,7 +57,7 @@ pub async fn execute(
         .unwrap_or(i32::MAX)
         .saturating_add(1);
     let query = request(sql, location, wanted);
-    let mut page = start(client, project_id, location, query, wanted, cancel).await?;
+    let mut page = start(client, project_id, &query, cancel).await?;
     let fields = std::mem::take(&mut page.fields);
     let total = page.total;
     // BigQuery ends a page at its own size cap too, so the rows asked for may
@@ -90,44 +100,40 @@ pub async fn execute(
 pub async fn collect(
     client: &Client,
     project_id: &str,
-    location: &str,
-    sql: &str,
-    parameters: Vec<gcp_bigquery_client::model::query_parameter::QueryParameter>,
+    query: Query<'_>,
 ) -> Result<Vec<Vec<serde_json::Value>>, AppError> {
     let cancel = CancellationToken::new();
-    let mut request = request(sql, location, PAGE);
-    if !parameters.is_empty() {
-        request.parameter_mode = Some("NAMED".to_string());
-        request.query_parameters = Some(parameters);
-    }
+    let query = Query {
+        timeout_ms: Some(HOLD_MS),
+        max_results: Some(PAGE),
+        ..query
+    };
 
-    let mut page = start(client, project_id, location, request, PAGE, &cancel).await?;
-    let fields = page.fields.clone();
+    let mut page = start(client, project_id, &query, &cancel).await?;
+    let fields = std::mem::take(&mut page.fields);
     let mut rows: Vec<Vec<serde_json::Value>> =
         page.rows.iter().map(|row| cells(row, &fields)).collect();
 
     while let (Some(token), Some(job)) = (page.next.clone(), page.job.clone()) {
-        page = more(client, project_id, location, &job, &token, &cancel).await?;
+        page = more(client, project_id, query.location, &job, &token, &cancel).await?;
         rows.extend(page.rows.iter().map(|row| cells(row, &fields)));
     }
     Ok(rows)
 }
 
-fn request(sql: &str, location: &str, wanted: i32) -> QueryRequest {
-    let mut request = QueryRequest::new(sql);
-    request.location = Some(location.to_string());
-    request.use_legacy_sql = false;
-    request.timeout_ms = Some(HOLD_MS);
-    request.max_results = Some(wanted);
-    request
+fn request<'a>(sql: &'a str, location: &'a str, wanted: i32) -> Query<'a> {
+    Query {
+        timeout_ms: Some(HOLD_MS),
+        max_results: Some(wanted),
+        ..Query::new(sql, location)
+    }
 }
 
-pub(super) fn cells(row: &TableRow, fields: &[TableFieldSchema]) -> Vec<serde_json::Value> {
-    let cells = row.columns.as_deref().unwrap_or_default();
+pub(super) fn cells(row: &Row, fields: &[Field]) -> Vec<serde_json::Value> {
     fields
         .iter()
         .enumerate()
-        .map(|(at, field)| decode(cells.get(at).and_then(|cell| cell.value.as_ref()), field))
+        .map(|(at, field)| decode(row.f.get(at).and_then(|cell| cell.get("v")), field))
         .collect()
 }
 
@@ -135,31 +141,24 @@ pub(super) fn cells(row: &TableRow, fields: &[TableFieldSchema]) -> Vec<serde_js
 async fn start(
     client: &Client,
     project_id: &str,
-    location: &str,
-    request: QueryRequest,
-    wanted: i32,
+    query: &Query<'_>,
     cancel: &CancellationToken,
 ) -> Result<Page, AppError> {
     // Cancelled before BigQuery names the job, the job cannot be cancelled and
     // is left running. Once there is an id, it is cancelled too.
     let answered = tokio::select! {
-        answered = client.job().query(project_id, request) => answered,
+        answered = client.query(project_id, query) => answered?,
         () = cancel.cancelled() => return Err(AppError::Cancelled),
-    }
-    .map_err(refused)?;
+    };
 
     let job = answered
         .job_reference
-        .and_then(|reference| reference.job_id);
-    let mut page = Page {
-        fields: fields_of(answered.schema.and_then(|schema| schema.fields)),
-        rows: answered.rows.unwrap_or_default(),
-        job: job.clone(),
-        next: answered.page_token,
-        total: count(answered.total_rows.as_deref()),
-    };
-
+        .as_ref()
+        .and_then(|reference| reference.job_id.clone());
     let mut complete = answered.job_complete.unwrap_or(false);
+    let mut page = Page::of(answered, job.clone());
+
+    let wanted = query.max_results.unwrap_or(PAGE);
     while !complete {
         let Some(job_id) = job.as_deref() else {
             // Unfinished and no job id: nothing to ask after.
@@ -167,8 +166,16 @@ async fn start(
                 "BigQuery started a job it did not name".into(),
             ));
         };
-        let (asked, finished) =
-            ask(client, project_id, location, job_id, wanted, None, cancel).await?;
+        let (asked, finished) = ask(
+            client,
+            project_id,
+            query.location,
+            job_id,
+            wanted,
+            None,
+            cancel,
+        )
+        .await?;
         page = asked;
         complete = finished;
     }
@@ -208,52 +215,22 @@ async fn ask(
     token: Option<&str>,
     cancel: &CancellationToken,
 ) -> Result<(Page, bool), AppError> {
-    let parameters = GetQueryResultsParameters {
-        location: Some(location.to_string()),
-        max_results: Some(wanted),
-        timeout_ms: Some(HOLD_MS),
-        page_token: token.map(str::to_string),
-        ..Default::default()
-    };
-
+    let asked = client.query_results(project_id, job_id, location, wanted, HOLD_MS, token);
     let answered = tokio::select! {
-        answered = client.job().get_query_results(project_id, job_id, parameters) => answered,
+        answered = asked => answered?,
         () = cancel.cancelled() => {
-            let _ = client.job().cancel_job(project_id, job_id, Some(location)).await;
+            let _ = client.cancel(project_id, job_id, location).await;
             return Err(AppError::Cancelled);
         }
-    }
-    .map_err(refused)?;
+    };
 
     let complete = answered.job_complete.unwrap_or(false);
-    Ok((
-        Page {
-            fields: fields_of(answered.schema.and_then(|schema| schema.fields)),
-            rows: answered.rows.unwrap_or_default(),
-            job: Some(job_id.to_string()),
-            next: answered.page_token,
-            total: count(answered.total_rows.as_deref()),
-        },
-        complete,
-    ))
-}
-
-fn fields_of(fields: Option<Vec<TableFieldSchema>>) -> Vec<TableFieldSchema> {
-    fields.unwrap_or_default()
+    Ok((Page::of(answered, Some(job_id.to_string())), complete))
 }
 
 /// A string, and absent while the job runs.
 fn count(total_rows: Option<&str>) -> Option<u64> {
     total_rows.and_then(|total| total.parse().ok())
-}
-
-/// BigQuery's own words where it gave some; the client's rendering of them is
-/// a Rust debug dump of the whole response.
-pub(super) fn refused(error: BQError) -> AppError {
-    AppError::Database(match error {
-        BQError::ResponseError { error } => error.error.message,
-        other => other.to_string(),
-    })
 }
 
 #[cfg(test)]
@@ -264,25 +241,6 @@ mod tests {
     fn a_catalog_is_named_after_the_region_that_holds_it() {
         assert_eq!(region("US"), "region-us");
         assert_eq!(region("asia-northeast1"), "region-asia-northeast1");
-    }
-
-    #[test]
-    fn a_refusal_is_in_bigquery_s_own_words() {
-        let error = BQError::ResponseError {
-            error: gcp_bigquery_client::error::ResponseError {
-                error: gcp_bigquery_client::error::NestedResponseError {
-                    code: 400,
-                    errors: Vec::new(),
-                    message: "Unrecognized name: nope at [1:8]".to_string(),
-                    status: "INVALID_ARGUMENT".to_string(),
-                },
-            },
-        };
-
-        let AppError::Database(message) = refused(error) else {
-            panic!("a refusal is the database's");
-        };
-        assert_eq!(message, "Unrecognized name: nope at [1:8]");
     }
 
     #[test]
@@ -387,6 +345,26 @@ mod live {
             ]]
         );
         assert!(!result.truncated);
+    }
+
+    /// A type this driver has no word for is shown by BigQuery's name for it.
+    #[tokio::test]
+    async fn a_type_newer_than_the_driver_still_comes_back() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+
+        let result = session
+            .execute(
+                "SELECT RANGE(DATE '2025-01-01', DATE '2025-02-01') AS span",
+                ROW_LIMIT,
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("BigQuery ran the statement");
+
+        assert_eq!(result.columns[0].type_name, "RANGE");
+        assert_eq!(result.rows.len(), 1);
     }
 
     #[tokio::test]
