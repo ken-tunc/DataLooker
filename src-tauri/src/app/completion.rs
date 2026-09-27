@@ -459,6 +459,7 @@ mod tests {
                 secret: Some(std::fs::read_to_string(key).expect("the key")),
                 command: None,
                 command_while_selected: false,
+                production: false,
                 time_zone: None,
             })
             .await

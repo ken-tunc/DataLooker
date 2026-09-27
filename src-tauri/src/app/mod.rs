@@ -8,6 +8,7 @@ pub mod history;
 pub mod lsp;
 pub mod preview;
 mod query;
+mod risks;
 mod schema;
 pub mod shell;
 pub mod syntax;
@@ -137,6 +138,7 @@ pub mod tests {
                 secret: Some(password),
                 command: None,
                 command_while_selected: false,
+                production: false,
                 time_zone: None,
             })
             .await

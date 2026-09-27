@@ -81,6 +81,7 @@ mod tests {
                 secret: Some("hunter2".into()),
                 command: command.map(str::to_string),
                 command_while_selected: false,
+                production: false,
                 time_zone: None,
             })
             .await
@@ -169,6 +170,7 @@ mod tests {
             secret: None,
             command: command.map(str::to_string),
             command_while_selected: false,
+            production: false,
             time_zone: None,
         };
 

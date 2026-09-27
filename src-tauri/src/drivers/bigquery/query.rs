@@ -438,9 +438,10 @@ mod live {
         let table = format!("{}.rows", dataset.name);
         let kind = async |sql: String| {
             session
-                .statement_kind(&sql, &cancel)
+                .plan(&sql, &cancel)
                 .await
                 .expect("BigQuery planned the statement")
+                .kind
         };
 
         // A dry run plans and writes nothing.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { QueryPlan } from "../../bindings/QueryPlan";
+import type { Risk } from "../../bindings/Risk";
 import { type Replies, renderApp, stubIpc } from "../../test/harness";
 import { AppShell } from "../shell/AppShell";
 import { editor as monaco } from "../sql-editor/monaco";
@@ -19,6 +20,7 @@ const postgres: ConnectionRecord = {
   command: null,
   command_while_selected: false,
   time_zone: null,
+  production: false,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -403,5 +405,109 @@ describe("going to the table a name means", () => {
       .element(screen.getByText(/permission denied for schema public — no name can be looked up/))
       .toBeVisible();
     wentNowhere(screen);
+  });
+});
+
+describe("running a statement that is easy to regret", () => {
+  const nothing = { columns: [], rows: [], truncated: false, elapsed_ms: 1 };
+  const deleting = {
+    statement: "DELETE FROM public.users",
+    hazard: "delete_without_where" as const,
+    targets: ["public.users"],
+  };
+
+  it("runs a statement with nothing to ask about straight away", async () => {
+    const { ipc, screen } = await shell(postgres, { statement_risks: [], execute_query: nothing });
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    await expect.element(screen.getByText("The statement returned no rows.")).toBeVisible();
+    expect(ipc.sent("statement_risks")).toEqual({
+      connection_id: "c1",
+      sql: "SELECT * FROM orders o",
+    });
+  });
+
+  it("says what it would do and runs nothing when the reader backs out", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [deleting],
+      execute_query: nothing,
+    });
+    editor.setValue(deleting.statement);
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    const dialog = screen.getByRole("dialog", { name: "Run this statement?" });
+    await expect.element(dialog.getByText("Deletes every row of public.users.")).toBeVisible();
+    await expect.element(dialog.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(ipc.sent("execute_query")).toBeUndefined();
+  });
+
+  it("runs it once the reader confirms", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [deleting],
+      execute_query: nothing,
+    });
+    editor.setValue(deleting.statement);
+
+    await screen.getByRole("button", { name: "Run" }).click();
+    await screen
+      .getByRole("dialog", { name: "Run this statement?" })
+      .getByRole("button", { name: "Run" })
+      .click();
+
+    await expect.element(screen.getByText("The statement returned no rows.")).toBeVisible();
+    expect(ipc.sent("execute_query")).toMatchObject({ sql: deleting.statement });
+  });
+});
+
+describe("a statement that cannot be asked about", () => {
+  it("says why and runs nothing", async () => {
+    const { ipc, screen } = await shell(postgres, {
+      statement_risks: () => {
+        throw { kind: "Database", message: "the connection could not be read" };
+      },
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    await expect.element(screen.getByText("the connection could not be read")).toBeVisible();
+    expect(ipc.sent("execute_query")).toBeUndefined();
+  });
+});
+
+describe("a statement asked about from a tab behind", () => {
+  it("waits for its tab to come back before asking", async () => {
+    let answer: (risks: Risk[]) => void = () => {};
+    const { screen, editor } = await shell(postgres, {
+      statement_risks: () => new Promise<Risk[]>((resolve) => (answer = resolve)),
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+    editor.setValue("DELETE FROM public.users");
+
+    await screen.getByRole("button", { name: "Run" }).click();
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+    await expect
+      .element(screen.getByRole("tab", { name: "Query 2" }))
+      .toHaveAttribute("aria-selected", "true");
+    answer([
+      {
+        statement: "DELETE FROM public.users",
+        hazard: "delete_without_where",
+        targets: ["public.users"],
+      },
+    ]);
+
+    const dialog = screen.getByRole("dialog", { name: "Run this statement?" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect.element(dialog).not.toBeInTheDocument();
+
+    await screen.getByRole("tab", { name: "Query 1" }).click();
+
+    await expect.element(dialog).toBeVisible();
   });
 });
