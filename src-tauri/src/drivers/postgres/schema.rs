@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use futures_util::TryStreamExt;
+use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Row};
 
 use crate::drivers::{
@@ -238,8 +239,7 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
     }
     drop(rows);
 
-    let mut rows = sqlx::query(SEQUENCES).fetch(&mut *conn);
-    while let Some(row) = rows.try_next().await? {
+    for row in &sequence_rows(&mut *conn).await? {
         let Some(&at) = at.get(&row.try_get::<String, _>("schema_name")?) else {
             continue;
         };
@@ -250,7 +250,6 @@ pub async fn tree(conn: &mut PgConnection) -> Result<SchemaTree, sqlx::Error> {
             comment: row.try_get("comment")?,
         });
     }
-    drop(rows);
 
     let mut rows = sqlx::query(TYPES).fetch(conn);
     while let Some(row) = rows.try_next().await? {
@@ -327,6 +326,28 @@ pub async fn columns(
         });
     }
     Ok(columns)
+}
+
+/// `pg_sequences` opens each sequence to read its value, and one dropped after
+/// the catalog listed it cannot be opened. Read again, it is no longer listed.
+async fn sequence_rows(conn: &mut PgConnection) -> Result<Vec<PgRow>, sqlx::Error> {
+    let mut tries = 0;
+    loop {
+        match sqlx::query(SEQUENCES).fetch_all(&mut *conn).await {
+            Err(error) if tries < 3 && vanished(&error) => tries += 1,
+            read => return read,
+        }
+    }
+}
+
+/// What PostgreSQL says when a relation it has just listed is gone.
+fn vanished(error: &sqlx::Error) -> bool {
+    matches!(
+        error,
+        sqlx::Error::Database(error)
+            if error.code().as_deref() == Some("XX000")
+                && error.message().starts_with("could not open relation")
+    )
 }
 
 fn user_type_kind(typtype: char) -> UserTypeKind {
@@ -801,6 +822,47 @@ mod live {
         run(&session, "DROP SCHEMA tree_indexes CASCADE")
             .await
             .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sequence_dropped_after_it_was_listed_is_recognized_as_gone() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        for statement in [
+            "DROP SCHEMA IF EXISTS tree_vanished CASCADE",
+            "CREATE SCHEMA tree_vanished",
+            "CREATE SEQUENCE tree_vanished.tickets",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+        // A snapshot taken before the drop still lists the sequence, as a
+        // catalog read racing a drop does.
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .host(&var("DATALOOKER_TEST_PG_HOST", "localhost"))
+            .port(var("DATALOOKER_TEST_PG_PORT", "55432").parse().unwrap())
+            .database(&var("DATALOOKER_TEST_PG_DATABASE", "datalooker_test"))
+            .username(&var("DATALOOKER_TEST_PG_USERNAME", "datalooker"))
+            .password(&var("DATALOOKER_TEST_PG_PASSWORD", "datalooker"));
+        let mut conn = <sqlx::PgConnection as sqlx::Connection>::connect_with(&options)
+            .await
+            .unwrap();
+        for statement in [
+            "BEGIN ISOLATION LEVEL REPEATABLE READ",
+            "SELECT 1 FROM pg_class",
+        ] {
+            sqlx::query(statement).execute(&mut conn).await.unwrap();
+        }
+        run(&session, "DROP SCHEMA tree_vanished CASCADE")
+            .await
+            .unwrap();
+
+        let error = sqlx::query(super::SEQUENCES)
+            .fetch_all(&mut conn)
+            .await
+            .unwrap_err();
+        assert!(super::vanished(&error), "{error:?}");
+        assert!(!super::vanished(&sqlx::Error::RowNotFound));
     }
 
     #[tokio::test(flavor = "multi_thread")]
