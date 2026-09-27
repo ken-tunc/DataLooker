@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -24,7 +22,7 @@ pub struct AgentAccess {
 impl App {
     /// Reads the keychain only while the door is open, which is when the token
     /// is shown.
-    pub async fn agent_access(self: &Arc<Self>) -> Result<AgentAccess, AppError> {
+    pub async fn agent_access(&'static self) -> Result<AgentAccess, AppError> {
         let mut access = agent::find(&self.pool).await?;
         let mut token = String::new();
         if access.enabled {
@@ -45,10 +43,7 @@ impl App {
 
     /// The token and port are made the first time and kept, so an agent
     /// configured once keeps working after a restart.
-    pub async fn set_agent_access(
-        self: &Arc<Self>,
-        enabled: bool,
-    ) -> Result<AgentAccess, AppError> {
+    pub async fn set_agent_access(&'static self, enabled: bool) -> Result<AgentAccess, AppError> {
         let turning = self.turning.lock().await;
         // Shutting does not read the keychain, so a reader who refused it can
         // still shut the door.
@@ -70,7 +65,7 @@ impl App {
     /// The keychain is not read here but at an agent's first request: reading
     /// it can ask the reader for their password, and at startup they have
     /// chosen nothing yet.
-    pub async fn answer_agents_if_open(self: &Arc<Self>) -> Result<(), AppError> {
+    pub async fn answer_agents_if_open(&'static self) -> Result<(), AppError> {
         let turning = self.turning.lock().await;
         if !agent::find(&self.pool).await?.enabled {
             return Ok(());
@@ -86,15 +81,14 @@ impl App {
     /// reading the keychain, so a token lost from it is made again here, when
     /// the reader looks for it. Off the runtime's threads, since the keychain
     /// may wait on the reader.
-    async fn token(self: &Arc<Self>) -> Result<String, AppError> {
-        let app = Arc::clone(self);
+    async fn token(&'static self) -> Result<String, AppError> {
         tokio::task::spawn_blocking(move || {
-            let _making = app.making.lock().unwrap();
-            if let Some(token) = app.secrets.get(AGENTS)?.filter(|token| !token.is_empty()) {
+            let _making = self.making.lock().unwrap();
+            if let Some(token) = self.secrets.get(AGENTS)?.filter(|token| !token.is_empty()) {
                 return Ok(token);
             }
             let token = uuid::Uuid::new_v4().to_string();
-            app.secrets.set(AGENTS, &token)?;
+            self.secrets.set(AGENTS, &token)?;
             Ok(token)
         })
         .await
@@ -104,7 +98,7 @@ impl App {
     /// Opens or shuts the door and records it, answering with the port. The
     /// guard is asked for so that only one turn happens at a time.
     async fn turn(
-        self: &Arc<Self>,
+        &'static self,
         _turning: &tokio::sync::MutexGuard<'_, ()>,
         enabled: bool,
     ) -> Result<u16, AppError> {
@@ -117,9 +111,7 @@ impl App {
         let mut opened = None;
 
         if enabled {
-            let app = Arc::clone(self);
-            let token: mcp::Token = Arc::new(move || app.secrets.get(AGENTS));
-            let listening = mcp::listen(Arc::clone(self), token, port).await?;
+            let listening = mcp::listen(self, move || self.secrets.get(AGENTS), port).await?;
             port = listening.port;
             // Kept only once recorded as open, so a failed save does not leave
             // a server nothing knows about.
@@ -150,11 +142,12 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[tokio::test]
     async fn keeps_the_token_and_the_port_across_a_shutting() {
-        let app = Arc::new(crate::app::tests::app().await);
+        let app = crate::app::tests::app().await.leak();
 
         let opened = app.set_agent_access(true).await.unwrap();
         assert!(!opened.token.is_empty());
@@ -175,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn opens_once_for_two_that_ask_at_the_same_time() {
-        let app = Arc::new(crate::app::tests::app().await);
+        let app = crate::app::tests::app().await.leak();
 
         let (first, second) = tokio::join!(app.set_agent_access(true), app.set_agent_access(true));
         let (first, second) = (first.unwrap(), second.unwrap());
@@ -205,11 +198,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_shut_door_is_left_shut_without_asking_the_keychain() {
-        let app = Arc::new(App::new(
+        let app = App::new(
             crate::db::open_in_memory().await.unwrap(),
             std::env::temp_dir().join("datalooker-test"),
             Box::new(Unasked),
-        ));
+        )
+        .leak();
 
         app.answer_agents_if_open().await.unwrap();
     }
@@ -226,11 +220,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let app = Arc::new(App::new(
+        let app = App::new(
             pool,
             std::env::temp_dir().join("datalooker-test"),
             Box::new(Unasked),
-        ));
+        )
+        .leak();
 
         app.answer_agents_if_open().await.unwrap();
         let access = agent::find(&app.pool).await.unwrap();
@@ -254,11 +249,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let app = Arc::new(App::new(
+        let app = App::new(
             pool,
             std::env::temp_dir().join("datalooker-test"),
             Box::new(crate::secrets::InMemorySecretStore::default()),
-        ));
+        )
+        .leak();
         app.answer_agents_if_open().await.unwrap();
 
         let access = app.agent_access().await.unwrap();
@@ -316,7 +312,7 @@ mod tests {
         let gate = Arc::new(std::sync::Mutex::new(()));
         let (asked_tx, mut asked) = tokio::sync::mpsc::unbounded_channel();
         let refusing = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let app = Arc::new(App::new(
+        let app = App::new(
             crate::db::open_in_memory().await.unwrap(),
             std::env::temp_dir().join("datalooker-test"),
             Box::new(Waiting {
@@ -325,17 +321,15 @@ mod tests {
                 refuses: Arc::clone(&refusing),
                 store: crate::secrets::InMemorySecretStore::default(),
             }),
-        ));
+        )
+        .leak();
         app.set_agent_access(true).await.unwrap();
 
         // What opening the door asked is behind us.
         while asked.try_recv().is_ok() {}
         refusing.store(refuses, std::sync::atomic::Ordering::SeqCst);
         let asking = gate.lock().unwrap();
-        let looking = tokio::spawn({
-            let app = Arc::clone(&app);
-            async move { app.agent_access().await }
-        });
+        let looking = tokio::spawn(async move { app.agent_access().await });
         asked.recv().await.expect("the keychain asked");
         let shut = tokio::time::timeout(Duration::from_secs(5), app.set_agent_access(false))
             .await
@@ -351,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn starts_shut_and_says_so() {
-        let app = Arc::new(crate::app::tests::app().await);
+        let app = crate::app::tests::app().await.leak();
         let access = app.agent_access().await.unwrap();
 
         assert!(!access.enabled);

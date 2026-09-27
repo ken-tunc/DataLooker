@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tauri::State;
 
 use crate::app::connections::SaveConnectionInput;
@@ -9,14 +7,16 @@ use crate::db::connection::ConnectionRecord;
 use crate::error::AppError;
 
 #[tauri::command]
-pub async fn list_connections(app: State<'_, Arc<App>>) -> Result<Vec<ConnectionRecord>, AppError> {
+pub async fn list_connections(
+    app: State<'_, &'static App>,
+) -> Result<Vec<ConnectionRecord>, AppError> {
     app.list_connections().await
 }
 
 #[tauri::command]
 pub async fn save_connection(
     args: SaveConnectionInput,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<String, AppError> {
     app.save_connection(args).await
 }
@@ -24,7 +24,7 @@ pub async fn save_connection(
 #[tauri::command]
 pub async fn reorder_connections(
     args: ReorderConnectionsArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.reorder_connections(&args.connection_ids).await
 }
@@ -32,7 +32,7 @@ pub async fn reorder_connections(
 #[tauri::command]
 pub async fn delete_connection(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.delete_connection(&args.connection_id).await
 }

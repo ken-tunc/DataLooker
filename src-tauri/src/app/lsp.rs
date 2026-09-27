@@ -14,7 +14,10 @@ use crate::lsp::{LanguageServerState, LspNotice, LspSession};
 impl App {
     /// Answers with the server's capabilities. A connection that already has a
     /// server answers for that one.
-    pub async fn start_language_server(&self, connection_id: &str) -> Result<Value, AppError> {
+    pub async fn start_language_server(
+        &'static self,
+        connection_id: &str,
+    ) -> Result<Value, AppError> {
         if let Some(running) = self.servers.get(connection_id) {
             return Ok(running.capabilities.clone());
         }
@@ -40,7 +43,7 @@ impl App {
             )));
         };
         if Arc::ptr_eq(&running, &session) {
-            session.listen(Arc::clone(&self.servers), self.notices.clone());
+            session.listen(&self.servers, self.notices.clone());
         } else {
             // Another start got there first.
             session.stop();

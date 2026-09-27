@@ -15,7 +15,6 @@ pub mod tabs;
 pub mod template;
 
 use std::future::Future;
-use std::sync::Arc;
 
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
@@ -57,14 +56,14 @@ struct Call<A, R> {
 /// Checked at compile time, so the bindings cannot disagree with the function.
 fn takes<A, R, F, Fut>(_: F)
 where
-    F: Fn(A, State<'static, Arc<App>>) -> Fut,
+    F: Fn(A, State<'static, &'static App>) -> Fut,
     Fut: Future<Output = Result<R, AppError>>,
 {
 }
 
 fn takes_nothing<R, F, Fut>(_: F)
 where
-    F: Fn(State<'static, Arc<App>>) -> Fut,
+    F: Fn(State<'static, &'static App>) -> Fut,
     Fut: Future<Output = Result<R, AppError>>,
 {
 }
@@ -297,7 +296,7 @@ mod tests {
     fn window() -> WebviewWindow<tauri::test::MockRuntime> {
         let app = tauri::async_runtime::block_on(crate::app::tests::app());
         let app = mock_builder()
-            .manage(Arc::new(app))
+            .manage(app.leak())
             .invoke_handler(handler())
             .build(mock_context(noop_assets()))
             .expect("the mock app");

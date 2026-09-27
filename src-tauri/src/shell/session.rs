@@ -89,7 +89,7 @@ impl ShellRun {
     /// again on exit, which must not happen before it was ever put in.
     pub fn watch(
         self: &Arc<Self>,
-        registry: Arc<ShellRegistry>,
+        registry: &'static ShellRegistry,
         exits: broadcast::Sender<ShellExit>,
     ) {
         let Some(mut child) = self.child.lock().unwrap().take() else {
@@ -254,17 +254,17 @@ impl Drop for GroupKill {
 mod tests {
     use super::*;
 
-    fn registry() -> Arc<ShellRegistry> {
-        Arc::new(ShellRegistry::default())
+    fn registry() -> &'static ShellRegistry {
+        Box::leak(Box::new(ShellRegistry::default()))
     }
 
     /// Run `command` to its end and hand back what the watcher reported.
-    async fn run(command: &str) -> (ShellExit, Arc<ShellRun>, Arc<ShellRegistry>) {
+    async fn run(command: &str) -> (ShellExit, Arc<ShellRun>, &'static ShellRegistry) {
         let registry = registry();
         let (exits, mut heard) = broadcast::channel(4);
         let session = ShellRun::spawn("c1".to_string(), command).unwrap();
         assert!(registry.insert(session.clone()));
-        session.watch(registry.clone(), exits);
+        session.watch(registry, exits);
         let exit = heard.recv().await.unwrap();
         (exit, session, registry)
     }
@@ -297,7 +297,7 @@ mod tests {
         let (exits, mut heard) = broadcast::channel(4);
         let session = ShellRun::spawn("c1".to_string(), "sleep 120").unwrap();
         registry.insert(session.clone());
-        session.watch(registry.clone(), exits);
+        session.watch(registry, exits);
 
         session.stop().await;
         let exit = heard.recv().await.unwrap();
@@ -316,7 +316,7 @@ mod tests {
         let (exits, _heard) = broadcast::channel(4);
         let session = ShellRun::spawn("c1".to_string(), "sleep 120").unwrap();
         registry.insert(session.clone());
-        session.watch(registry.clone(), exits);
+        session.watch(registry, exits);
 
         session.stop().await;
 

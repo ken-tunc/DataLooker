@@ -70,10 +70,17 @@ impl Listening {
 /// Where the token is read from, at each request rather than once when the
 /// server opens: reading it may ask the reader for their password, which is
 /// worth doing only once an agent has come. The store keeps it once read.
-pub type Token = Arc<dyn Fn() -> Result<Option<String>, AppError> + Send + Sync>;
+pub trait Token: Fn() -> Result<Option<String>, AppError> + Clone + Send + Sync + 'static {}
+
+impl<T> Token for T where T: Fn() -> Result<Option<String>, AppError> + Clone + Send + Sync + 'static
+{}
 
 /// `port` zero asks the system for one, which is then kept.
-pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening, AppError> {
+pub async fn listen(
+    app: &'static App,
+    token: impl Token,
+    port: u16,
+) -> Result<Listening, AppError> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
         .await
         .map_err(|e| AppError::Shell(format!("no port for agents to reach: {e}")))?;
@@ -92,7 +99,7 @@ pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening,
     config.cancellation_token = stop.child_token();
 
     let mcp = StreamableHttpService::new(
-        move || Ok(Agent::new(app.clone())),
+        move || Ok(Agent::new(app)),
         Arc::new(LocalSessionManager::default()),
         config,
     );
@@ -113,7 +120,7 @@ pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening,
             let Ok((stream, _)) = accepted else { continue };
 
             let mcp = mcp.clone();
-            let token = Arc::clone(&token);
+            let token = token.clone();
             let connection = serving.child_token();
             tokio::spawn(async move {
                 let _taking = taking;
@@ -126,7 +133,7 @@ pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening,
                     TokioIo::new(stream),
                     service_fn(move |request| {
                         let mut mcp = mcp.clone();
-                        let token = Arc::clone(&token);
+                        let token = token.clone();
                         async move {
                             if let Some(refusal) = checked(&request, token).await {
                                 return Ok::<_, Infallible>(refusal);
@@ -155,7 +162,7 @@ pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening,
 
 type Refusal = Response<http_body_util::combinators::BoxBody<Bytes, Infallible>>;
 
-async fn checked(request: &Request<Incoming>, token: Token) -> Option<Refusal> {
+async fn checked(request: &Request<Incoming>, token: impl Token) -> Option<Refusal> {
     if request.uri().path() != PATH {
         return Some(refusal(StatusCode::NOT_FOUND, "There is nothing here."));
     }
@@ -170,7 +177,7 @@ async fn checked(request: &Request<Incoming>, token: Token) -> Option<Refusal> {
         return Some(unauthorized());
     };
     // Off the runtime's threads: the keychain may wait on the reader.
-    let token = match tokio::task::spawn_blocking(move || token()).await {
+    let token = match tokio::task::spawn_blocking(token).await {
         Ok(Ok(token)) => token.unwrap_or_default(),
         Ok(Err(e)) => {
             return Some(refusal(
@@ -258,7 +265,7 @@ mod tests {
         .await
         .expect("a connection to tell an agent about");
 
-        listen(Arc::new(app), Arc::new(|| Ok(Some(TOKEN.to_string()))), 0)
+        listen(app.leak(), || Ok(Some(TOKEN.to_string())), 0)
             .await
             .expect("a port to answer on")
     }
@@ -393,11 +400,11 @@ mod tests {
     async fn reads_the_token_only_once_an_agent_presents_one() {
         let reads = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let counted = Arc::clone(&reads);
-        let token: Token = Arc::new(move || {
+        let token = move || {
             counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(Some(TOKEN.to_string()))
-        });
-        let app = Arc::new(crate::app::tests::app().await);
+        };
+        let app = crate::app::tests::app().await.leak();
         let server = listen(app, token, 0).await.unwrap();
         let read = || reads.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(read(), 0, "read before anyone asked");
@@ -420,8 +427,8 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_every_agent_while_the_token_cannot_be_read() {
-        let app = Arc::new(crate::app::tests::app().await);
-        let token: Token = Arc::new(|| Err(AppError::Secret("keychain unavailable".into())));
+        let app = crate::app::tests::app().await.leak();
+        let token = || Err(AppError::Secret("keychain unavailable".into()));
         let server = listen(app, token, 0).await.unwrap();
 
         let (status, said) = asked(

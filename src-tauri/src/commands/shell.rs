@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tauri::{AppHandle, State};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -10,7 +8,7 @@ use crate::error::AppError;
 #[tauri::command]
 pub async fn run_connection_command(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.run_command(&args.connection_id).await
 }
@@ -18,7 +16,7 @@ pub async fn run_connection_command(
 #[tauri::command]
 pub async fn stop_connection_command(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.stop_command(&args.connection_id).await;
     Ok(())
@@ -26,7 +24,7 @@ pub async fn stop_connection_command(
 
 #[tauri::command]
 pub async fn running_connection_commands(
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<Vec<String>, AppError> {
     Ok(app.running_commands())
 }

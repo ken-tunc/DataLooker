@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tauri::State;
 
 use crate::app::edit::TableEdits;
@@ -11,7 +9,7 @@ use crate::error::AppError;
 #[tauri::command]
 pub async fn table_shape(
     args: TableArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<TableShape, AppError> {
     app.table_shape(&args.connection_id, &args.schema, &args.table)
         .await
@@ -20,7 +18,7 @@ pub async fn table_shape(
 #[tauri::command]
 pub async fn commit_table_edits(
     args: TableEdits,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<u32, AppError> {
     app.commit_table_edits(args).await
 }

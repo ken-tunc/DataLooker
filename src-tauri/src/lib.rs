@@ -32,14 +32,15 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let pool = tauri::async_runtime::block_on(db::open(&app_data_dir))?;
             let service = app.config().identifier.clone();
-            let state = std::sync::Arc::new(App::new(
+            let state = App::new(
                 pool,
                 app_data_dir.clone(),
                 Box::new(KeyringStore::new(service)?),
-            ));
-            commands::shell::forward_exits(app.handle().clone(), &state);
-            commands::lsp::forward_notices(app.handle().clone(), &state);
-            commands::agents::forward_handoffs(app.handle().clone(), &state);
+            )
+            .leak();
+            commands::shell::forward_exits(app.handle().clone(), state);
+            commands::lsp::forward_notices(app.handle().clone(), state);
+            commands::agents::forward_handoffs(app.handle().clone(), state);
             // A taken port is worth logging, not refusing to start over.
             if let Err(e) = tauri::async_runtime::block_on(state.answer_agents_if_open()) {
                 eprintln!("[mcp] agents are not being answered: {e}");
@@ -53,7 +54,7 @@ pub fn run() {
         .run(|handle, event| {
             // Nothing else would stop a tunnel once the app is gone.
             if matches!(event, tauri::RunEvent::Exit) {
-                let app = handle.state::<std::sync::Arc<App>>();
+                let app = handle.state::<&'static App>();
                 app.stop_all_commands();
                 // Each holds a connection to a database.
                 app.stop_all_language_servers();

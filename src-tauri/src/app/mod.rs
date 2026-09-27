@@ -54,11 +54,11 @@ pub struct App {
     queries: QueryRegistry,
     /// Shared with the task watching each run, which takes its own entry out
     /// when the command ends.
-    shells: Arc<ShellRegistry>,
+    shells: ShellRegistry,
     exits: broadcast::Sender<ShellExit>,
     /// Shared with the task reading each server, which takes its own entry out
     /// when the server stops answering.
-    servers: Arc<LspRegistry>,
+    servers: LspRegistry,
     notices: broadcast::Sender<LspNotice>,
     analyzer: Analyzer,
     catalogs: Catalogs,
@@ -83,9 +83,9 @@ impl App {
             secrets,
             sessions: SessionRegistry::default(),
             queries: QueryRegistry::default(),
-            shells: Arc::new(ShellRegistry::default()),
+            shells: ShellRegistry::default(),
             exits: broadcast::channel(EXITS_HELD).0,
-            servers: Arc::new(LspRegistry::default()),
+            servers: LspRegistry::default(),
             notices: broadcast::channel(NOTICES_HELD).0,
             catalogs: Catalogs::default(),
             agents: std::sync::Mutex::new(None),
@@ -94,6 +94,16 @@ impl App {
             turning: tokio::sync::Mutex::new(()),
             making: std::sync::Mutex::new(()),
         }
+    }
+
+    /// The app lives as long as the process, and the tasks it spawns (a
+    /// command's watcher, a language server's reader, the agents' server)
+    /// may outlive any one call into it, so they borrow it for good rather
+    /// than count references to it. Nothing is lost: Tauri ends the process
+    /// with `exit`, dropping nothing, and quitting stops what needs stopping
+    /// explicitly.
+    pub fn leak(self) -> &'static Self {
+        Box::leak(Box::new(self))
     }
 
     async fn session(&self, id: &str) -> Result<Arc<Session>, AppError> {

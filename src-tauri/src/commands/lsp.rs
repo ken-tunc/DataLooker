@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -19,7 +17,7 @@ pub struct Capabilities(#[ts(type = "unknown")] Value);
 #[tauri::command]
 pub async fn start_language_server(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<Capabilities, AppError> {
     app.start_language_server(&args.connection_id)
         .await
@@ -29,7 +27,7 @@ pub async fn start_language_server(
 #[tauri::command]
 pub async fn send_to_language_server(
     args: LanguageServerMessageArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.send_to_language_server(&args.connection_id, args.message)
 }
@@ -37,7 +35,7 @@ pub async fn send_to_language_server(
 #[tauri::command]
 pub async fn language_server_state(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<LanguageServerState, AppError> {
     app.language_server_state(&args.connection_id).await
 }
@@ -45,7 +43,7 @@ pub async fn language_server_state(
 #[tauri::command]
 pub async fn install_language_server(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.install_language_server(&args.connection_id).await
 }
@@ -53,16 +51,15 @@ pub async fn install_language_server(
 #[tauri::command]
 pub async fn stop_language_server(
     args: ConnectionArgs,
-    app: State<'_, Arc<App>>,
+    app: State<'_, &'static App>,
 ) -> Result<(), AppError> {
     app.stop_language_server(&args.connection_id);
     Ok(())
 }
 
 /// Turns the app's broadcast into window events.
-pub fn forward_notices(handle: AppHandle, app: &Arc<App>) {
+pub fn forward_notices(handle: AppHandle, app: &'static App) {
     let mut notices = app.language_server_notices();
-    let app = Arc::clone(app);
     tauri::async_runtime::spawn(async move {
         loop {
             match notices.recv().await {

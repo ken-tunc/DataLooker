@@ -9,7 +9,7 @@ use crate::shell::{ShellExit, ShellRun};
 
 impl App {
     /// A second click is not a second tunnel on the same port.
-    pub async fn run_command(&self, connection_id: &str) -> Result<(), AppError> {
+    pub async fn run_command(&'static self, connection_id: &str) -> Result<(), AppError> {
         if self.shells.is_running(connection_id) {
             return Ok(());
         }
@@ -23,7 +23,7 @@ impl App {
         let run = ShellRun::spawn(connection_id.to_string(), &command)?;
         // Registered before it is watched, since the watcher removes it on exit.
         if self.shells.insert(Arc::clone(&run)) {
-            run.watch(Arc::clone(&self.shells), self.exits.clone());
+            run.watch(&self.shells, self.exits.clone());
         } else {
             // Lost the race. Dropping it reaps only the shell, not what it forked.
             run.kill_group();
@@ -66,8 +66,8 @@ mod tests {
     use crate::app::tests::app;
     use crate::db::connection::DriverConfig;
 
-    async fn connection_running(command: Option<&str>) -> (App, String) {
-        let app = app().await;
+    async fn connection_running(command: Option<&str>) -> (&'static App, String) {
+        let app = app().await.leak();
         let id = app
             .save_connection(SaveConnectionInput {
                 id: None,
@@ -134,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_connection_has_no_command_either() {
-        let app = app().await;
+        let app = app().await.leak();
         assert!(matches!(
             app.run_command("ghost").await.unwrap_err(),
             AppError::NotFound(_)

@@ -205,9 +205,6 @@ mod tests {
 /// What only a real language server can say; see `testing` for which one, and when it is skipped.
 #[cfg(test)]
 mod live {
-
-    use std::sync::Arc;
-
     use tokio::sync::broadcast;
     use tokio_util::sync::CancellationToken;
 
@@ -230,7 +227,7 @@ mod live {
 
         let notices = broadcast::channel(256).0;
         let mut heard = notices.subscribe();
-        session.listen(Arc::new(LspRegistry::default()), notices);
+        session.listen(Box::leak(Box::new(LspRegistry::default())), notices);
 
         let statement = "SELECT * FROM ";
         session.send(opened(statement)).expect("the server listens");
@@ -261,7 +258,7 @@ mod live {
 
         let notices = broadcast::channel(256).0;
         let mut heard = notices.subscribe();
-        session.listen(Arc::new(LspRegistry::default()), notices);
+        session.listen(Box::leak(Box::new(LspRegistry::default())), notices);
         session.stop();
 
         // What the server said before its output closed is announced first,

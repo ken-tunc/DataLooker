@@ -2,8 +2,6 @@
 //! the same entry the window's commands use, so that what an agent can do is
 //! what DataLooker can do rather than a second implementation of it.
 
-use std::sync::Arc;
-
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{ErrorData, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{schemars, tool, tool_handler, tool_router, ServerHandler};
@@ -170,14 +168,14 @@ pub struct Of {
     pub connection_id: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Agent {
-    app: Arc<App>,
+    app: &'static App,
 }
 
 #[tool_router]
 impl Agent {
-    pub fn new(app: Arc<App>) -> Self {
+    pub fn new(app: &'static App) -> Self {
         Self { app }
     }
 
@@ -497,9 +495,9 @@ mod tests {
 
     #[tokio::test]
     async fn hands_nothing_to_a_connection_that_is_not_there() {
-        let app = Arc::new(crate::app::tests::app().await);
+        let app = crate::app::tests::app().await.leak();
         let mut window = app.handoffs();
-        let agent = Agent::new(Arc::clone(&app));
+        let agent = Agent::new(app);
 
         let refusal = agent
             .open_in_editor(Parameters(Handed {
@@ -515,7 +513,7 @@ mod tests {
 
     #[tokio::test]
     async fn passes_on_the_app_s_own_refusal() {
-        let agent = Agent::new(Arc::new(crate::app::tests::app().await));
+        let agent = Agent::new(crate::app::tests::app().await.leak());
         let Err(refusal) = agent
             .list_tables(Parameters(Of {
                 connection_id: "nowhere".into(),
@@ -552,7 +550,7 @@ mod live {
                 .await
                 .expect("a schema to look at");
         }
-        Some((Agent::new(Arc::new(app)), id, schema))
+        Some((Agent::new(app.leak()), id, schema))
     }
 
     async fn drop_schema(agent: &Agent, id: &str, schema: &str) {
@@ -640,7 +638,7 @@ mod live {
         let Some((app, id)) = app_reaching_postgres().await else {
             return;
         };
-        let agent = Agent::new(Arc::new(app));
+        let agent = Agent::new(app.leak());
 
         let Json(answer) = agent
             .run_query(Parameters(Statement {
@@ -667,7 +665,7 @@ mod live {
         let Some((app, id)) = app_reaching_postgres().await else {
             return;
         };
-        let agent = Agent::new(Arc::new(app));
+        let agent = Agent::new(app.leak());
 
         let Json(planned) = agent
             .explain_query(Parameters(Explain {
@@ -693,7 +691,7 @@ mod live {
         app.execute_query(&id, "SELECT 'by the reader'", "reader")
             .await
             .unwrap();
-        let agent = Agent::new(Arc::new(app));
+        let agent = Agent::new(app.leak());
         agent
             .run_query(Parameters(Statement {
                 connection_id: id.clone(),

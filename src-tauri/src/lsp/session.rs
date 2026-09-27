@@ -114,7 +114,7 @@ impl LspSession {
     /// at the end.
     pub fn listen(
         self: &Arc<Self>,
-        registry: Arc<LspRegistry>,
+        registry: &'static LspRegistry,
         notices: broadcast::Sender<LspNotice>,
     ) {
         let Some(mut reading) = self.reading.lock().unwrap().take() else {
