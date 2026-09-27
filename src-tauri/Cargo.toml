@@ -18,16 +18,14 @@ tauri-build = { version = "2", features = [] }
 # Unpacks the BigQuery analyzer the app fetches.
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
-gcp-bigquery-client = { version = "0.28", default-features = false, features = ["rust-tls"] }
 http = "1.5.0"
 http-body-util = "0.1.5"
 hyper = { version = "1.11.1", features = ["server", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio", "server-auto"] }
 keyring-core = "1.0.0"
 pg_query = "6.2.0"
-# Fetches the BigQuery analyzer. The BigQuery client already brings it, built
-# the same way, so naming it here adds nothing to what is compiled.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Reaches BigQuery's REST API, and fetches the BigQuery analyzer.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rmcp = { version = "3.4.0", features = ["server", "transport-streamable-http-server", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -55,9 +53,12 @@ tokio-util = "0.7"
 tower-service = "0.3.3"
 ts-rs = "12"
 uuid = { version = "1.26.1", features = ["v4"] }
-# Reads the service account key BigQuery is reached with. The BigQuery client
-# takes the parsed key rather than the file, so this is named here too.
-yup-oauth2 = { version = "12", default-features = false, features = ["service-account", "ring"] }
+# Trades the service account key BigQuery is reached with for a token.
+yup-oauth2 = { version = "12", default-features = false, features = [
+  "hyper-rustls",
+  "service-account",
+  "ring",
+] }
 
 [profile.release]
 panic = "abort"

@@ -1,12 +1,10 @@
 use std::time::Instant;
 
-use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
-use gcp_bigquery_client::tabledata::ListQueryParameters;
-use gcp_bigquery_client::Client;
 use time::{OffsetDateTime, UtcOffset};
 use tokio_util::sync::CancellationToken;
 
-use super::query::{self, cells, refused};
+use super::api::{Client, Field};
+use super::query::{self, cells};
 use super::value::{holds_instants, type_name};
 use crate::drivers::{Preview, QueryColumn, QueryResult, TablePage};
 use crate::error::AppError;
@@ -75,11 +73,9 @@ pub(super) async fn keeps_its_past(
     request: &Preview<'_>,
 ) -> Result<(), AppError> {
     let table = client
-        .table()
-        .get(project_id, request.schema, request.table, None)
-        .await
-        .map_err(refused)?;
-    match table.r#type.as_deref() {
+        .table(project_id, request.schema, request.table)
+        .await?;
+    match table.kind.as_deref() {
         Some("TABLE") => Ok(()),
         kind => Err(AppError::Unsupported(format!(
             "Only a table can be read as it was, and BigQuery calls this a {}.",
@@ -96,31 +92,22 @@ async fn list(
     started: Instant,
 ) -> Result<Option<QueryResult>, AppError> {
     let table = client
-        .table()
-        .get(project_id, request.schema, request.table, None)
-        .await
-        .map_err(refused)?;
-    if table.r#type.as_deref() != Some("TABLE") {
+        .table(project_id, request.schema, request.table)
+        .await?;
+    if table.kind.as_deref() != Some("TABLE") {
         return Ok(None);
     }
-    let fields = table.schema.fields.unwrap_or_default();
+    let fields = table.schema.map(|schema| schema.fields).unwrap_or_default();
 
     let listed = client
-        .tabledata()
         .list(
             project_id,
             request.schema,
             request.table,
-            ListQueryParameters {
-                start_index: Some(request.offset.to_string()),
-                max_results: Some(u32::try_from(request.limit + 1).unwrap_or(u32::MAX)),
-                page_token: None,
-                selected_fields: None,
-                format_options: None,
-            },
+            request.offset,
+            request.limit + 1,
         )
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let rows = listed.rows.unwrap_or_default();
     let total = listed
@@ -139,7 +126,7 @@ async fn list(
     }))
 }
 
-fn columns(fields: &[TableFieldSchema]) -> Vec<QueryColumn> {
+fn columns(fields: &[Field]) -> Vec<QueryColumn> {
     fields
         .iter()
         .map(|field| QueryColumn {

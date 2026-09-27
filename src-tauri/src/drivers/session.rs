@@ -17,9 +17,6 @@ use crate::secrets::SecretStore;
 
 /// An enum rather than a trait: the set of drivers is closed, and the compiler
 /// says when one was left out of an operation.
-// One per open connection, behind an `Arc`, so the size difference costs
-// nothing. `expect` says so if the variants ever match in size.
-#[expect(clippy::large_enum_variant)]
 pub enum Session {
     Postgres(PostgresSession),
     BigQuery(BigQuerySession),

@@ -1,14 +1,8 @@
-use gcp_bigquery_client::error::BQError;
-use gcp_bigquery_client::model::field_type::FieldType;
-use gcp_bigquery_client::model::query_parameter::QueryParameter;
-use gcp_bigquery_client::model::query_parameter_type::QueryParameterType;
-use gcp_bigquery_client::model::query_parameter_value::QueryParameterValue;
-use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
-use gcp_bigquery_client::Client;
 use serde_json::Value;
 
-use super::query::{collect, refused, region};
-use super::value::{repeated, scalar_name};
+use super::api::{Client, Field, Query};
+use super::query::{collect, region};
+use super::value::{canonical, repeated};
 use crate::drivers::{Column, Schema, SchemaTree, Table, TableKind};
 use crate::error::AppError;
 
@@ -24,7 +18,7 @@ pub async fn tree(
          ORDER BY table_schema, table_name",
         region(location)
     );
-    let rows = collect(client, project_id, location, &sql, Vec::new()).await?;
+    let rows = collect(client, project_id, Query::new(&sql, location)).await?;
     Ok(assemble(&rows))
 }
 
@@ -43,14 +37,10 @@ pub async fn columns(
          ORDER BY ordinal_position",
         region(location)
     );
-    let rows = collect(
-        client,
-        project_id,
-        location,
-        &sql,
-        vec![named("dataset", dataset), named("table", table)],
-    )
-    .await?;
+    let query = Query::new(&sql, location)
+        .text("dataset", dataset)
+        .text("table", table);
+    let rows = collect(client, project_id, query).await?;
 
     Ok(rows
         .iter()
@@ -74,17 +64,15 @@ pub async fn described(
     dataset: &str,
     table: &str,
 ) -> Result<Option<Vec<Column>>, AppError> {
-    let found = match client.table().get(project_id, dataset, table, None).await {
+    let found = match client.table(project_id, dataset, table).await {
         Ok(found) => found,
-        Err(BQError::ResponseError { error }) if matches!(error.error.code, 403 | 404) => {
-            return Ok(None);
-        }
-        Err(e) => return Err(refused(e)),
+        Err(failure) if failure.hidden() => return Ok(None),
+        Err(failure) => return Err(failure.into()),
     };
     Ok(Some(
         found
             .schema
-            .fields
+            .map(|schema| schema.fields)
             .unwrap_or_default()
             .iter()
             .map(|field| Column {
@@ -97,9 +85,9 @@ pub async fn described(
 }
 
 /// A field is always quoted: a name like `at` is reserved.
-fn spelled(field: &TableFieldSchema) -> String {
-    let base = match field.r#type {
-        FieldType::Record | FieldType::Struct => format!(
+fn spelled(field: &Field) -> String {
+    let base = match canonical(&field.kind) {
+        "STRUCT" => format!(
             "STRUCT<{}>",
             field
                 .fields
@@ -110,26 +98,12 @@ fn spelled(field: &TableFieldSchema) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        ref scalar => scalar_name(scalar).to_string(),
+        scalar => scalar.to_string(),
     };
     if repeated(field) {
         format!("ARRAY<{base}>")
     } else {
         base
-    }
-}
-
-fn named(name: &str, value: &str) -> QueryParameter {
-    QueryParameter {
-        name: Some(name.to_string()),
-        parameter_type: Some(QueryParameterType {
-            r#type: "STRING".to_string(),
-            ..Default::default()
-        }),
-        parameter_value: Some(QueryParameterValue {
-            value: Some(value.to_string()),
-            ..Default::default()
-        }),
     }
 }
 
@@ -204,29 +178,29 @@ mod tests {
         assert_eq!(tree.schemas[1].tables.len(), 1);
     }
 
-    fn field(name: &str, kind: FieldType, mode: Option<&str>) -> TableFieldSchema {
-        TableFieldSchema {
+    fn field(name: &str, kind: &str, mode: Option<&str>) -> Field {
+        Field {
             name: name.to_string(),
-            r#type: kind,
+            kind: kind.to_string(),
             mode: mode.map(str::to_string),
-            ..TableFieldSchema::new(name, FieldType::String)
+            fields: None,
         }
     }
 
     #[test]
     fn a_type_is_spelled_out_to_its_innermost_field() {
-        let mut item = field("items", FieldType::Record, Some("REPEATED"));
+        let mut item = field("items", "RECORD", Some("REPEATED"));
         item.fields = Some(vec![
-            field("sku", FieldType::String, None),
-            field("at", FieldType::Timestamp, Some("REQUIRED")),
-            field("tags", FieldType::String, Some("REPEATED")),
+            field("sku", "STRING", None),
+            field("at", "TIMESTAMP", Some("REQUIRED")),
+            field("tags", "STRING", Some("REPEATED")),
         ]);
 
         assert_eq!(
             spelled(&item),
             "ARRAY<STRUCT<`sku` STRING, `at` TIMESTAMP, `tags` ARRAY<STRING>>>"
         );
-        assert_eq!(spelled(&field("n", FieldType::Integer, None)), "INT64");
+        assert_eq!(spelled(&field("n", "INTEGER", None)), "INT64");
     }
 
     #[test]

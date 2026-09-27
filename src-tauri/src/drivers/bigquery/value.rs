@@ -1,16 +1,16 @@
-use gcp_bigquery_client::model::field_type::FieldType;
-use gcp_bigquery_client::model::table_field_schema::TableFieldSchema;
 use serde_json::{Number, Value};
+
+use super::api::Field;
 
 /// Beyond this, JavaScript rounds a number, so it is sent as a string.
 const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
-pub fn repeated(field: &TableFieldSchema) -> bool {
+pub fn repeated(field: &Field) -> bool {
     field.mode.as_deref() == Some("REPEATED")
 }
 
-pub fn type_name(field: &TableFieldSchema) -> String {
-    let name = scalar_name(&field.r#type);
+pub fn type_name(field: &Field) -> String {
+    let name = canonical(&field.kind);
     if repeated(field) {
         format!("ARRAY<{name}>")
     } else {
@@ -20,16 +20,16 @@ pub fn type_name(field: &TableFieldSchema) -> String {
 
 /// Whether a field's values, or its array's elements, are `TIMESTAMP`s. One
 /// inside a `STRUCT` is not: the struct crosses as a document.
-pub fn holds_instants(field: &TableFieldSchema) -> bool {
-    matches!(field.r#type, FieldType::Timestamp)
+pub fn holds_instants(field: &Field) -> bool {
+    canonical(&field.kind) == "TIMESTAMP"
 }
 
 /// BigQuery sends every value as text, so the schema says how to read it.
-pub fn decode(cell: Option<&Value>, field: &TableFieldSchema) -> Value {
+pub fn decode(cell: Option<&Value>, field: &Field) -> Value {
     decode_as(cell, field, repeated(field))
 }
 
-fn decode_as(cell: Option<&Value>, field: &TableFieldSchema, repeated: bool) -> Value {
+fn decode_as(cell: Option<&Value>, field: &Field, repeated: bool) -> Value {
     let Some(value) = cell else {
         return Value::Null;
     };
@@ -48,15 +48,15 @@ fn decode_as(cell: Option<&Value>, field: &TableFieldSchema, repeated: bool) -> 
             .collect();
         return Value::Array(elements);
     }
-    match field.r#type {
-        FieldType::Record | FieldType::Struct => record(value, field),
-        _ => scalar(value, &field.r#type),
+    match canonical(&field.kind) {
+        "STRUCT" => record(value, field),
+        kind => scalar(value, kind),
     }
 }
 
 /// Fields arrive in order under `f`, each value under `v`; names are the
 /// schema's.
-fn record(value: &Value, field: &TableFieldSchema) -> Value {
+fn record(value: &Value, field: &Field) -> Value {
     let (Some(Value::Array(cells)), Some(fields)) = (value.get("f"), field.fields.as_ref()) else {
         return Value::Null;
     };
@@ -73,23 +73,19 @@ fn record(value: &Value, field: &TableFieldSchema) -> Value {
     Value::Object(named)
 }
 
-fn scalar(value: &Value, kind: &FieldType) -> Value {
+fn scalar(value: &Value, kind: &str) -> Value {
     // Not what the schema promised; passed on as it arrived.
     let Value::String(text) = value else {
         return value.clone();
     };
     match kind {
-        FieldType::Integer | FieldType::Int64 => {
-            text.parse::<i64>().map_or_else(|_| value.clone(), from_i64)
-        }
-        FieldType::Float | FieldType::Float64 => {
-            text.parse::<f64>().map_or_else(|_| value.clone(), from_f64)
-        }
-        FieldType::Boolean | FieldType::Bool => Value::Bool(text == "true"),
+        "INT64" => text.parse::<i64>().map_or_else(|_| value.clone(), from_i64),
+        "FLOAT64" => text.parse::<f64>().map_or_else(|_| value.clone(), from_f64),
+        "BOOL" => Value::Bool(text == "true"),
         // The value rather than its text.
-        FieldType::Json => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
+        "JSON" => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
         // Sent as seconds since the epoch, in a float's notation.
-        FieldType::Timestamp => timestamp(text).map_or_else(|| value.clone(), Value::String),
+        "TIMESTAMP" => timestamp(text).map_or_else(|| value.clone(), Value::String),
         // NUMERIC and BIGNUMERIC hold more digits than a JSON number keeps,
         // and a date or a time is text to begin with.
         _ => value.clone(),
@@ -143,23 +139,15 @@ fn from_f64(value: f64) -> Value {
         .unwrap_or_else(|| Value::String(value.to_string()))
 }
 
-pub(super) fn scalar_name(kind: &FieldType) -> &'static str {
+/// The GoogleSQL name of a type the REST API may give by its legacy one. A
+/// type this does not know is passed on as BigQuery named it.
+pub(super) fn canonical(kind: &str) -> &str {
     match kind {
-        FieldType::String => "STRING",
-        FieldType::Bytes => "BYTES",
-        FieldType::Integer | FieldType::Int64 => "INT64",
-        FieldType::Float | FieldType::Float64 => "FLOAT64",
-        FieldType::Numeric => "NUMERIC",
-        FieldType::Bignumeric => "BIGNUMERIC",
-        FieldType::Boolean | FieldType::Bool => "BOOL",
-        FieldType::Timestamp => "TIMESTAMP",
-        FieldType::Date => "DATE",
-        FieldType::Time => "TIME",
-        FieldType::Datetime => "DATETIME",
-        FieldType::Record | FieldType::Struct => "STRUCT",
-        FieldType::Geography => "GEOGRAPHY",
-        FieldType::Json => "JSON",
-        FieldType::Interval => "INTERVAL",
+        "INTEGER" => "INT64",
+        "FLOAT" => "FLOAT64",
+        "BOOLEAN" => "BOOL",
+        "RECORD" => "STRUCT",
+        other => other,
     }
 }
 
@@ -184,12 +172,17 @@ mod tests {
         assert_eq!(timestamp("soon"), None);
     }
 
-    fn field(name: &str, kind: FieldType) -> TableFieldSchema {
-        TableFieldSchema::new(name, kind)
+    fn field(name: &str, kind: &str) -> Field {
+        Field {
+            name: name.to_string(),
+            kind: kind.to_string(),
+            mode: None,
+            fields: None,
+        }
     }
 
-    fn many(name: &str, kind: FieldType) -> TableFieldSchema {
-        TableFieldSchema {
+    fn many(name: &str, kind: &str) -> Field {
+        Field {
             mode: Some("REPEATED".to_string()),
             ..field(name, kind)
         }
@@ -202,14 +195,14 @@ mod tests {
 
     #[test]
     fn a_missing_or_null_cell_is_null() {
-        let column = field("n", FieldType::Int64);
+        let column = field("n", "INT64");
         assert_eq!(decode(None, &column), Value::Null);
         assert_eq!(decode(Some(&Value::Null), &column), Value::Null);
     }
 
     #[test]
     fn whole_numbers_past_the_safe_range_stay_text() {
-        let column = field("n", FieldType::Int64);
+        let column = field("n", "INT64");
         assert_eq!(decode(Some(&cell("42")), &column), json!(42));
         assert_eq!(
             decode(Some(&cell("9007199254740992")), &column),
@@ -219,14 +212,14 @@ mod tests {
 
     #[test]
     fn a_float_is_a_number_unless_it_has_no_number_to_be() {
-        let column = field("x", FieldType::Float64);
+        let column = field("x", "FLOAT64");
         assert_eq!(decode(Some(&cell("1.5")), &column), json!(1.5));
         assert_eq!(decode(Some(&cell("NaN")), &column), json!("NaN"));
     }
 
     #[test]
     fn numerics_keep_their_digits_as_text() {
-        let column = field("price", FieldType::Bignumeric);
+        let column = field("price", "BIGNUMERIC");
         let many_digits = "123456789012345678901234567890.12";
         assert_eq!(
             decode(Some(&cell(many_digits)), &column),
@@ -236,14 +229,14 @@ mod tests {
 
     #[test]
     fn a_boolean_is_one_of_two_words() {
-        let column = field("ok", FieldType::Bool);
+        let column = field("ok", "BOOL");
         assert_eq!(decode(Some(&cell("true")), &column), json!(true));
         assert_eq!(decode(Some(&cell("false")), &column), json!(false));
     }
 
     #[test]
     fn json_arrives_as_the_value_rather_than_its_punctuation() {
-        let column = field("doc", FieldType::Json);
+        let column = field("doc", "JSON");
         assert_eq!(
             decode(Some(&cell(r#"{"a":[1]}"#)), &column),
             json!({"a": [1]})
@@ -254,19 +247,16 @@ mod tests {
 
     #[test]
     fn a_repeated_field_is_a_list_of_what_it_repeats() {
-        let column = many("ids", FieldType::Int64);
+        let column = many("ids", "INT64");
         let wire = json!([{ "v": "1" }, { "v": "2" }]);
         assert_eq!(decode(Some(&wire), &column), json!([1, 2]));
     }
 
     #[test]
     fn a_record_is_named_by_the_schema_rather_than_the_row() {
-        let column = TableFieldSchema {
-            fields: Some(vec![
-                field("id", FieldType::Int64),
-                field("name", FieldType::String),
-            ]),
-            ..field("customer", FieldType::Record)
+        let column = Field {
+            fields: Some(vec![field("id", "INT64"), field("name", "STRING")]),
+            ..field("customer", "RECORD")
         };
         let wire = json!({ "f": [{ "v": "7" }, { "v": "Ada" }] });
 
@@ -278,10 +268,10 @@ mod tests {
 
     #[test]
     fn a_repeated_record_is_a_list_of_them() {
-        let column = TableFieldSchema {
+        let column = Field {
             mode: Some("REPEATED".to_string()),
-            fields: Some(vec![field("id", FieldType::Int64)]),
-            ..field("items", FieldType::Record)
+            fields: Some(vec![field("id", "INT64")]),
+            ..field("items", "RECORD")
         };
         let wire = json!([
             { "v": { "f": [{ "v": "1" }] } },
@@ -293,16 +283,23 @@ mod tests {
 
     #[test]
     fn a_column_says_what_it_holds_and_whether_it_holds_many() {
-        assert_eq!(type_name(&field("s", FieldType::String)), "STRING");
-        assert_eq!(type_name(&many("ids", FieldType::Int64)), "ARRAY<INT64>");
-        assert_eq!(type_name(&field("c", FieldType::Record)), "STRUCT");
+        assert_eq!(type_name(&field("s", "STRING")), "STRING");
+        assert_eq!(type_name(&many("ids", "INT64")), "ARRAY<INT64>");
+        assert_eq!(type_name(&field("c", "RECORD")), "STRUCT");
+    }
+
+    #[test]
+    fn a_legacy_name_is_read_as_googlesql_s_and_an_unknown_one_as_it_came() {
+        assert_eq!(type_name(&field("n", "INTEGER")), "INT64");
+        assert_eq!(decode(Some(&cell("7")), &field("n", "INTEGER")), json!(7));
+        assert_eq!(type_name(&field("span", "RANGE")), "RANGE");
     }
 
     #[test]
     fn only_timestamps_hold_instants() {
-        assert!(holds_instants(&field("at", FieldType::Timestamp)));
-        assert!(holds_instants(&many("ats", FieldType::Timestamp)));
-        assert!(!holds_instants(&field("wall", FieldType::Datetime)));
-        assert!(!holds_instants(&field("day", FieldType::Date)));
+        assert!(holds_instants(&field("at", "TIMESTAMP")));
+        assert!(holds_instants(&many("ats", "TIMESTAMP")));
+        assert!(!holds_instants(&field("wall", "DATETIME")));
+        assert!(!holds_instants(&field("day", "DATE")));
     }
 }

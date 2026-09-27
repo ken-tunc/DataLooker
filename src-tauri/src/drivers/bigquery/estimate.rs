@@ -1,14 +1,10 @@
 //! What a statement would scan, asked of a dry run: BigQuery plans it and
 //! answers without billing a byte.
 
-use gcp_bigquery_client::error::BQError;
-use gcp_bigquery_client::model::table::Table;
-use gcp_bigquery_client::model::table_reference::TableReference;
-use gcp_bigquery_client::Client;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::query::refused;
+use super::api::{Client, Table, TableReference};
 use crate::error::AppError;
 
 /// What a filter on a table partitioned by when its rows arrived names.
@@ -59,13 +55,12 @@ pub async fn partitioning(
     table: &TableReference,
 ) -> Result<Option<Vec<String>>, AppError> {
     match client
-        .table()
-        .get(&table.project_id, &table.dataset_id, &table.table_id, None)
+        .table(&table.project_id, &table.dataset_id, &table.table_id)
         .await
     {
         Ok(found) => Ok(pruned_by(&found)),
-        Err(BQError::ResponseError { error }) if matches!(error.error.code, 403 | 404) => Ok(None),
-        Err(e) => Err(refused(e)),
+        Err(failure) if failure.hidden() => Ok(None),
+        Err(failure) => Err(failure.into()),
     }
 }
 
@@ -104,33 +99,47 @@ fn names(sql: &str, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use gcp_bigquery_client::model::range_partitioning::RangePartitioning;
-    use gcp_bigquery_client::model::table_schema::TableSchema;
-    use gcp_bigquery_client::model::time_partitioning::TimePartitioning;
-
+    use super::super::api::Partitioning;
     use super::*;
 
     fn table() -> Table {
-        Table::new("p", "d", "events", TableSchema::new(Vec::new()))
+        Table {
+            kind: Some("TABLE".to_string()),
+            schema: None,
+            time_partitioning: None,
+            range_partitioning: None,
+        }
+    }
+
+    fn by(field: Option<&str>) -> Option<Partitioning> {
+        Some(Partitioning {
+            field: field.map(str::to_string),
+        })
     }
 
     fn read(table: &str, columns: &[&str]) -> (TableReference, Vec<String>) {
         (
-            TableReference::new("p", "d", table),
+            TableReference {
+                project_id: "p".to_string(),
+                dataset_id: "d".to_string(),
+                table_id: table.to_string(),
+            },
             columns.iter().map(|column| column.to_string()).collect(),
         )
     }
 
     #[test]
     fn a_table_is_pruned_by_the_column_it_is_partitioned_on() {
-        let by_day = table().time_partitioning(TimePartitioning::per_day().field("at"));
+        let by_day = Table {
+            time_partitioning: by(Some("at")),
+            ..table()
+        };
         assert_eq!(pruned_by(&by_day), Some(vec!["at".to_string()]));
 
-        let mut by_range = table();
-        by_range.range_partitioning = Some(RangePartitioning {
-            field: Some("n".to_string()),
-            range: None,
-        });
+        let by_range = Table {
+            range_partitioning: by(Some("n")),
+            ..table()
+        };
         assert_eq!(pruned_by(&by_range), Some(vec!["n".to_string()]));
 
         assert_eq!(pruned_by(&table()), None);
@@ -138,7 +147,10 @@ mod tests {
 
     #[test]
     fn a_table_partitioned_by_arrival_is_pruned_by_either_pseudo_column() {
-        let by_arrival = table().time_partitioning(TimePartitioning::per_day());
+        let by_arrival = Table {
+            time_partitioning: by(None),
+            ..table()
+        };
         assert_eq!(
             pruned_by(&by_arrival),
             Some(vec![
