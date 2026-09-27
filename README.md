@@ -40,12 +40,13 @@ PostgreSQL and BigQuery.
 - **Schema tree** — schemas, their tables and, in a folder, their functions and
   procedures (BigQuery's routines), filterable by name; day-named tables such as
   `events_20250101` are folded into one row. Opening a routine shows the statement that
-  would make it, which can be copied into a query tab to edit. A table's and a column's comment (a
-  BigQuery description) is shown beside it.
-- **Tables** — rows with filter, sort and paging, and the `CREATE` statement with its
-  comments, indexes and triggers. PostgreSQL tables with a primary key can be edited in place. A
-  BigQuery table can be read as it was at any point in its time-travel window, after
-  showing what the query would scan.
+  would make it, which can be copied into a query tab to edit. A column's comment (a
+  BigQuery description) is shown beside it, and a table's when the pointer rests on its
+  name.
+- **Tables** — rows with filter, sort and paging. A PostgreSQL table also shows the
+  `CREATE` statement with its comments, indexes and triggers, and one with a primary key
+  can be edited in place. A BigQuery table can be read as it was at any point in its
+  time-travel window, after showing what the query would scan.
 - **History** — every statement run is logged and can be reopened.
 - **Templates** — statements kept under a name, with `@name` blanks. Using one asks for
   each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the
