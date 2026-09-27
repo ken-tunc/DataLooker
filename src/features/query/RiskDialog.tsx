@@ -91,6 +91,7 @@ const VERBS: Record<Hazard, [named: string, unnamed: string]> = {
   drop_column: ["Drops the column", "Drops a column"],
   // Never named: what it acts on is not in the text.
   dynamic: ["Runs SQL", "Runs SQL that cannot be read before it runs"],
+  write: ["Writes to", "Writes to the database"],
 };
 
 function sentence({ hazard, targets }: Risk): string {

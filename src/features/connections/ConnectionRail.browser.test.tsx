@@ -19,6 +19,7 @@ const local: ConnectionRecord = {
   command: null,
   command_while_selected: false,
   time_zone: null,
+  production: false,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -339,6 +340,7 @@ describe("a connection of another kind", () => {
         command: null,
         command_while_selected: false,
         time_zone: null,
+        production: false,
       });
   });
 
@@ -355,5 +357,36 @@ describe("a connection of another kind", () => {
 
     await screen.getByRole("button", { name: "Warehouse", exact: true }).click();
     await expect.element(screen.getByText("looking · EU")).toBeVisible();
+  });
+});
+
+describe("a connection marked production", () => {
+  it("stands apart on the rail and in its header", async () => {
+    const { screen } = await sidebar({
+      list_connections: [local, { ...local, id: "id-2", label: "Shop", production: true }],
+    });
+
+    const tile = screen.getByRole("button", { name: "Shop", exact: true });
+    await expect.element(tile).toHaveAccessibleDescription("Production");
+    await expect
+      .element(screen.getByRole("button", { name: "Local", exact: true }))
+      .not.toHaveAccessibleDescription("Production");
+
+    await tile.click();
+
+    await expect.element(screen.getByText("Production", { exact: true })).toBeVisible();
+  });
+
+  it("is marked from the form", async () => {
+    const { ipc, screen, actions } = await sidebar({
+      list_connections: [local],
+      save_connection: "id-1",
+    });
+
+    await actions("Local", "Edit");
+    await screen.getByLabelText(/^Production/).click();
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    await expect.poll(() => ipc.sent("save_connection")).toMatchObject({ production: true });
   });
 });

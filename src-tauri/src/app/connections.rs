@@ -71,6 +71,8 @@ pub struct SaveConnectionInput {
     pub command_while_selected: bool,
     /// The IANA zone to show its points in time in, or nothing for UTC.
     pub time_zone: Option<String>,
+    /// Mark it as production, where every statement that writes asks first.
+    pub production: bool,
 }
 
 /// `stored` in the order `asked` names them, then the rest as they were.
@@ -109,6 +111,7 @@ async fn save(
         command: given(input.command.as_deref()),
         command_while_selected: input.command_while_selected,
         time_zone: given(input.time_zone.as_deref()),
+        production: input.production,
     };
     let mut tx = pool.begin().await?;
 
@@ -298,6 +301,7 @@ mod tests {
             secret: secret.map(str::to_string),
             command: None,
             command_while_selected: false,
+            production: false,
             time_zone: None,
         }
     }
@@ -343,6 +347,7 @@ mod tests {
             SaveConnectionInput {
                 command: Some("   ".into()),
                 command_while_selected: false,
+                production: false,
                 time_zone: Some(" ".into()),
                 ..input(None, "Local", Some("hunter2"))
             },

@@ -59,11 +59,18 @@ export function ConnectionHeader({ connectionId, onRemoved }: Props) {
     <>
       <header
         data-tauri-drag-region="deep"
-        className="hairline flex h-12 shrink-0 items-center gap-2 border-b pr-2 pl-3"
+        className={`flex h-12 shrink-0 items-center gap-2 border-b pr-2 pl-3 ${
+          connection.production ? "border-error" : "hairline"
+        }`}
       >
         <DriverIcon kind={connection.config.kind} />
         <div className="flex min-w-0 grow flex-col leading-tight">
-          <h1 className="truncate text-sm font-semibold">{connection.label}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-sm font-semibold">{connection.label}</h1>
+            {connection.production && (
+              <span className="badge badge-error badge-xs shrink-0">Production</span>
+            )}
+          </div>
           <span className="text-muted truncate text-xs">
             {describeConnection(connection.config)}
           </span>
