@@ -18,6 +18,12 @@ import {
 
 const ROW_HEIGHT = 26;
 
+/**
+ * A name gives way last: what is beside it — a type, a comment, a size — is
+ * cut first, and the name only once it alone is too wide.
+ */
+const NAME = "max-w-full shrink-0 truncate";
+
 /** Indent per depth: a flat list has no nesting of its own. */
 const INDENTS = ["pl-2", "pl-6", "pl-10", "pl-14", "pl-18"];
 
@@ -163,7 +169,7 @@ function Row({
         className={`flex w-full items-baseline gap-2 truncate py-0.5 pr-2 text-sm ${indent}`}
         title={row.comment ?? undefined}
       >
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint truncate text-xs">
           {row.dataType}
           {row.nullable ? "" : " not null"}
@@ -188,7 +194,7 @@ function Row({
         className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}
         title={row.comment ?? undefined}
       >
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint truncate text-xs">{beside}</span>
       </span>
     );
@@ -202,7 +208,7 @@ function Row({
     ];
     return (
       <span className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}>
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint truncate text-xs">{traits.filter(Boolean).join(" · ")}</span>
       </span>
     );
@@ -211,7 +217,7 @@ function Row({
   if (row.kind === "member") {
     return (
       <span className={`flex w-full items-baseline gap-2 py-0.5 pr-2 text-sm ${indent}`}>
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         {row.dataType && <span className="text-faint truncate text-xs">{row.dataType}</span>}
       </span>
     );
@@ -220,7 +226,7 @@ function Row({
   if (row.kind === "type") {
     const label = (
       <>
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint truncate text-xs">{describeType(row.typeKind, row.base)}</span>
       </>
     );
@@ -255,7 +261,7 @@ function Row({
         title={`Open ${row.schema}.${row.name}(${row.arguments})${row.comment ? `\n\n${row.comment}` : ""}`}
         onClick={() => onOpenRoutine(row.schema, row.name, row.arguments)}
       >
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint truncate text-xs">
           ({row.arguments})
           {row.routineKind === "function" ? "" : ` ${ROUTINE_LABELS[row.routineKind]}`}
@@ -281,7 +287,7 @@ function Row({
         onClick={() => onToggle(row.id)}
       >
         <Chevron expanded={row.expanded} />
-        <span className="truncate">{name}</span>
+        <span className={NAME}>{name}</span>
         <span className="text-faint shrink-0 text-xs">{beside}</span>
       </button>
     );
@@ -306,7 +312,7 @@ function Row({
         title={`Open ${row.schema}.${row.name}${row.comment ? `\n\n${row.comment}` : ""}`}
         onClick={() => onOpenTable(row.schema, row.name)}
       >
-        <span className="truncate">{row.name}</span>
+        <span className={NAME}>{row.name}</span>
         <span className="text-faint shrink-0 text-xs">{KIND_LABELS[row.tableKind]}</span>
       </button>
     </span>
