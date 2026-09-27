@@ -78,8 +78,8 @@ inside the SQLite transaction so a keychain failure rolls the row back.
 
 A connection's driver settings are one JSON `config` column, so a new driver needs no
 migration. Its shell command, and whether that runs only while the connection is
-selected, and its time zone are columns of their own: they belong to the reader, not the
-driver.
+selected, its time zone, and whether it is marked production are columns of their own:
+they belong to the reader, not the driver.
 
 ## Sessions
 
@@ -141,6 +141,10 @@ cannot undo, and is rolled back rather than committed, since `EXPLAIN ANALYZE` c
 A BigQuery statement is dry-run first and runs only if BigQuery calls it a `SELECT`. An
 agent has its own sessions, a row cap and a deadline, since nobody is watching to
 cancel it. Its runs are logged beside the reader's and marked.
+
+A statement an agent may not run is handed to the reader instead: it opens in a tab and
+runs, if at all, on the reader's session by the reader's hand, so read-only holds without
+the reader copying between the agent and the editor.
 
 ## Processes
 

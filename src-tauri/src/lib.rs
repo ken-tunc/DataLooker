@@ -32,6 +32,7 @@ pub fn run() {
             ));
             commands::shell::forward_exits(app.handle().clone(), &state);
             commands::lsp::forward_notices(app.handle().clone(), &state);
+            commands::agents::forward_handoffs(app.handle().clone(), &state);
             // A taken port is worth logging, not refusing to start over.
             if let Err(e) = tauri::async_runtime::block_on(state.answer_agents_if_open()) {
                 eprintln!("[mcp] agents are not being answered: {e}");

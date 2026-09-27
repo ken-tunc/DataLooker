@@ -1,5 +1,6 @@
 mod preview;
 mod query;
+mod risks;
 mod schema;
 #[cfg(test)]
 mod testing;
@@ -18,14 +19,23 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use yup_oauth2::ServiceAccountKey;
 
-use crate::drivers::{Column, Preview, QueryResult, SchemaTree, TablePage};
+use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
 
-/// Bounds `test`: neither the OAuth exchange nor the job has a deadline.
-const TEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// Bounds `test` and the dry run before a statement: neither the OAuth
+/// exchange nor the job has a deadline.
+const UNWATCHED: Duration = Duration::from_secs(20);
 
 /// Reads no table, so it is billed nothing.
 const NOTHING_AT_ALL: &str = "SELECT 1";
+
+/// What a dry run said of a statement.
+pub struct Planned {
+    /// Its `statementType`: `SELECT`, `INSERT`, `DROP_TABLE`, `SCRIPT`.
+    pub kind: String,
+    /// The table a DDL statement makes, changes or drops, as `dataset.table`.
+    pub target: Option<String>,
+}
 
 /// Every statement is a job of its own, so there is no session to hold; what
 /// is kept is the client, because building one is an OAuth exchange.
@@ -62,19 +72,19 @@ impl BigQuerySession {
             .await
     }
 
-    /// Asked of a dry run: this app has no parser for BigQuery's dialect, and
-    /// there is no read-only connection to hold a caller to.
-    pub async fn statement_kind(
-        &self,
-        sql: &str,
-        cancel: &CancellationToken,
-    ) -> Result<String, AppError> {
-        self.dry_run(sql, cancel)
-            .await?
-            .statement_type
-            .ok_or_else(|| {
-                AppError::Database("BigQuery did not say what the statement is".to_string())
-            })
+    /// What BigQuery says `sql` is, asked of a dry run: this app has no parser
+    /// for BigQuery's dialect, and there is no read-only connection to hold a
+    /// caller to.
+    pub async fn plan(&self, sql: &str, cancel: &CancellationToken) -> Result<Planned, AppError> {
+        let query = self.dry_run(sql, cancel).await?;
+        let target = query
+            .ddl_target_table
+            .as_ref()
+            .map(|table| format!("{}.{}", table.dataset_id, table.table_id));
+        let kind = query.statement_type.ok_or_else(|| {
+            AppError::Database("BigQuery did not say what the statement is".to_string())
+        })?;
+        Ok(Planned { kind, target })
     }
 
     /// Plans `sql` without running it, which is not billed.
@@ -118,6 +128,28 @@ impl BigQuerySession {
             .statistics
             .and_then(|statistics| statistics.query)
             .ok_or_else(|| AppError::Database("BigQuery did not plan the statement".to_string()))
+    }
+
+    /// What to ask the reader about before `sql` runs. BigQuery is asked only
+    /// about one statement whose words look easy to regret, or any one on
+    /// `production`, where every write asks: most need not wait for a dry run.
+    pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
+        if !production && !risks::suspect(sql) {
+            return Ok(Vec::new());
+        }
+        // A dry run of a script says only that it is one, so none is asked for.
+        let planned = if risks::script(sql) {
+            Planned {
+                kind: "SCRIPT".to_string(),
+                target: None,
+            }
+        } else {
+            // Nobody holds this to cancel it, so it has a deadline.
+            tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
+                .await
+                .map_err(|_| AppError::Timeout)??
+        };
+        Ok(risks::risks(sql, &planned, production))
     }
 
     pub async fn execute(
@@ -223,7 +255,7 @@ impl BigQuerySession {
                 .map_err(|e| AppError::Database(e.to_string()))?;
             Ok(())
         };
-        tokio::time::timeout(TEST_TIMEOUT, attempt)
+        tokio::time::timeout(UNWATCHED, attempt)
             .await
             .map_err(|_| AppError::Timeout)?
     }

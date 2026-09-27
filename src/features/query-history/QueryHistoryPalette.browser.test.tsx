@@ -83,4 +83,14 @@ describe("QueryHistoryPalette", () => {
     await expect.element(screen.getByText("agent")).toBeVisible();
     expect(screen.getByText("agent").elements()).toHaveLength(1);
   });
+
+  it("says a statement an agent handed over did not run", async () => {
+    const { screen } = await palette({
+      query_history: [entry(1, "DELETE FROM orders", { source: "handoff", row_count: 0 })],
+    });
+
+    await expect.element(screen.getByText("agent")).toBeVisible();
+    await expect.element(screen.getByText("handed over, not run")).toBeVisible();
+    expect(screen.getByText(/rows?$/).elements()).toHaveLength(0);
+  });
 });

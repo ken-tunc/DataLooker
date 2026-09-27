@@ -18,6 +18,7 @@ const local: ConnectionRecord = {
   command: null,
   command_while_selected: false,
   time_zone: null,
+  production: false,
   created_at: "2026-09-20T00:00:00Z",
 };
 
@@ -54,6 +55,7 @@ async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
     query_history: [],
     table_shape: { types: { id: "bigint" }, primary_key: ["id"] },
     preview_table: page,
+    statement_risks: [],
     ...replies,
   });
   // The shell fills the window it is given, and the tabs it holds are drawn at
@@ -176,6 +178,67 @@ describe("AppShell", () => {
     await screen.getByRole("option", { name: /SELECT \* FROM shop\.people/ }).click();
 
     await expect.poll(titles).toEqual(["Query 1", "Query 2"]);
+  });
+
+  it("opens what an agent handed over on its connection, marked until the reader runs it", async () => {
+    const { ipc, screen, titles, selected, open } = await shell({
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+    await open("Local");
+
+    ipc.emit("agent:handoff", {
+      connection_id: "id-2",
+      sql: "DELETE FROM orders",
+      title: "Clean up",
+    });
+
+    // Staging comes to the front with it, holding only what was handed over.
+    await expect.poll(titles).toEqual(["Clean upagent"]);
+    const handed = screen.getByRole("tab", { name: "Clean up, written by an agent" });
+    await expect.element(handed).toBeVisible();
+    expect(ipc.calls.some((call) => call.command === "execute_query")).toBe(false);
+
+    await screen.getByRole("button", { name: "Run", exact: true }).click();
+    await expect.poll(() => ipc.sent("execute_query")?.sql).toBe("DELETE FROM orders");
+    await expect.element(handed).not.toBeInTheDocument();
+    expect(selected()).toBe("Clean up");
+  });
+
+  it("keeps a handed-over statement marked while the reader backs out of running it", async () => {
+    const { ipc, screen, open } = await shell({
+      statement_risks: [
+        { statement: "DELETE FROM orders", hazard: "delete_without_where", targets: ["orders"] },
+      ],
+      execute_query: { columns: [], rows: [], truncated: false, elapsed_ms: 1 },
+    });
+    await open("Local");
+    ipc.emit("agent:handoff", { connection_id: "id-1", sql: "DELETE FROM orders", title: null });
+    const handed = screen.getByRole("tab", { name: "Query 2, written by an agent" });
+    await expect.element(handed).toBeVisible();
+    const run = screen.getByRole("button", { name: "Run", exact: true });
+    const dialog = screen.getByRole("dialog", { name: "Run this statement?" });
+
+    await run.click();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    await expect.element(handed).toBeVisible();
+
+    await run.click();
+    await dialog.getByRole("button", { name: "Run" }).click();
+
+    await expect.poll(() => ipc.sent("execute_query")?.sql).toBe("DELETE FROM orders");
+    await expect.element(handed).not.toBeInTheDocument();
+  });
+
+  it("opens each of two statements handed over at once", async () => {
+    const { ipc, titles, open } = await shell();
+    await open("Local");
+
+    ipc.emit("agent:handoff", { connection_id: "id-1", sql: "SELECT 1", title: null });
+    ipc.emit("agent:handoff", { connection_id: "id-1", sql: "SELECT 2", title: null });
+
+    await expect.poll(titles).toEqual(["Query 1", "Query 2agent", "Query 3agent"]);
   });
 
   it("keeps the shortcuts quiet while a palette is in front", async () => {

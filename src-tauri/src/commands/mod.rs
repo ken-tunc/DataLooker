@@ -24,6 +24,7 @@ use crate::app::agents::AgentAccess;
 use crate::app::completion::Completion;
 use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
+use crate::app::handoffs::Handoff;
 use crate::app::preview::{PreviewCost, PreviewRequest};
 use crate::app::syntax::SyntaxError;
 use crate::app::templates::SaveTemplateInput;
@@ -32,7 +33,7 @@ use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
 use crate::db::template::QueryTemplate;
 use crate::drivers::{
-    Column, QueryPlan, QueryResult, SchemaTree, TableDefinition, TablePage, TableShape,
+    Column, QueryPlan, QueryResult, Risk, SchemaTree, TableDefinition, TablePage, TableShape,
 };
 use crate::error::AppError;
 use crate::lsp::{LanguageServerState, LspExit, LspMessage};
@@ -103,6 +104,7 @@ commands! {
     query::explain_query(ExplainQueryArgs) -> QueryPlan;
     query::cancel_query(CancelQueryArgs) -> ();
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
+    query::statement_risks(StatementRisksArgs) -> Vec<Risk>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
     template::list_templates() -> Vec<QueryTemplate>;
     template::save_template(SaveTemplateInput) -> String;
@@ -189,6 +191,13 @@ pub struct CheckSyntaxArgs {
     pub sql: String,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct StatementRisksArgs {
+    pub connection_id: String,
+    pub sql: String,
+}
+
 /// One JSON-RPC message, as the text the server is handed.
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
@@ -242,6 +251,7 @@ events! {
     shell_exit = "shell:exit" => ShellExit;
     lsp_message = "lsp:message" => LspMessage;
     lsp_exit = "lsp:exit" => LspExit;
+    agent_handoff = "agent:handoff" => Handoff;
 }
 
 #[cfg(test)]

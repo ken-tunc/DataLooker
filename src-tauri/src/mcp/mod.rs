@@ -222,6 +222,7 @@ mod tests {
             secret: Some("opensesame".into()),
             command: None,
             command_while_selected: false,
+            production: false,
             time_zone: None,
         })
         .await
@@ -399,6 +400,7 @@ mod tests {
         assert!(names.contains(&"run_query"), "{names:?}");
         assert!(names.contains(&"explain_query"), "{names:?}");
         assert!(names.contains(&"query_history"), "{names:?}");
+        assert!(names.contains(&"open_in_editor"), "{names:?}");
 
         server.stop().await;
     }
