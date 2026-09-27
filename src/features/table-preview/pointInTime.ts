@@ -11,12 +11,21 @@ function offsetOf(at: Date, timeZone: string): number {
   }
 }
 
-/** `at` on the wall clock of `timeZone`, to the second: `2025-01-02 10:00:00`. */
+/**
+ * `at` on the wall clock of `timeZone`, to the second, as the grid writes a
+ * point in time: `2025-01-02 10:00:00+09`. The offset stays because an hour a
+ * zone's clocks go back over happens twice, and only it says which is meant.
+ */
 export function wallClock(at: Date, timeZone: string): string {
-  const wall = new Date(at.getTime() + offsetOf(at, timeZone) * 1000);
+  const offset = offsetOf(at, timeZone);
+  const wall = new Date(at.getTime() + offset * 1000);
+  const magnitude = Math.abs(offset);
+  const minutes = Math.floor((magnitude % 3600) / 60);
   return (
     `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())} ` +
-    `${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}:${pad(wall.getUTCSeconds())}`
+    `${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}:${pad(wall.getUTCSeconds())}` +
+    `${offset < 0 ? "-" : "+"}${pad(Math.floor(magnitude / 3600))}` +
+    (minutes === 0 ? "" : `:${pad(minutes)}`)
   );
 }
 
@@ -88,14 +97,27 @@ if (import.meta.vitest) {
 
   describe("wallClock", () => {
     it("reads a point on the zone's wall clock", () => {
-      expect(wallClock(utc("2025-01-02T01:00:00.900Z"), "Asia/Tokyo")).toBe("2025-01-02 10:00:00");
+      expect(wallClock(utc("2025-01-02T01:00:00.900Z"), "Asia/Tokyo")).toBe(
+        "2025-01-02 10:00:00+09",
+      );
       expect(wallClock(utc("2025-07-01T12:00:00Z"), "America/New_York")).toBe(
-        "2025-07-01 08:00:00",
+        "2025-07-01 08:00:00-04",
+      );
+      expect(wallClock(utc("2025-01-02T01:00:00Z"), "Asia/Kolkata")).toBe(
+        "2025-01-02 06:30:00+05:30",
       );
     });
 
+    it("names which of the two times an hour the clocks go back over it is", () => {
+      // New York's 01:30 on 2 November 2025 happens first at -04, then at -05.
+      for (const iso of ["2025-11-02T05:30:00.000Z", "2025-11-02T06:30:00.000Z"]) {
+        const written = wallClock(utc(iso), "America/New_York");
+        expect(parseWallClock(written, "America/New_York")?.toISOString()).toBe(iso);
+      }
+    });
+
     it("falls back to UTC for a zone that does not exist", () => {
-      expect(wallClock(utc("2025-01-02T01:00:00Z"), "Mars/Olympus")).toBe("2025-01-02 01:00:00");
+      expect(wallClock(utc("2025-01-02T01:00:00Z"), "Mars/Olympus")).toBe("2025-01-02 01:00:00+00");
     });
   });
 

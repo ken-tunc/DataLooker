@@ -39,6 +39,9 @@ export function TimeTravel({ connectionId, tab, hidden, onView }: Props) {
     return () => clearTimeout(timer);
   }, [pickedIso]);
   const cost = usePreviewCost(connectionId, tab, settled, !hidden);
+  // Only once the reader has seen what this very point would scan.
+  const readable =
+    pickedIso !== null && pickedIso !== tab.asOf && settled === pickedIso && cost.isSuccess;
 
   const minutesBack = picked
     ? Math.min(WINDOW, Math.max(0, Math.round((now - picked.getTime()) / 60_000)))
@@ -46,7 +49,7 @@ export function TimeTravel({ connectionId, tab, hidden, onView }: Props) {
 
   function read(event: FormEvent) {
     event.preventDefault();
-    if (pickedIso) onView({ asOf: pickedIso });
+    if (readable) onView({ asOf: pickedIso });
   }
 
   return (
@@ -82,11 +85,7 @@ export function TimeTravel({ connectionId, tab, hidden, onView }: Props) {
           aria-invalid={picked === null}
         />
         <span className="text-muted text-sm">{timeZone}</span>
-        <button
-          type="submit"
-          className="btn btn-sm btn-soft"
-          disabled={pickedIso === null || pickedIso === tab.asOf}
-        >
+        <button type="submit" className="btn btn-sm btn-soft" disabled={!readable}>
           Read
         </button>
       </form>

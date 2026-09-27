@@ -392,7 +392,9 @@ describe("TablePreviewPane on BigQuery", () => {
     const { ipc, screen, onView } = await preview(bigquery, { asOf: "2025-01-02T01:00:00.000Z" });
 
     await expect
-      .element(screen.getByText("Showing the table as it was at 2025-01-02 10:00:00 (Asia/Tokyo)."))
+      .element(
+        screen.getByText("Showing the table as it was at 2025-01-02 10:00:00+09 (Asia/Tokyo)."),
+      )
       .toBeVisible();
     await expect
       .poll(() => ipc.sent("preview_table"))
@@ -419,6 +421,8 @@ describe("TablePreviewPane on BigQuery", () => {
     await expect
       .element(screen.getByRole("alert"))
       .toHaveTextContent("Only a table can be read as it was, and BigQuery calls this a VIEW.");
+    // Nothing is read without the reader having seen what it would scan.
+    await expect.element(screen.getByRole("button", { name: "Read" })).toBeDisabled();
     expect(ipc.sent("preview_table")).toMatchObject({ as_of: null });
   });
 
