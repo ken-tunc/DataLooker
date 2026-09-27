@@ -67,8 +67,13 @@ impl Listening {
     }
 }
 
+/// Where the token is read from, at each request rather than once when the
+/// server opens: reading it may ask the reader for their password, which is
+/// worth doing only once an agent has come. The store keeps it once read.
+pub type Token = Arc<dyn Fn() -> Result<Option<String>, AppError> + Send + Sync>;
+
 /// `port` zero asks the system for one, which is then kept.
-pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening, AppError> {
+pub async fn listen(app: Arc<App>, token: Token, port: u16) -> Result<Listening, AppError> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
         .await
         .map_err(|e| AppError::Shell(format!("no port for agents to reach: {e}")))?;
@@ -108,7 +113,7 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
             let Ok((stream, _)) = accepted else { continue };
 
             let mcp = mcp.clone();
-            let token = token.clone();
+            let token = Arc::clone(&token);
             let connection = serving.child_token();
             tokio::spawn(async move {
                 let _taking = taking;
@@ -121,9 +126,9 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
                     TokioIo::new(stream),
                     service_fn(move |request| {
                         let mut mcp = mcp.clone();
-                        let token = token.clone();
+                        let token = Arc::clone(&token);
                         async move {
-                            if let Some(refusal) = checked(&request, &token) {
+                            if let Some(refusal) = checked(&request, token).await {
                                 return Ok::<_, Infallible>(refusal);
                             }
                             match said(request).await {
@@ -150,7 +155,7 @@ pub async fn listen(app: Arc<App>, token: String, port: u16) -> Result<Listening
 
 type Refusal = Response<http_body_util::combinators::BoxBody<Bytes, Infallible>>;
 
-fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
+async fn checked(request: &Request<Incoming>, token: Token) -> Option<Refusal> {
     if request.uri().path() != PATH {
         return Some(refusal(StatusCode::NOT_FOUND, "There is nothing here."));
     }
@@ -159,15 +164,40 @@ fn checked(request: &Request<Incoming>, token: &str) -> Option<Refusal> {
         .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
+    // Nobody is asked for the keychain on behalf of a request that brings no
+    // token at all.
+    let Some(presented) = presented else {
+        return Some(unauthorized());
+    };
+    // Off the runtime's threads: the keychain may wait on the reader.
+    let token = match tokio::task::spawn_blocking(move || token()).await {
+        Ok(Ok(token)) => token.unwrap_or_default(),
+        Ok(Err(e)) => {
+            return Some(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &format!("This app cannot read its token: {e}"),
+            ))
+        }
+        Err(_) => {
+            return Some(refusal(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "This app failed to read its token.",
+            ))
+        }
+    };
     // Not constant time: anything that can time loopback is already inside.
     // An empty token must never match.
-    if token.is_empty() || presented != Some(token) {
-        return Some(refusal(
-            StatusCode::UNAUTHORIZED,
-            "This app answers agents that present its token.",
-        ));
+    if token.is_empty() || presented != token {
+        return Some(unauthorized());
     }
     None
+}
+
+fn unauthorized() -> Refusal {
+    refusal(
+        StatusCode::UNAUTHORIZED,
+        "This app answers agents that present its token.",
+    )
 }
 
 /// Read here rather than by the service, so that the deadline covers the body.
@@ -228,7 +258,7 @@ mod tests {
         .await
         .expect("a connection to tell an agent about");
 
-        listen(Arc::new(app), TOKEN.to_string(), 0)
+        listen(Arc::new(app), Arc::new(|| Ok(Some(TOKEN.to_string()))), 0)
             .await
             .expect("a port to answer on")
     }
@@ -356,6 +386,51 @@ mod tests {
         let hello = greeted(server.port).await;
         assert_eq!(hello["result"]["serverInfo"]["name"], "datalooker");
 
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn reads_the_token_only_once_an_agent_presents_one() {
+        let reads = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let counted = Arc::clone(&reads);
+        let token: Token = Arc::new(move || {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Some(TOKEN.to_string()))
+        });
+        let app = Arc::new(crate::app::tests::app().await);
+        let server = listen(app, token, 0).await.unwrap();
+        let read = || reads.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(read(), 0, "read before anyone asked");
+
+        let mut bare = TcpStream::connect(("127.0.0.1", server.port))
+            .await
+            .unwrap();
+        bare.write_all(b"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut answered = String::new();
+        bare.read_to_string(&mut answered).await.unwrap();
+        assert!(answered.starts_with("HTTP/1.1 401"), "{answered}");
+        assert_eq!(read(), 0, "read for a request that brought no token");
+
+        greeted(server.port).await;
+        assert_eq!(read(), 1);
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn refuses_every_agent_while_the_token_cannot_be_read() {
+        let app = Arc::new(crate::app::tests::app().await);
+        let token: Token = Arc::new(|| Err(AppError::Secret("keychain unavailable".into())));
+        let server = listen(app, token, 0).await.unwrap();
+
+        let (status, said) = asked(
+            server.port,
+            TOKEN,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}),
+        )
+        .await;
+        assert_eq!(status, 503, "{said}");
         server.stop().await;
     }
 
