@@ -1,3 +1,4 @@
+mod estimate;
 mod preview;
 mod query;
 mod risks;
@@ -6,13 +7,18 @@ mod schema;
 mod testing;
 mod value;
 
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use futures_util::future::try_join_all;
 use gcp_bigquery_client::model::job::Job;
 use gcp_bigquery_client::model::job_configuration::JobConfiguration;
 use gcp_bigquery_client::model::job_configuration_query::JobConfigurationQuery;
 use gcp_bigquery_client::model::job_reference::JobReference;
+use gcp_bigquery_client::model::job_statistics2::JobStatistics2;
 use gcp_bigquery_client::model::query_request::QueryRequest;
+use gcp_bigquery_client::model::table_reference::TableReference;
 use gcp_bigquery_client::Client;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -20,13 +26,21 @@ use yup_oauth2::ServiceAccountKey;
 
 use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
+pub use estimate::Estimate;
 
 /// Bounds `test` and the dry run before a statement: neither the OAuth
 /// exchange nor the job has a deadline.
 const UNWATCHED: Duration = Duration::from_secs(20);
 
+/// How long a table's partitioning is trusted: `CREATE OR REPLACE` can make
+/// the table again, partitioned otherwise.
+const PARTITIONS_KEPT: Duration = Duration::from_secs(60);
+
 /// Reads no table, so it is billed nothing.
 const NOTHING_AT_ALL: &str = "SELECT 1";
+
+/// A table's partition columns, or `None` for none, and when that was asked.
+type Asked = (Instant, Option<Vec<String>>);
 
 /// What a dry run said of a statement.
 pub struct Planned {
@@ -43,6 +57,9 @@ pub struct BigQuerySession {
     location: String,
     key: ServiceAccountKey,
     client: OnceCell<Client>,
+    /// Each table's partition columns and when they were asked: an estimate is
+    /// asked for on keystrokes.
+    partitions: Mutex<HashMap<String, Asked>>,
 }
 
 impl BigQuerySession {
@@ -56,6 +73,7 @@ impl BigQuerySession {
             location: location.to_string(),
             key,
             client: OnceCell::new(),
+            partitions: Mutex::default(),
         })
     }
 
@@ -75,6 +93,93 @@ impl BigQuerySession {
     /// for BigQuery's dialect, and there is no read-only connection to hold a
     /// caller to.
     pub async fn plan(&self, sql: &str, cancel: &CancellationToken) -> Result<Planned, AppError> {
+        let query = self.dry_run(sql, cancel).await?;
+        let target = query
+            .ddl_target_table
+            .as_ref()
+            .map(|table| format!("{}.{}", table.dataset_id, table.table_id));
+        let kind = query.statement_type.ok_or_else(|| {
+            AppError::Database("BigQuery did not say what the statement is".to_string())
+        })?;
+        Ok(Planned { kind, target })
+    }
+
+    /// What to ask the reader about before `sql` runs. BigQuery is asked only
+    /// about one statement whose words look easy to regret, or any one on
+    /// `production`, where every write asks: most need not wait for a dry run.
+    pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
+        if !production && !risks::suspect(sql) {
+            return Ok(Vec::new());
+        }
+        // A dry run of a script says only that it is one, so none is asked for.
+        let planned = if risks::script(sql) {
+            Planned {
+                kind: "SCRIPT".to_string(),
+                target: None,
+            }
+        } else {
+            // Nobody holds this to cancel it, so it has a deadline.
+            tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
+                .await
+                .map_err(|_| AppError::Timeout)??
+        };
+        Ok(risks::risks(sql, &planned, production))
+    }
+
+    pub async fn estimate(
+        &self,
+        sql: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Estimate, AppError> {
+        let planned = self.dry_run(sql, cancel).await?;
+        let bytes = planned
+            .total_bytes_processed
+            .and_then(|bytes| bytes.parse().ok())
+            .unwrap_or_default();
+
+        let tables = planned.referenced_tables.unwrap_or_default();
+        let asked = try_join_all(tables.iter().map(|table| self.partitioning(table)));
+        let partitioned = tokio::select! {
+            partitioned = asked => partitioned?,
+            () = cancel.cancelled() => return Err(AppError::Cancelled),
+        };
+        let read: Vec<_> = tables
+            .into_iter()
+            .zip(partitioned)
+            .filter_map(|(table, columns)| Some((table, columns?)))
+            .collect();
+
+        Ok(Estimate {
+            bytes,
+            at_least: risks::dynamic(sql),
+            unpruned: estimate::unpruned(sql, &read),
+        })
+    }
+
+    async fn partitioning(&self, table: &TableReference) -> Result<Option<Vec<String>>, AppError> {
+        let key = format!(
+            "{}.{}.{}",
+            table.project_id, table.dataset_id, table.table_id
+        );
+        if let Some((asked, known)) = self.partitions.lock().unwrap().get(&key) {
+            if asked.elapsed() < PARTITIONS_KEPT {
+                return Ok(known.clone());
+            }
+        }
+        let found = estimate::partitioning(self.client().await?, table).await?;
+        self.partitions
+            .lock()
+            .unwrap()
+            .insert(key, (Instant::now(), found.clone()));
+        Ok(found)
+    }
+
+    /// BigQuery plans the statement and says what it would do, billing nothing.
+    async fn dry_run(
+        &self,
+        sql: &str,
+        cancel: &CancellationToken,
+    ) -> Result<JobStatistics2, AppError> {
         let client = tokio::select! {
             client = self.client() => client?,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
@@ -104,41 +209,11 @@ impl BigQuerySession {
             planned = client.job().insert(&self.project_id, asking) => planned,
             () = cancel.cancelled() => return Err(AppError::Cancelled),
         };
-        let planned = planned.map_err(|e| AppError::Database(format!("BigQuery refused: {e}")))?;
-
-        let query = planned.statistics.and_then(|statistics| statistics.query);
-        let target = query
-            .as_ref()
-            .and_then(|query| query.ddl_target_table.as_ref())
-            .map(|table| format!("{}.{}", table.dataset_id, table.table_id));
-        let kind = query
-            .and_then(|query| query.statement_type)
-            .ok_or_else(|| {
-                AppError::Database("BigQuery did not say what the statement is".to_string())
-            })?;
-        Ok(Planned { kind, target })
-    }
-
-    /// What to ask the reader about before `sql` runs. BigQuery is asked only
-    /// about one statement whose words look easy to regret, or any one on
-    /// `production`, where every write asks: most need not wait for a dry run.
-    pub async fn risks(&self, sql: &str, production: bool) -> Result<Vec<Risk>, AppError> {
-        if !production && !risks::suspect(sql) {
-            return Ok(Vec::new());
-        }
-        // A dry run of a script says only that it is one, so none is asked for.
-        let planned = if risks::script(sql) {
-            Planned {
-                kind: "SCRIPT".to_string(),
-                target: None,
-            }
-        } else {
-            // Nobody holds this to cancel it, so it has a deadline.
-            tokio::time::timeout(UNWATCHED, self.plan(sql, &CancellationToken::new()))
-                .await
-                .map_err(|_| AppError::Timeout)??
-        };
-        Ok(risks::risks(sql, &planned, production))
+        planned
+            .map_err(query::refused)?
+            .statistics
+            .and_then(|statistics| statistics.query)
+            .ok_or_else(|| AppError::Database("BigQuery did not plan the statement".to_string()))
     }
 
     pub async fn execute(
@@ -259,6 +334,9 @@ mod tests {
 mod live {
     use std::env;
 
+    use tokio_util::sync::CancellationToken;
+
+    use crate::drivers::bigquery::estimate::Unpruned;
     use crate::drivers::bigquery::testing::*;
     use crate::drivers::bigquery::BigQuerySession;
 
@@ -288,5 +366,66 @@ mod live {
             .expect_err("a project that is not there");
 
         assert!(matches!(err, AppError::Database(_)), "got {err}");
+    }
+
+    #[tokio::test]
+    async fn an_estimate_names_a_partitioned_table_read_whole() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+        let dataset = Dataset::make(session, "estimate").await;
+        let events = format!("{}.events", dataset.name);
+        dataset
+            .run(&format!(
+                "CREATE TABLE {events} PARTITION BY DATE(happened) AS \
+                 SELECT TIMESTAMP_ADD(TIMESTAMP '2025-01-01', INTERVAL n HOUR) AS happened, n \
+                 FROM UNNEST(GENERATE_ARRAY(1, 100)) AS n"
+            ))
+            .await;
+
+        let cancel = CancellationToken::new();
+        let whole = dataset
+            .session
+            .estimate(&format!("SELECT n FROM {events}"), &cancel)
+            .await;
+        let pruned = dataset
+            .session
+            .estimate(
+                &format!("SELECT n FROM {events} WHERE DATE(happened) = '2025-01-02'"),
+                &cancel,
+            )
+            .await;
+        dataset.drop_it().await;
+
+        let whole = whole.expect("an estimate of a whole table");
+        assert!(whole.bytes > 0, "a table of a hundred rows reads nothing");
+        assert_eq!(
+            whole.unpruned,
+            [Unpruned {
+                table: format!("{}.{events}", dataset.session.project_id),
+                column: "happened".to_string(),
+            }]
+        );
+        let pruned = pruned.expect("an estimate of one day");
+        assert!(pruned.unpruned.is_empty());
+        assert!(pruned.bytes < whole.bytes);
+    }
+
+    #[tokio::test]
+    async fn a_statement_bigquery_cannot_plan_is_refused_in_its_own_words() {
+        let Some(session) = session_or_skip() else {
+            return;
+        };
+
+        let err = session
+            .estimate("SELECT no_such_column", &CancellationToken::new())
+            .await
+            .expect_err("a column that is not there");
+
+        let AppError::Database(message) = err else {
+            panic!("got {err}");
+        };
+        assert!(message.contains("no_such_column"), "{message}");
+        assert!(!message.contains("ResponseError"), "{message}");
     }
 }

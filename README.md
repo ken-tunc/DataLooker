@@ -11,6 +11,9 @@ PostgreSQL and BigQuery.
 - **SQL editor** — Monaco with tabs, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type,
   formatting in either dialect that keeps comments and keyword case, and vim keybindings.
+  A BigQuery statement is dry-run as you type, and the footer says what it would scan,
+  what that costs at on-demand pricing, which partitioned table it reads whole, or what
+  BigQuery refused it for.
   A `DROP`, a `TRUNCATE`, an `ALTER TABLE ... DROP COLUMN` and, on PostgreSQL, an `UPDATE`
   or `DELETE` without a `WHERE` ask before they run: PostgreSQL's from its parse tree,
   BigQuery's from a dry run. On a connection marked production, drawn in red, every
@@ -39,9 +42,10 @@ PostgreSQL and BigQuery.
   each value, as text, a number, a boolean, `NULL` or SQL written as it is, and opens the
   statement it makes in a new tab.
 - **Agents** — an optional MCP server on localhost, behind a token, lets your own agents
-  list connections, read schemas, run read-only statements and read their plans. A
-  statement that writes, they hand to you: it opens in a new tab, marked as theirs, and
-  runs only if you run it. What they run or hand over is logged and marked.
+  list connections, read schemas, run read-only statements, read their plans and ask
+  what a BigQuery statement would scan. A statement that writes, they hand to you: it
+  opens in a new tab, marked as theirs, and runs only if you run it. What they run or
+  hand over is logged and marked.
 
 ## Keyboard
 

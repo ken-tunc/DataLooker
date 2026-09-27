@@ -48,6 +48,11 @@ export function cancelQuery(queryId: string) {
   return invoke("cancel_query", { query_id: queryId });
 }
 
+/** What a BigQuery statement would scan, from a dry run that bills nothing. */
+export function estimateQuery(connectionId: string, sql: string) {
+  return invoke("estimate_query", { connection_id: connectionId, sql });
+}
+
 /** Needs no connection: the grammar is built in. */
 export function checkSyntax(sql: string) {
   return invoke("check_syntax", { sql });

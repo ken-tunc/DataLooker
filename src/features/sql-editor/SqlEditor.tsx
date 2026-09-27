@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { SyntaxError } from "../../bindings/SyntaxError";
 import { checkSyntax } from "../../lib/commands";
 import { InstallServer } from "../language-server/InstallServer";
+import { Estimate } from "../query-estimate/Estimate";
 import { languageClientFor } from "../../lib/lsp/client";
 import { useConnections } from "../connections/hooks";
 import { schemaTreeQuery } from "../schema-tree/hooks";
@@ -242,6 +243,7 @@ export default function SqlEditor({
         <span className="text-muted grow truncate font-mono">
           <span ref={status} />
         </span>
+        {kind === "bigquery" && <Estimate connectionId={connectionId} sql={value} />}
         <InstallServer connectionId={connectionId} />
         <label className="flex cursor-pointer items-center gap-1">
           <input
