@@ -147,7 +147,8 @@ const ROUTINE_DEFINITION: &str = "
 ";
 
 /// Every index, those backing a constraint too: the tree is where a reader
-/// looks for what an index costs.
+/// looks for what an index costs. A partitioned table's index keeps nothing of
+/// its own, so its size is its leaf partitions' added up.
 const INDEXES: &str = "
     SELECT ic.relname AS name,
            am.amname AS method,
@@ -158,7 +159,11 @@ const INDEXES: &str = "
            ), ', ') AS keys,
            i.indisunique AS is_unique,
            i.indisprimary AS is_primary,
-           pg_relation_size(i.indexrelid) AS bytes
+           CASE WHEN ic.relkind = 'I'
+                THEN (SELECT coalesce(sum(pg_relation_size(t.relid)), 0)::bigint
+                        FROM pg_partition_tree(i.indexrelid) t WHERE t.isleaf)
+                ELSE pg_relation_size(i.indexrelid)
+           END AS bytes
       FROM pg_index i
       JOIN pg_class ic ON ic.oid = i.indexrelid
       JOIN pg_am am ON am.oid = ic.relam
@@ -763,6 +768,30 @@ mod live {
         );
         // Even an empty index has its metapage.
         assert!(indexes.iter().all(|index| index.bytes > 0), "{indexes:?}");
+
+        // Partitioned twice over: only the leaves hold anything.
+        for statement in [
+            "CREATE TABLE tree_indexes.events (id int PRIMARY KEY) PARTITION BY RANGE (id)",
+            "CREATE TABLE tree_indexes.events_low PARTITION OF tree_indexes.events \
+                 FOR VALUES FROM (0) TO (10) PARTITION BY RANGE (id)",
+            "CREATE TABLE tree_indexes.events_a PARTITION OF tree_indexes.events_low \
+                 FOR VALUES FROM (0) TO (5)",
+            "CREATE TABLE tree_indexes.events_b PARTITION OF tree_indexes.events_low \
+                 FOR VALUES FROM (5) TO (10)",
+        ] {
+            run(&session, statement).await.unwrap();
+        }
+        let leaves = [
+            session.indexes("tree_indexes", "events_a").await.unwrap(),
+            session.indexes("tree_indexes", "events_b").await.unwrap(),
+        ];
+        let partitioned = session.indexes("tree_indexes", "events").await.unwrap();
+        assert_eq!(
+            partitioned[0].bytes,
+            leaves.iter().map(|leaf| leaf[0].bytes).sum::<u64>()
+        );
+        assert!(partitioned[0].bytes > 0);
+
         assert!(session
             .indexes("tree_indexes", "nothing")
             .await
