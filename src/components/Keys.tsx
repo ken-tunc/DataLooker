@@ -1,5 +1,5 @@
 /**
- * A key combination such as `⌘⇧D`, one keycap. Each symbol is set apart from
+ * A key combination such as `⇧⌘D`, one keycap. Each symbol is set apart from
  * the next and drawn in the UI face: in a small monospace one the modifiers
  * shrink and run into the key they modify.
  */
@@ -23,7 +23,7 @@ if (import.meta.vitest) {
 
   describe("parts", () => {
     it("sets each symbol apart and keeps a named key whole", () => {
-      expect(parts("⌘⇧D")).toEqual(["⌘", "⇧", "D"]);
+      expect(parts("⇧⌘D")).toEqual(["⇧", "⌘", "D"]);
       expect(parts("⌃⇧Tab")).toEqual(["⌃", "⇧", "Tab"]);
       expect(parts("⇧↑↓←→")).toEqual(["⇧", "↑", "↓", "←", "→"]);
       expect(parts("⌘-click")).toEqual(["⌘", "click"]);

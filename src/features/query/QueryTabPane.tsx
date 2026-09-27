@@ -114,7 +114,7 @@ export function QueryTabPane({
               type="button"
               className="btn btn-sm join-item"
               disabled={sql.trim() === "" || run.isPending}
-              title="Run it read-only and time each step (⌘⇧E)"
+              title="Run it read-only and time each step (⇧⌘E)"
               onClick={() => submit("analyze")}
             >
               Analyze

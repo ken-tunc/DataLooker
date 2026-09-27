@@ -54,9 +54,9 @@ Press ⌘? for this list in the app.
 | Delete, Backspace | Close the focused tab                  |
 | ⌘Enter            | Run the editor's query                 |
 | ⌘E                | Show how PostgreSQL would run it       |
-| ⌘⇧E               | Run it read-only and time each step    |
-| ⌘⇧D, ⌘-click      | Open the table named under the cursor  |
-| ⌘⇧F               | Format the statement, or the selection |
+| ⇧⌘E               | Run it read-only and time each step    |
+| ⇧⌘D, ⌘-click      | Open the table named under the cursor  |
+| ⇧⌘F               | Format the statement, or the selection |
 | ⇧-click, ⇧↑↓←→    | Stretch the selection over a range     |
 | ⌘↑↓←→             | Go to the first / last row or column   |
 | ⌘A                | Select every cell                      |

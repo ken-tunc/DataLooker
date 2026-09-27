@@ -49,9 +49,9 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  /** ⌘E asks for the plan, ⌘⇧E for it measured. */
+  /** ⌘E asks for the plan, ⇧⌘E for it measured. */
   onExplain: (analyze: boolean) => void;
-  /** What ⌘⇧D and ⌘-click ask about: the name under the cursor. */
+  /** What ⇧⌘D and ⌘-click ask about: the name under the cursor. */
   onJump: (name: QualifiedName) => void;
 };
 
