@@ -92,8 +92,10 @@ jobs:
           persist-credentials: false
 
       # `git ls-remote --exit-code` answers 2 for a missing ref; anything else
-      # is a failure to reach the remote. `npm pkg set` runs no package
-      # script and rewrites nothing but the field.
+      # is a failure to reach the remote. The version is written by `node`
+      # rather than `npm pkg set`, which refuses to run under any Node but the
+      # one `devEngines` names, and setup-vp has not installed that yet. The
+      # publish job writes it the same way, so both make the same tree.
       - name: Raise the version
         id: bump
         env:
@@ -132,7 +134,7 @@ jobs:
             exit 1
           fi
 
-          npm pkg set version="$version"
+          node -e 'const fs = require("fs"); const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")); pkg.version = process.argv[1]; fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");' "$version"
           git add package.json
           echo "Building v$version, raised from $current."
           {
@@ -205,7 +207,7 @@ jobs:
           TREE: ${{ needs.build.outputs.tree }}
         run: |
           set -euo pipefail
-          npm pkg set version="$VERSION"
+          node -e 'const fs = require("fs"); const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")); pkg.version = process.argv[1]; fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");' "$VERSION"
           git add package.json
           if [[ "$(git write-tree)" != "$TREE" ]]; then
             echo "The bump here differs from the one the build made." >&2
