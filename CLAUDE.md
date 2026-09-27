@@ -92,6 +92,11 @@ tree therefore shows what is committed.
 A cancelled statement leaves the wire mid-row, so its session is dropped; an error the
 server reported leaves it usable.
 
+Whether the reader's session is inside a transaction is asked of the server after each
+statement on it and kept beside the session, so the header can say so without waiting
+behind the reader's next query. sqlx reads the answer the server sends with every
+statement but does not expose it.
+
 A grid save is one transaction on the reader's session, checked against each row's `xmin`,
 with values sent as text and cast to the column's type. It is refused while the reader has
 a transaction open, since its `COMMIT` would end theirs. A relation with no primary key,
