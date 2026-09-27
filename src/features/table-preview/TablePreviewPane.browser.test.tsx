@@ -87,9 +87,14 @@ async function preview(
   return { ipc, screen, type, saved, onView };
 }
 
-/** The connections are read from the app's own store, not the server. */
+/**
+ * The connections are read from the app's own store, and the transaction's
+ * state is what the last statement left, so neither reaches the server.
+ */
 function askedOfTheServer(ipc: Ipc): string[] {
-  return ipc.calls.map((call) => call.command).filter((command) => command !== "list_connections");
+  return ipc.calls
+    .map((call) => call.command)
+    .filter((command) => command !== "list_connections" && command !== "transaction_state");
 }
 
 describe("TablePreviewPane", () => {
@@ -240,6 +245,23 @@ describe("TablePreviewPane", () => {
     await expect
       .element(screen.getByText(/Reload the page to see what it holds now/))
       .toBeVisible();
+  });
+
+  it("points at the reader's open transaction when a save is refused for it", async () => {
+    const { screen, type } = await preview({
+      transaction_state: "open",
+      commit_table_edits: () => {
+        throw { kind: "Conflict", message: "a transaction is open in the editor." };
+      },
+    });
+
+    await type("Ada", "name", "Katherine");
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    await expect.element(screen.getByText(/Commit or roll it back in the header/)).toBeVisible();
+    await expect
+      .element(screen.getByText(/Reload the page to see what it holds now/))
+      .not.toBeInTheDocument();
   });
 
   it("is read-only where a row cannot be named", async () => {

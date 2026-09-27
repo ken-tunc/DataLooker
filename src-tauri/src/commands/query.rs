@@ -11,7 +11,7 @@ use crate::commands::{
 use crate::db::history::HistoryEntry;
 use crate::drivers::bigquery::Estimate;
 use crate::drivers::session::Whose;
-use crate::drivers::{QueryPlan, QueryResult, Risk};
+use crate::drivers::{QueryPlan, QueryResult, Risk, TransactionState};
 use crate::error::AppError;
 
 #[tauri::command]
@@ -47,6 +47,14 @@ pub async fn estimate_query(
 ) -> Result<Estimate, AppError> {
     app.estimate_query(&args.connection_id, Whose::Reader, &args.sql)
         .await
+}
+
+#[tauri::command]
+pub async fn transaction_state(
+    args: ConnectionArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<TransactionState, AppError> {
+    Ok(app.transaction_state(&args.connection_id))
 }
 
 #[tauri::command]

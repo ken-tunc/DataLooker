@@ -4,6 +4,7 @@ use futures_util::TryStreamExt;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 
 use crate::drivers::postgres::quote;
+use crate::drivers::postgres::transaction::in_transaction;
 use crate::drivers::{DriverError, RowDelete, RowInsert, RowUpdate, TableShape};
 
 const SHAPE: &str = "
@@ -91,19 +92,6 @@ pub fn plan(
         statements.push(Statement::insert(shape, schema, table, insert));
     }
     Ok(Plan(statements))
-}
-
-/// Whether the reader left a transaction open on this session. sqlx only knows
-/// about transactions it began, so the server is asked: inside a transaction
-/// `now()` is when it began. A simple query, because the extended protocol's
-/// Bind and Execute are two instants apart even outside a transaction. A
-/// failed transaction refuses the question with the complaint the reader needs
-/// to see.
-pub async fn in_transaction(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
-    sqlx::raw_sql("SELECT now() <> statement_timestamp()")
-        .fetch_one(&mut *conn)
-        .await?
-        .try_get(0)
 }
 
 /// One transaction: a save must not half happen.

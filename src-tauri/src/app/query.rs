@@ -5,7 +5,8 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
-use crate::drivers::{QueryPlan, QueryResult};
+use crate::drivers::session::Whose;
+use crate::drivers::{QueryPlan, QueryResult, TransactionState};
 use crate::error::AppError;
 
 /// Every row: a result cut short cannot be told from a whole one at a glance,
@@ -76,6 +77,16 @@ impl App {
         )
         .await;
         result
+    }
+
+    /// Of the reader's session, as its last statement left it. A connection
+    /// with no session open has nothing open.
+    pub fn transaction_state(&self, connection_id: &str) -> TransactionState {
+        self.sessions
+            .peek(connection_id, Whose::Reader)
+            .map_or(TransactionState::Idle, |session| {
+                session.transaction_state()
+            })
     }
 
     pub fn cancel_query(&self, query_id: &str) {
@@ -189,6 +200,7 @@ mod tests {
 #[cfg(test)]
 mod live {
     use crate::app::tests::app_reaching_postgres;
+    use crate::drivers::TransactionState;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_reader_gets_every_row_of_a_statement() {
@@ -203,5 +215,21 @@ mod live {
 
         assert_eq!(result.rows.len(), 5_001);
         assert!(!result.truncated);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_readers_transaction_is_theirs_alone() {
+        let Some((app, id)) = app_reaching_postgres().await else {
+            return;
+        };
+        assert_eq!(app.transaction_state(&id), TransactionState::Idle);
+
+        app.execute_query(&id, "BEGIN", "q1").await.unwrap();
+        // An agent's session is another session.
+        app.run_agent_query(&id, "SELECT 1").await.unwrap();
+        assert_eq!(app.transaction_state(&id), TransactionState::Open);
+
+        app.execute_query(&id, "COMMIT", "q2").await.unwrap();
+        assert_eq!(app.transaction_state(&id), TransactionState::Idle);
     }
 }

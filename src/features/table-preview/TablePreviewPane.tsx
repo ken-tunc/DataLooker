@@ -9,6 +9,7 @@ import { useDriver, useTimeZone } from "../connections/hooks";
 import { formatCell } from "../query/cell";
 import { ResultGrid } from "../query/ResultGrid";
 import type { TableView } from "../tabs/tabs";
+import { useTransactionState } from "../transaction/hooks";
 import {
   editCount,
   isDeleted,
@@ -75,6 +76,9 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
 
   const preview = useTablePreview(connectionId, tab, editable, rowsShown && !shape.isPending);
   const commit = useCommitEdits(connectionId, tab.schema, tab.table);
+  // A save is refused inside the reader's transaction, which its `COMMIT` would end.
+  const transaction = useTransactionState(connectionId).data;
+  const inTransaction = transaction === "open" || transaction === "failed";
   const { refresh, refreshing } = useRefreshTable(connectionId, tab.schema, tab.table);
   const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
@@ -332,12 +336,14 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       {commit.isError && (
         <div role="alert" className="alert alert-soft alert-error">
           <span className="text-sm">
-            {describeError(commit.error, {
-              Conflict:
-                commit.error instanceof IpcError
-                  ? `${commit.error.message} Reload the page to see what it holds now.`
-                  : undefined,
-            })}
+            {inTransaction
+              ? "Nothing was saved: a save would end the transaction open on this connection. Commit or roll it back in the header first."
+              : describeError(commit.error, {
+                  Conflict:
+                    commit.error instanceof IpcError
+                      ? `${commit.error.message} Reload the page to see what it holds now.`
+                      : undefined,
+                })}
           </span>
         </div>
       )}

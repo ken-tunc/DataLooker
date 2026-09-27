@@ -14,6 +14,7 @@ import {
   tableShape,
 } from "../../lib/commands";
 import type { Tab } from "../tabs/tabs";
+import { transactionKeys } from "../transaction/keys";
 import { previewKeys } from "./keys";
 
 export type TableTab = Extract<Tab, { kind: "table" }>;
@@ -129,6 +130,8 @@ export function useCommitEdits(connectionId: string, schema: string, table: stri
       queryClient.invalidateQueries({
         queryKey: previewKeys.table(connectionId, schema, table),
       }),
+    // A save that broke the reader's session took their transaction with it.
+    onError: () => queryClient.invalidateQueries({ queryKey: transactionKeys.of(connectionId) }),
   });
 }
 
