@@ -117,10 +117,14 @@ const sameTable = (tab: Tab, saved: SavedTab) =>
 
 /**
  * What is kept across a restart. A statement an agent handed over and nobody
- * took up is left out: it was handed over to be run now, not kept.
+ * took up is left out: it was handed over to be run now, not kept. So is a
+ * routine's definition, which holds nothing of the reader's and is one click
+ * away in the tree.
  */
 export function toSaved(state: TabsState | undefined): SavedTabs {
-  const kept = (state?.tabs ?? []).filter((tab) => !(tab.kind === "sql" && tab.fromAgent));
+  const kept = (state?.tabs ?? []).flatMap((tab): Exclude<Tab, { kind: "routine" }>[] =>
+    tab.kind === "routine" || (tab.kind === "sql" && tab.fromAgent) ? [] : [tab],
+  );
   return {
     tabs: kept.map((tab): SavedTab =>
       tab.kind === "sql"
@@ -442,6 +446,20 @@ if (import.meta.vitest) {
   });
 
   describe("toSaved", () => {
+    it("leaves a routine's definition out of what is kept", () => {
+      const state = openRoutineTab(
+        openSqlTab(undefined, "a", "SELECT 1"),
+        "r",
+        "public",
+        "add",
+        "",
+      );
+      expect(toSaved(state)).toEqual({
+        tabs: [{ kind: "sql", title: "Query 1", sql: "SELECT 1" }],
+        active: 0,
+      });
+    });
+
     it("keeps each tab's statement or table, in order, and which is in front", () => {
       const state = activateTab(
         openTableTab(openSqlTab(undefined, "a", "SELECT 1"), "t1", "public", "people"),
