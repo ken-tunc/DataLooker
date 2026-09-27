@@ -298,7 +298,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       </div>
 
       {!structure && keepsPast && traveling && (
-        <TimeTravel connectionId={connectionId} tab={tab} onView={onView} />
+        <TimeTravel connectionId={connectionId} tab={tab} hidden={hidden} onView={onView} />
       )}
 
       {pending > 0 && (

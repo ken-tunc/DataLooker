@@ -86,10 +86,18 @@ export function useTablePreview(
   });
 }
 
-/** The bytes reading the tab's page at `asOf` would be billed for. */
-export function usePreviewCost(connectionId: string, tab: TableTab, asOf: string | null) {
+/**
+ * The bytes reading the tab's page at `asOf` would be billed for. Not asked
+ * while the tab is hidden, for the same reason as the page.
+ */
+export function usePreviewCost(
+  connectionId: string,
+  tab: TableTab,
+  asOf: string | null,
+  ready: boolean,
+) {
   return useQuery({
-    enabled: asOf !== null,
+    enabled: ready && asOf !== null,
     queryKey: previewKeys.cost(
       connectionId,
       tab.schema,

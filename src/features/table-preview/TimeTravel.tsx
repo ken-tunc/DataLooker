@@ -17,11 +17,12 @@ const SETTLE_MS = 400;
 type Props = {
   connectionId: string;
   tab: TableTab;
+  hidden: boolean;
   onView: (view: Partial<TableView>) => void;
 };
 
 /** Picks a point in BigQuery's time-travel window to read the table at. */
-export function TimeTravel({ connectionId, tab, onView }: Props) {
+export function TimeTravel({ connectionId, tab, hidden, onView }: Props) {
   const timeZone = useTimeZone(connectionId);
   // The window is measured back from when the control opened, so that the
   // slider does not creep under the reader's hand.
@@ -37,7 +38,7 @@ export function TimeTravel({ connectionId, tab, onView }: Props) {
     const timer = setTimeout(() => setSettled(pickedIso), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [pickedIso]);
-  const cost = usePreviewCost(connectionId, tab, settled);
+  const cost = usePreviewCost(connectionId, tab, settled, !hidden);
 
   const minutesBack = picked
     ? Math.min(WINDOW, Math.max(0, Math.round((now - picked.getTime()) / 60_000)))
