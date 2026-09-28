@@ -31,3 +31,4 @@ __screenshots__
 .env.local
 .env.*.local
 .envrc
+.vitest/

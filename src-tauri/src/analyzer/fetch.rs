@@ -66,10 +66,18 @@ async fn download(url: &str) -> Result<Vec<u8>, AppError> {
     Ok(packed)
 }
 
+/// In lower-case hex, as a Release lists it.
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// Written beside its destination and renamed into place, so a half-written
 /// binary is never found.
 fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppError> {
-    let found = format!("{:x}", Sha256::digest(packed));
+    let found = sha256(packed);
     if expected.is_empty() || found != expected {
         return Err(AppError::Validation(format!(
             "what was fetched for {BINARY} hashes to {found}, not to the build this app was \
@@ -149,7 +157,7 @@ mod tests {
     #[test]
     fn a_build_that_matches_its_hash_is_unpacked_where_it_is_looked_for() {
         let packed = packed(b"#!/bin/sh\n");
-        let hash = format!("{:x}", Sha256::digest(&packed));
+        let hash = sha256(&packed);
         let into = into();
 
         let binary = install(&packed, &hash, &into).expect("installed");
@@ -173,7 +181,7 @@ mod tests {
     #[test]
     fn an_install_that_cannot_be_moved_into_place_leaves_nothing_behind() {
         let packed = packed(b"#!/bin/sh\n");
-        let hash = format!("{:x}", Sha256::digest(&packed));
+        let hash = sha256(&packed);
         let into = into();
         // A directory where the binary would go is one a file cannot replace.
         std::fs::create_dir_all(fetched(&into).join("in the way")).unwrap();

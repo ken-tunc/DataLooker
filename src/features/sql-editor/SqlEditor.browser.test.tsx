@@ -566,6 +566,10 @@ describe("SqlEditor completion of BigQuery", () => {
 describe("SqlEditor asked to format", () => {
   const CTRL_CMD = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
   const format = () => userEvent.keyboard(`{${CTRL_CMD}>}{Shift>}F{/Shift}{/${CTRL_CMD}}`);
+  // A format lands a few hundred milliseconds after the key, the first one
+  // later while sql-formatter builds its grammar, and later still on a busy
+  // machine.
+  const FORMATTED = { timeout: 3000 };
 
   /** A tab of a PostgreSQL connection, once the connections have been read. */
   async function postgres(sql: string) {
@@ -600,7 +604,7 @@ describe("SqlEditor asked to format", () => {
 
     await format();
 
-    await vi.waitFor(() => expect(made.text()).toBe("select\n  a,\n  b\nfrom\n  t"));
+    await vi.waitFor(() => expect(made.text()).toBe("select\n  a,\n  b\nfrom\n  t"), FORMATTED);
     await userEvent.keyboard(`{${CTRL_CMD}>}z{/${CTRL_CMD}}`);
     expect(made.text()).toBe("select a, b from t");
   });
@@ -640,8 +644,9 @@ describe("SqlEditor asked to format", () => {
 
     await format();
 
-    await vi.waitFor(() =>
-      expect(made.text()).toBe("select a, b from t;\nselect\n  c,\n  d\nfrom\n  u"),
+    await vi.waitFor(
+      () => expect(made.text()).toBe("select a, b from t;\nselect\n  c,\n  d\nfrom\n  u"),
+      FORMATTED,
     );
   });
 
@@ -695,7 +700,7 @@ describe("SqlEditor asked to format", () => {
     // PostgreSQL's grammar has no backquoted names.
     await format();
 
-    await vi.waitFor(() => expect(made.text()).toBe("select\n  *\nfrom\n  `p.ds.t`"));
+    await vi.waitFor(() => expect(made.text()).toBe("select\n  *\nfrom\n  `p.ds.t`"), FORMATTED);
   });
 });
 

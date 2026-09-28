@@ -190,7 +190,7 @@ describe("SchemaTree", () => {
 
     await screen.getByLabelText("Expand orders").click();
     await expect.element(screen.getByText("In cents")).toBeVisible();
-    await expect.element(screen.getByTitle("In cents")).toHaveTextContent("total");
+    await expect.element(screen.getByTitle("In cents")).toMatchTextContent("total");
   });
 
   it("keeps a schema's routines in a folder, and opens the one a reader clicks", async () => {
