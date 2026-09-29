@@ -438,7 +438,7 @@ describe("TablePreviewPane on BigQuery", () => {
 
     await expect
       .element(screen.getByRole("alert"))
-      .toMatchTextContent("Only a table can be read as it was, and BigQuery calls this a VIEW.");
+      .toHaveTextContent("Only a table can be read as it was, and BigQuery calls this a VIEW.");
     // Nothing is read without the reader having seen what it would scan.
     await expect.element(screen.getByRole("button", { name: "Read" })).toBeDisabled();
     expect(ipc.sent("preview_table")).toMatchObject({ as_of: null });
