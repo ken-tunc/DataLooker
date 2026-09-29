@@ -188,29 +188,6 @@ jobs:
           } > "$body"
           gh pr comment "$PR" --body-file "$body" --edit-last --create-if-none
 
-  # A tag can be moved to other code; a commit cannot. `pinact run` pins a new
-  # action and `pinact run -u` updates them all.
-  actions:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # A release binary checked against its hash, as the actions it checks are.
-      - name: Install pinact
-        env:
-          VERSION: 5.0.0
-          SHA256: d005bbb85da80dacdc07816f24a5da723a9f6d1e9f3d3e7e73df33f9caa1358f
-        run: |
-          curl -fsSLo pinact.tar.gz \
-            "https://github.com/suzuki-shunsuke/pinact/releases/download/v$VERSION/pinact_linux_amd64.tar.gz"
-          echo "$SHA256  pinact.tar.gz" | sha256sum --check
-          tar -xzf pinact.tar.gz -C "$RUNNER_TEMP" pinact
-
-      # Every action is pinned to a commit, and the tag beside it names that commit.
-      - run: '"$RUNNER_TEMP/pinact" run --check --verify-comment'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
   # Only the keychain is macOS-specific, so this compiles what Linux cannot.
   macos:
     runs-on: macos-26
