@@ -220,7 +220,7 @@ impl Client {
         // is waited on for as long as it runs. What these bound is a network
         // that went quiet, which nothing else would notice while the catalog is
         // read, since nobody can cancel that.
-        let http = reqwest::Client::builder()
+        let http = crate::http::client()
             .connect_timeout(CONNECTING)
             .read_timeout(SILENCE)
             .build()

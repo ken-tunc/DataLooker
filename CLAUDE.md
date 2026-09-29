@@ -176,6 +176,8 @@ a tunnel holding its port.
 
 ## Build and release
 
+- A workflow's actions are pinned to a commit, since a tag can be moved to other code:
+  `pinact run` pins one that was added by tag, and `pinact run -u` updates them all.
 - The bundle identifier `org.kentunc.datalooker` also decides where app data lives, so
   changing it strands existing data.
 - `package.json` is the only source of the version; `src-tauri/Cargo.toml` stays at
