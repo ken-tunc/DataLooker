@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod drivers;
 mod error;
+mod http;
 mod lsp;
 mod mcp;
 mod secrets;

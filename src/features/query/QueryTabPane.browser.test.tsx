@@ -121,10 +121,10 @@ describe("explaining a statement", () => {
     await expect
       .element(screen.getByRole("row", { name: /Hash Left Join/ }))
       // Self time, its share of the run, rows, estimated, loops, cost.
-      .toHaveTextContent(/Hash Left Join\s*2\.2 ms\s*73%\s*4\s*5\s*1\s*9/);
+      .toMatchTextContent(/Hash Left Join\s*2\.2 ms\s*73%\s*4\s*5\s*1\s*9/);
     await expect
       .element(screen.getByRole("row", { name: /Seq Scan/ }))
-      .toHaveTextContent("public.orders o");
+      .toMatchTextContent("public.orders o");
     expect(ipc.sent("explain_query")?.analyze).toBe(true);
   });
 
@@ -133,25 +133,25 @@ describe("explaining a statement", () => {
     await screen.getByRole("button", { name: "Analyze" }).click();
 
     const scan = screen.getByRole("row", { name: /Seq Scan/ });
-    await expect.element(scan).toHaveTextContent("Filter discarded 98%");
-    await expect.element(scan).toHaveTextContent("↑15×");
+    await expect.element(scan).toMatchTextContent("Filter discarded 98%");
+    await expect.element(scan).toMatchTextContent("↑15×");
     const details = screen.getByRole("complementary", { name: "Node details" });
     expect(details.query()).toBeNull();
 
     await screen.getByRole("grid", { name: "Plan" }).click();
     await userEvent.keyboard("{Control>}n{/Control}{Control>}n{/Control}");
     await expect.element(scan).toHaveAttribute("aria-selected", "true");
-    await expect.element(details).toHaveTextContent("Rows Removed by Filter");
+    await expect.element(details).toMatchTextContent("Rows Removed by Filter");
     // Once: it is a count, so not among the conditions.
     expect(details.element().textContent?.split("Rows Removed by Filter")).toHaveLength(2);
-    await expect.element(details).toHaveTextContent("(status = 'shipped')");
+    await expect.element(details).toMatchTextContent("(status = 'shipped')");
     // To the microsecond, as PostgreSQL wrote it.
-    await expect.element(details).toHaveTextContent(/Actual Startup Time\s*0\.004/);
+    await expect.element(details).toMatchTextContent(/Actual Startup Time\s*0\.004/);
     const plan = screen.getByRole("grid", { name: "Plan" });
     await expect.element(plan).toHaveAttribute("aria-activedescendant", scan.element().id);
 
     await screen.getByRole("row", { name: /Hash Left Join/ }).click();
-    await expect.element(details).toHaveTextContent("(o.customer_id = c.id)");
+    await expect.element(details).toMatchTextContent("(o.customer_id = c.id)");
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(scan).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Escape}");
@@ -199,7 +199,7 @@ describe("explaining a statement", () => {
     const scan = graph.getByRole("treeitem", { name: /^Seq Scan, public\.orders o, 150 rows/ });
     await scan.click();
     const details = screen.getByRole("complementary", { name: "Node details" });
-    await expect.element(details).toHaveTextContent("(status = 'shipped')");
+    await expect.element(details).toMatchTextContent("(status = 'shipped')");
     await expect.element(graph).toHaveAttribute("aria-activedescendant", scan.element().id);
     // Two nodes, one line between them, as wide as the rows it carries.
     expect(graph.element().querySelectorAll("path title")).toHaveLength(1);
@@ -247,7 +247,7 @@ describe("explaining a statement", () => {
 
     await expect
       .element(screen.getByRole("complementary", { name: "Node details" }))
-      .toHaveTextContent("part_19");
+      .toMatchTextContent("part_19");
     await expect.poll(inside).toBe(true);
 
     // The reader's own pan takes it away again, and it stays away.
@@ -292,7 +292,7 @@ describe("explaining a statement", () => {
     // 2.55 rows a loop is an average: 389 loops of it came to 992 rows, not 991.95.
     await expect
       .element(screen.getByRole("treeitem", { name: /^Index Scan/ }))
-      .toHaveTextContent("992 rows");
+      .toMatchTextContent("992 rows");
   });
 
   it("zooms the graph about the pointer and fits it back", async () => {

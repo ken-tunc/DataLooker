@@ -140,7 +140,9 @@ describe("ResultGrid", () => {
     const width = () => header.element().getBoundingClientRect().width;
     const fitted = width();
 
-    await userEvent.dragAndDrop(screen.getByRole("separator", { name: "Resize id" }), header, {
+    // Dropped on the header row, since the point lies over the next column.
+    const headers = screen.getByRole("row").first();
+    await userEvent.dragAndDrop(screen.getByRole("separator", { name: "Resize id" }), headers, {
       targetPosition: { x: fitted + 80, y: 5 },
     });
     await expect.poll(width).toBeGreaterThan(fitted + 40);

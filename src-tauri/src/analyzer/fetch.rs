@@ -4,6 +4,7 @@
 //! hours and a toolchain no reader has. The download is checked against the
 //! pinned hash before any of it is unpacked.
 
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -46,7 +47,7 @@ pub async fn fetch(into: &Path) -> Result<PathBuf, AppError> {
 
 async fn download(url: &str) -> Result<Vec<u8>, AppError> {
     let failed = |e: reqwest::Error| AppError::Shell(format!("fetching {BINARY}: {e}"));
-    let client = reqwest::Client::builder()
+    let client = crate::http::client()
         .timeout(FETCHING)
         .build()
         .map_err(failed)?;
@@ -66,10 +67,20 @@ async fn download(url: &str) -> Result<Vec<u8>, AppError> {
     Ok(packed)
 }
 
+/// In lower-case hex, as `sha256sum` writes it.
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
+
 /// Written beside its destination and renamed into place, so a half-written
 /// binary is never found.
 fn install(packed: &[u8], expected: &str, into: &Path) -> Result<PathBuf, AppError> {
-    let found = format!("{:x}", Sha256::digest(packed));
+    let found = sha256(packed);
     if expected.is_empty() || found != expected {
         return Err(AppError::Validation(format!(
             "what was fetched for {BINARY} hashes to {found}, not to the build this app was \
@@ -149,7 +160,7 @@ mod tests {
     #[test]
     fn a_build_that_matches_its_hash_is_unpacked_where_it_is_looked_for() {
         let packed = packed(b"#!/bin/sh\n");
-        let hash = format!("{:x}", Sha256::digest(&packed));
+        let hash = sha256(&packed);
         let into = into();
 
         let binary = install(&packed, &hash, &into).expect("installed");
@@ -173,7 +184,7 @@ mod tests {
     #[test]
     fn an_install_that_cannot_be_moved_into_place_leaves_nothing_behind() {
         let packed = packed(b"#!/bin/sh\n");
-        let hash = format!("{:x}", Sha256::digest(&packed));
+        let hash = sha256(&packed);
         let into = into();
         // A directory where the binary would go is one a file cannot replace.
         std::fs::create_dir_all(fetched(&into).join("in the way")).unwrap();

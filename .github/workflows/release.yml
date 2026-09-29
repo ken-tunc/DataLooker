@@ -93,7 +93,7 @@ jobs:
 
       # Before the bump: vp runs pnpm under the Node that `devEngines` names,
       # which the runner does not have.
-      - uses: voidzero-dev/setup-vp@v1.21.0
+      - uses: voidzero-dev/setup-vp@v1.21.1
         with:
           cache: true
 

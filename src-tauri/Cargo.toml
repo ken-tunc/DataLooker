@@ -23,16 +23,18 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 http = "1.5.0"
 http-body-util = "0.1.5"
 hyper = { version = "1.11.1", features = ["server", "http1"] }
-hyper-util = { version = "0.1.20", features = ["tokio", "server-auto"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server-auto"] }
 keyring-core = "1.0.0"
 pg_query = "6.2.0"
 # Reaches BigQuery's REST API, and fetches the BigQuery analyzer.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-rmcp = { version = "3.4.0", features = ["server", "transport-streamable-http-server", "macros"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider"] }
+rmcp = { version = "3.5.0", features = ["server", "transport-streamable-http-server", "macros"] }
+# Named so that ring is the one TLS crypto provider; see `http.rs`.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Checks what was fetched against the hash written down beside its address.
-sha2 = "0.10"
+sha2 = "0.11"
 sqlx = { version = "0.9.0", default-features = false, features = [
   "runtime-tokio",
   "tls-rustls",
@@ -78,7 +80,7 @@ strip = true
 [target.'cfg(unix)'.dependencies]
 # For killing a command's whole process group. A safe wrapper over `killpg`,
 # which is the only way to reach what the reader's command forked.
-nix = { version = "0.30", default-features = false, features = ["signal"] }
+nix = { version = "0.31", default-features = false, features = ["signal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
