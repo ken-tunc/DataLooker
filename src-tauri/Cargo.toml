@@ -27,7 +27,11 @@ hyper-util = { version = "0.1.21", features = ["tokio", "server-auto"] }
 keyring-core = "1.0.0"
 pg_query = "6.2.0"
 # Reaches BigQuery's REST API, and fetches the BigQuery analyzer.
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider"] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "query",
+  "rustls-no-provider",
+] }
 rmcp = { version = "3.5.0", features = ["server", "transport-streamable-http-server", "macros"] }
 # Named so that ring is the one TLS crypto provider; see `http.rs`.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
