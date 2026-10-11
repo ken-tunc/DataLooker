@@ -10,6 +10,7 @@ import { formatCell } from "../query/cell";
 import { ResultGrid } from "../query/ResultGrid";
 import type { TableView } from "../tabs/tabs";
 import {
+  type DraftRow,
   editCount,
   isDeleted,
   NO_EDITS,
@@ -42,6 +43,15 @@ const SHOWS = [
 type DeleteTarget =
   | { draft: string }
   | { id: string; key: Record<string, string | null>; version: string };
+
+/**
+ * A row of the grid: a draft the reader is adding, or a stored row named by
+ * its key. `version` is what a save of the stored row is checked against,
+ * and is missing on a page that cannot be edited.
+ */
+type ShownRow =
+  | { draft: DraftRow }
+  | { key: Record<string, string | null>; id: string; version: string | undefined };
 
 type Props = {
   connectionId: string;
@@ -95,7 +105,8 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   // eslint-disable-next-line react/exhaustive-deps
   useEffect(() => onUnsaved(unsaved), [unsaved]);
 
-  // Drafts sit above the page's rows and shift their indexes.
+  // Drafts sit above the page's rows and shift their indexes; `rowAt` is
+  // the one place a grid index is turned back into a row.
   const drafts = edits.inserts;
   const shown: QueryResult | undefined = page && {
     ...page.result,
@@ -104,15 +115,15 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       ...page.result.rows,
     ],
   };
-  const dataRow = (row: number) => row - drafts.length;
 
-  function keyOfRow(row: number): Record<string, string | null> | null {
-    const values = page?.result.rows[row];
+  /** The key of the page's row at `index`, counted below the drafts. */
+  function keyOfRow(index: number): Record<string, string | null> | null {
+    const values = page?.result.rows[index];
     if (!values) return null;
     const key: Record<string, string | null> = {};
     for (const column of primaryKey) {
-      const index = columns.findIndex((candidate) => candidate.name === column);
-      const value = index === -1 ? undefined : values[index];
+      const at = columns.findIndex((candidate) => candidate.name === column);
+      const value = at === -1 ? undefined : values[at];
       if (value === undefined) return null;
       // An update casts this text back to the column's type.
       key[column] = value === null ? null : formatCell(value);
@@ -120,30 +131,36 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
     return key;
   }
 
+  function rowAt(row: number): ShownRow | null {
+    const draft = drafts[row];
+    if (draft) return { draft };
+    const index = row - drafts.length;
+    const key = keyOfRow(index);
+    return key && { key, id: rowKeyOf(key), version: page?.versions[index] };
+  }
+
   function edit(row: number, column: string, value: string | null) {
-    const index = dataRow(row);
-    const draftRow = drafts[row];
-    if (draftRow) {
-      setEdits((current) => withNewValue(current, draftRow.id, column, value));
+    const at = rowAt(row);
+    if (!at) return;
+    if ("draft" in at) {
+      setEdits((current) => withNewValue(current, at.draft.id, column, value));
       return;
     }
-    const key = keyOfRow(index);
-    const version = page?.versions[index];
-    if (!key || version === undefined) return;
+    const { key, version } = at;
+    if (version === undefined) return;
     setEdits((current) => withEdit(current, { key, version, set: {} }, column, value));
   }
 
   function pendingValue(row: number, column: string) {
-    const draftRow = drafts[row];
-    if (draftRow) return draftRow.values[column];
-    const key = keyOfRow(dataRow(row));
-    return key ? edits.updates[rowKeyOf(key)]?.set[column] : undefined;
+    const at = rowAt(row);
+    if (!at) return undefined;
+    return "draft" in at ? at.draft.values[column] : edits.updates[at.id]?.set[column];
   }
 
   function rowClass(row: number) {
-    if (drafts[row]) return "bg-success/10";
-    const key = keyOfRow(dataRow(row));
-    return key && isDeleted(edits, key) ? "bg-error/15 line-through opacity-60" : undefined;
+    const at = rowAt(row);
+    if (at && "draft" in at) return "bg-success/10";
+    return at && isDeleted(edits, at.key) ? "bg-error/15 line-through opacity-60" : undefined;
   }
 
   // A save clears the edits it started with, so a change made while it is in
@@ -155,13 +172,11 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
    * replaces rows; forgotten once the row is gone from the page.
    */
   function targetAt(row: number | null): DeleteTarget | null {
-    if (row === null) return null;
-    const draftRow = drafts[row];
-    if (draftRow) return { draft: draftRow.id };
-    const index = dataRow(row);
-    const key = keyOfRow(index);
-    const version = page?.versions[index];
-    return key && version !== undefined ? { id: rowKeyOf(key), key, version } : null;
+    const at = row === null ? null : rowAt(row);
+    if (!at) return null;
+    if ("draft" in at) return { draft: at.draft.id };
+    const { id, key, version } = at;
+    return version === undefined ? null : { id, key, version };
   }
 
   function stillShown(): boolean {
