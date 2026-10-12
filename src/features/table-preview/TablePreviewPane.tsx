@@ -113,53 +113,55 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
           onShow={(shows) => onView({ shows })}
         />
 
-        {structure && <span className="grow" />}
-
-        {!structure && (
-          <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
-            <SqlInput
-              label="Filter"
-              className="input-sm grow"
-              placeholder="WHERE …"
-              value={draft}
-              onChange={setDraft}
-            />
-            <button type="submit" className="btn btn-sm btn-soft">
-              Filter
-            </button>
-          </form>
-        )}
-        {!structure && pageEditable && (
+        {structure ? (
+          <span className="grow" />
+        ) : (
           <>
-            <button
-              type="button"
-              className="btn btn-sm btn-soft"
-              disabled={commit.isPending}
-              onClick={addRow}
-            >
-              New row
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-soft"
-              disabled={commit.isPending || !canRemove}
-              onClick={toggleRemove}
-            >
-              Remove row
-            </button>
+            <form className="flex grow items-center gap-2" onSubmit={applyFilter}>
+              <SqlInput
+                label="Filter"
+                className="input-sm grow"
+                placeholder="WHERE …"
+                value={draft}
+                onChange={setDraft}
+              />
+              <button type="submit" className="btn btn-sm btn-soft">
+                Filter
+              </button>
+            </form>
+            {pageEditable && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-soft"
+                  disabled={commit.isPending}
+                  onClick={addRow}
+                >
+                  New row
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-soft"
+                  disabled={commit.isPending || !canRemove}
+                  onClick={toggleRemove}
+                >
+                  Remove row
+                </button>
+              </>
+            )}
+            {keepsPast && (
+              <button
+                type="button"
+                className={`btn btn-ghost btn-sm btn-square ${traveling ? "btn-active" : ""}`}
+                aria-label="Time travel"
+                title="Read the table as it was"
+                aria-pressed={traveling}
+                onClick={toggleTimeTravel}
+              >
+                <History className="size-4" />
+              </button>
+            )}
           </>
-        )}
-        {!structure && keepsPast && (
-          <button
-            type="button"
-            className={`btn btn-ghost btn-sm btn-square ${traveling ? "btn-active" : ""}`}
-            aria-label="Time travel"
-            title="Read the table as it was"
-            aria-pressed={traveling}
-            onClick={toggleTimeTravel}
-          >
-            <History className="size-4" />
-          </button>
         )}
         <button
           type="button"
@@ -229,21 +231,6 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
         </div>
       )}
 
-      {!structure && shape.isError && !unwritable && (
-        <div role="alert" className="alert alert-soft alert-error">
-          <span className="text-sm">
-            {describeError(shape.error)} — the rows can still be read, but nothing here knows how to
-            name one, so they cannot be edited.
-          </span>
-        </div>
-      )}
-
-      {!structure && preview.isError && (
-        <div role="alert" className="alert alert-soft alert-error">
-          <span className="font-mono text-sm">{describeError(preview.error)}</span>
-        </div>
-      )}
-
       {structure ? (
         <div className="min-h-0 flex-1">
           <TableStructure
@@ -255,6 +242,21 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
         </div>
       ) : (
         <>
+          {shape.isError && !unwritable && (
+            <div role="alert" className="alert alert-soft alert-error">
+              <span className="text-sm">
+                {describeError(shape.error)} — the rows can still be read, but nothing here knows
+                how to name one, so they cannot be edited.
+              </span>
+            </div>
+          )}
+
+          {preview.isError && (
+            <div role="alert" className="alert alert-soft alert-error">
+              <span className="font-mono text-sm">{describeError(preview.error)}</span>
+            </div>
+          )}
+
           <div className="min-h-0 flex-1">
             {shown && shown.columns.length > 0 ? (
               <ResultGrid
