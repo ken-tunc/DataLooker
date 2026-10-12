@@ -46,7 +46,9 @@ experimental_install` restores them. Use the daisyUI skill whenever you touch th
 
 `app::App` holds what DataLooker can do and knows nothing about Tauri. The window's
 commands (`commands/`) and the MCP server (`mcp/`) are both thin callers of it, so an agent
-and a reader can do the same set of things and no operation exists twice.
+and a reader can do the same set of things and no operation exists twice. What only a window
+can do — saving to a file the reader picks in a dialog — is a command marked `[window]`,
+which takes the window instead of `App`. The window itself is granted no file access.
 
 Commands and events are declared once, in `commands!` and `events!` in
 `commands/mod.rs`. ts-rs writes `src/bindings/` from the Rust types during `cargo test`;

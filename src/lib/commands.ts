@@ -192,3 +192,11 @@ export function tableShape(connectionId: string, schema: string, table: string) 
 export function commitTableEdits(edits: TableEdits) {
   return invoke("commit_table_edits", edits);
 }
+
+/**
+ * Asks where to save `contents` and writes it there. Resolves to the file's
+ * name, or to null when the reader cancelled.
+ */
+export function saveTextFile(name: string, extension: string, contents: string) {
+  return invoke("save_text_file", { name, extension, contents });
+}

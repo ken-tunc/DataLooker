@@ -29,6 +29,10 @@ pub enum AppError {
     #[error("Shell error: {0}")]
     Shell(String),
 
+    /// A file the reader picked could not be written.
+    #[error("File error: {0}")]
+    File(String),
+
     #[error("{0}")]
     Unsupported(String),
 

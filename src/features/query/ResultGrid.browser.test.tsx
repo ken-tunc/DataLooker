@@ -2,12 +2,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { QueryResult } from "../../bindings/QueryResult";
-import { saveTextFile } from "../../lib/files";
 import { renderApp, stubIpc } from "../../test/harness";
 import { ResultGrid } from "./ResultGrid";
-
-// The dialog and the write are Tauri's; what is handed to them is the grid's.
-vi.mock("../../lib/files", () => ({ saveTextFile: vi.fn() }));
 
 const document = { customer: { name: "Ada Lovelace", tags: ["first", "programmer"] } };
 
@@ -354,8 +350,8 @@ describe("ResultGrid", () => {
     });
 
     it("saves every row, not only the selected ones, and says when there are more", async () => {
-      const save = vi.mocked(saveTextFile);
-      save.mockResolvedValue("people.csv");
+      // The dialog and the write are the backend's; what is handed to them is the grid's.
+      const ipc = stubIpc({ save_text_file: "people.csv" });
       const screen = await peopleGrid({
         result: { ...people, truncated: true },
         fileName: "people",
@@ -364,11 +360,13 @@ describe("ResultGrid", () => {
       await screen.getByText("Ada").click({ button: "right" });
       await screen.getByRole("menuitem", { name: "Save all as CSV…" }).click();
 
-      expect(save).toHaveBeenCalledWith(
-        "people",
-        "csv",
-        "id,name,note\n1,Ada,\n2,Grace,it's\n3,Edsger,x",
-      );
+      await expect
+        .poll(() => ipc.sent("save_text_file"))
+        .toEqual({
+          name: "people",
+          extension: "csv",
+          contents: "id,name,note\n1,Ada,\n2,Grace,it's\n3,Edsger,x",
+        });
       await expect
         .element(
           screen.getByText("Saved 3 rows to people.csv — only the rows shown, not all there are."),
