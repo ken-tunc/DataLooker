@@ -1,3 +1,5 @@
+import { type PointerEvent, useState } from "react";
+import type { QueryResult } from "../../bindings/QueryResult";
 import { formatCell } from "./cell";
 
 /** A character of the 14px monospace the cells are set in. */
@@ -32,6 +34,56 @@ export function columnWidths(headers: ColumnHeader[], rows: readonly unknown[][]
  */
 export function clampColumnWidth(px: number): number {
   return Math.min(Math.max(Math.round(px), 40), 1200);
+}
+
+/** Widths the reader dragged, and the columns they were dragged for. */
+type Dragged = { columns: string; widths: Record<number, number> };
+
+/**
+ * Each column's width: measured from the rows, unless the reader dragged it.
+ * `rows` are the cells as the grid shows them.
+ */
+export function useColumnWidths(columns: QueryResult["columns"], rows: readonly unknown[][]) {
+  const [dragged, setDragged] = useState<Dragged>({ columns: "", widths: {} });
+  const names = columns.map((column) => column.name).join("\u0000");
+  // Widths dragged for other columns mean nothing here.
+  const overrides = dragged.columns === names ? dragged.widths : {};
+  const widths = columnWidths(
+    columns.map((column) => ({ name: column.name, typeName: column.type_name })),
+    rows,
+  ).map((width, index) => overrides[index] ?? width);
+
+  /** Follows the pointer from a column's resize handle until it is let go. */
+  function startResize(event: PointerEvent<HTMLElement>, index: number) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = widths[index] as number;
+    handle.setPointerCapture(event.pointerId);
+
+    const onMove = (move: globalThis.PointerEvent) => {
+      const width = clampColumnWidth(startWidth + move.clientX - startX);
+      setDragged((current) => ({
+        columns: names,
+        widths: { ...(current.columns === names ? current.widths : {}), [index]: width },
+      }));
+    };
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+  }
+
+  function reset(index: number) {
+    setDragged((current) => {
+      const { [index]: _dropped, ...rest } = current.columns === names ? current.widths : {};
+      return { columns: names, widths: rest };
+    });
+  }
+
+  return { widths, startResize, reset };
 }
 
 function header(name: string, typeName = ""): ColumnHeader {
