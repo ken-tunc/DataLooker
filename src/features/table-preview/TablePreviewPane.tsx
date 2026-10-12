@@ -3,55 +3,20 @@ import { type FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../../components/EmptyState";
 import { SqlInput } from "../../components/SqlInput";
 import { ViewSwitch } from "../../components/ViewSwitch";
-import type { QueryResult } from "../../bindings/QueryResult";
 import { describeError, IpcError } from "../../lib/invoke";
 import { useDriver, useTimeZone } from "../connections/hooks";
-import { formatCell } from "../query/cell";
 import { ResultGrid } from "../query/ResultGrid";
 import type { TableView } from "../tabs/tabs";
-import {
-  type DraftRow,
-  editCount,
-  isDeleted,
-  NO_EDITS,
-  type PendingEdits,
-  rowKeyOf,
-  tableEdits,
-  withDeleted,
-  withEdit,
-  withNewRow,
-  withNewValue,
-  withoutNewRow,
-} from "./edits";
-import {
-  type TableTab,
-  useCommitEdits,
-  useRefreshTable,
-  useTablePreview,
-  useTableShape,
-} from "./hooks";
+import { type TableTab, useRefreshTable, useTablePreview, useTableShape } from "./hooks";
 import { wallClock } from "./pointInTime";
 import { TableStructure } from "./TableStructure";
 import { TimeTravel } from "./TimeTravel";
+import { useRowEdits } from "./useRowEdits";
 
 const SHOWS = [
   { value: "rows", label: "Rows" },
   { value: "structure", label: "Structure" },
 ] as const satisfies readonly { value: TableView["shows"]; label: string }[];
-
-/** The row "Remove row" acts on: a draft by its id, a stored row by its key. */
-type DeleteTarget =
-  | { draft: string }
-  | { id: string; key: Record<string, string | null>; version: string };
-
-/**
- * A row of the grid: a draft the reader is adding, or a stored row named by
- * its key. `version` is what a save of the stored row is checked against,
- * and is missing on a page that cannot be edited.
- */
-type ShownRow =
-  | { draft: DraftRow }
-  | { key: Record<string, string | null>; id: string; version: string | undefined };
 
 type Props = {
   connectionId: string;
@@ -84,10 +49,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       : null;
 
   const preview = useTablePreview(connectionId, tab, editable, rowsShown && !shape.isPending);
-  const commit = useCommitEdits(connectionId, tab.schema, tab.table);
   const { refresh, refreshing } = useRefreshTable(connectionId, tab.schema, tab.table);
-  const [edits, setEdits] = useState<PendingEdits>(NO_EDITS);
-  const [target, setTarget] = useState<DeleteTarget | null>(null);
   // Applied on submit: half a predicate is a syntax error.
   const [draft, setDraft] = useState(tab.filter);
   // Only BigQuery keeps a table's past.
@@ -96,116 +58,23 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
   const timeZone = useTimeZone(connectionId);
 
   const page = preview.data;
-  const columns = page?.result.columns ?? [];
-  const editingPage =
-    editable && page !== undefined && page.versions.length === page.result.rows.length;
-  const pending = editCount(edits);
+  const {
+    shown,
+    pageEditable,
+    grid,
+    pending,
+    commit,
+    selectRow,
+    canRemove,
+    toggleRemove,
+    addRow,
+    save,
+    discard,
+  } = useRowEdits(connectionId, tab, page, primaryKey);
   const unsaved = pending > 0;
   // Only a change is worth telling, and the callback is new every render.
   // eslint-disable-next-line react/exhaustive-deps
   useEffect(() => onUnsaved(unsaved), [unsaved]);
-
-  // Drafts sit above the page's rows and shift their indexes; `rowAt` is
-  // the one place a grid index is turned back into a row.
-  const drafts = edits.inserts;
-  const shown: QueryResult | undefined = page && {
-    ...page.result,
-    rows: [
-      ...drafts.map((row) => columns.map((column) => row.values[column.name])),
-      ...page.result.rows,
-    ],
-  };
-
-  /** The key of the page's row at `index`, counted below the drafts. */
-  function keyOfRow(index: number): Record<string, string | null> | null {
-    const values = page?.result.rows[index];
-    if (!values) return null;
-    const key: Record<string, string | null> = {};
-    for (const column of primaryKey) {
-      const at = columns.findIndex((candidate) => candidate.name === column);
-      const value = at === -1 ? undefined : values[at];
-      if (value === undefined) return null;
-      // An update casts this text back to the column's type.
-      key[column] = value === null ? null : formatCell(value);
-    }
-    return key;
-  }
-
-  function rowAt(row: number): ShownRow | null {
-    const draft = drafts[row];
-    if (draft) return { draft };
-    const index = row - drafts.length;
-    const key = keyOfRow(index);
-    return key && { key, id: rowKeyOf(key), version: page?.versions[index] };
-  }
-
-  function edit(row: number, column: string, value: string | null) {
-    const at = rowAt(row);
-    if (!at) return;
-    if ("draft" in at) {
-      setEdits((current) => withNewValue(current, at.draft.id, column, value));
-      return;
-    }
-    const { key, version } = at;
-    if (version === undefined) return;
-    setEdits((current) => withEdit(current, { key, version, set: {} }, column, value));
-  }
-
-  function pendingValue(row: number, column: string) {
-    const at = rowAt(row);
-    if (!at) return undefined;
-    return "draft" in at ? at.draft.values[column] : edits.updates[at.id]?.set[column];
-  }
-
-  function rowClass(row: number) {
-    const at = rowAt(row);
-    if (at && "draft" in at) return "bg-success/10";
-    return at && isDeleted(edits, at.key) ? "bg-error/15 line-through opacity-60" : undefined;
-  }
-
-  // A save clears the edits it started with, so a change made while it is in
-  // flight would be lost.
-  const editingNow = editingPage && !commit.isPending;
-
-  /**
-   * Resolved to the row itself, because a draft shifts indexes and a refetch
-   * replaces rows; forgotten once the row is gone from the page.
-   */
-  function targetAt(row: number | null): DeleteTarget | null {
-    const at = row === null ? null : rowAt(row);
-    if (!at) return null;
-    if ("draft" in at) return { draft: at.draft.id };
-    const { id, key, version } = at;
-    return version === undefined ? null : { id, key, version };
-  }
-
-  function stillShown(): boolean {
-    if (target === null) return false;
-    if ("draft" in target) return drafts.some((row) => row.id === target.draft);
-    // A row with a new version changed underneath; deleting it would be
-    // refused anyway.
-    return (page?.result.rows ?? []).some((_, index) => {
-      const key = keyOfRow(index);
-      return (
-        key !== null && rowKeyOf(key) === target.id && page?.versions[index] === target.version
-      );
-    });
-  }
-
-  function toggleDelete() {
-    if (target === null || !stillShown()) return;
-    if ("draft" in target) {
-      setEdits((current) => withoutNewRow(current, target.draft));
-      return;
-    }
-    setEdits((current) => withDeleted(current, target.key, target.version));
-  }
-
-  function save() {
-    commit.mutate(tableEdits(connectionId, tab.schema, tab.table, edits), {
-      onSuccess: () => setEdits(NO_EDITS),
-    });
-  }
 
   function applyFilter(event: FormEvent) {
     event.preventDefault();
@@ -260,21 +129,21 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             </button>
           </form>
         )}
-        {!structure && editingPage && (
+        {!structure && pageEditable && (
           <>
             <button
               type="button"
               className="btn btn-sm btn-soft"
               disabled={commit.isPending}
-              onClick={() => setEdits((current) => withNewRow(current, crypto.randomUUID()))}
+              onClick={addRow}
             >
               New row
             </button>
             <button
               type="button"
               className="btn btn-sm btn-soft"
-              disabled={commit.isPending || !stillShown()}
-              onClick={toggleDelete}
+              disabled={commit.isPending || !canRemove}
+              onClick={toggleRemove}
             >
               Remove row
             </button>
@@ -328,7 +197,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
             type="button"
             className="btn btn-sm btn-ghost"
             disabled={commit.isPending}
-            onClick={() => setEdits(NO_EDITS)}
+            onClick={discard}
           >
             Discard
           </button>
@@ -387,13 +256,13 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
       ) : (
         <>
           <div className="min-h-0 flex-1">
-            {shown && columns.length > 0 ? (
+            {shown && shown.columns.length > 0 ? (
               <ResultGrid
                 result={shown}
                 sort={tab.sort}
                 onSortColumn={sortBy}
-                onSelectRow={(row) => setTarget(targetAt(row))}
-                editing={editingNow ? { pendingValue, onEdit: edit, rowClass } : undefined}
+                onSelectRow={selectRow}
+                editing={grid}
                 connectionId={connectionId}
                 table={{ schema: tab.schema, table: tab.table }}
                 fileName={tab.table}
@@ -430,7 +299,7 @@ export function TablePreviewPane({ connectionId, tab, hidden, onView, onUnsaved 
               <span className="text-warning">as of {wallClock(new Date(tab.asOf), timeZone)}</span>
             )}
             <span className="grow" />
-            <span>{unwritable ?? editingHint(editingPage, shape.isError)}</span>
+            <span>{unwritable ?? editingHint(pageEditable, shape.isError)}</span>
           </div>
         </>
       )}
