@@ -1,6 +1,6 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
+import { useFixedRows } from "../../lib/fixedRows";
 import { formatCell } from "./cell";
 import { type CellPeekState, PEEK_DELAY_MS } from "./peek";
 import { type Cell, type GridSelection, holds, sameCell } from "./selection";
@@ -17,9 +17,8 @@ export type GridEditing = {
 };
 
 /**
- * The virtualizer re-renders its component on every scroll, and the React
- * Compiler skips a component that uses it, so only the rows live here:
- * measuring the columns from this render would run on every scrolled pixel.
+ * Only the rows in view are rendered, so a scroll renders this component
+ * alone and not the grid that measures the columns.
  */
 export function GridRows({
   rows,
@@ -40,35 +39,37 @@ export function GridRows({
   editing?: GridEditing;
   onMenu: (cell: Cell, x: number, y: number) => void;
 }) {
-  // eslint-disable-next-line react/incompatible-library
-  const virtual = useVirtualizer({
+  // State, not a ref, for the same reason as the scroller.
+  const [list, setList] = useState<HTMLDivElement | null>(null);
+  const shown = useFixedRows({
+    scroller,
+    list,
     count: rows.length,
-    getScrollElement: () => scroller,
-    estimateSize: () => ROW_HEIGHT,
+    rowHeight: ROW_HEIGHT,
     overscan: 12,
     // The sticky header covers the top row.
-    scrollPaddingStart: ROW_HEIGHT,
+    coveredTop: ROW_HEIGHT,
   });
 
   // Keep the row the arrows moved to in view.
+  const keepInView = useEffectEvent((row: number) => shown.scrollToRow(row));
   const { focusRow } = selection;
   useEffect(() => {
-    if (focusRow !== null) virtual.scrollToIndex(focusRow);
-    // eslint-disable-next-line react/exhaustive-deps
+    if (focusRow !== null) keepInView(focusRow);
   }, [focusRow]);
 
   return (
-    <div className="relative" style={{ height: virtual.getTotalSize() }}>
-      {virtual.getVirtualItems().map((item) => {
+    <div ref={setList} className="relative" style={{ height: shown.totalHeight }}>
+      {shown.rows.map((item) => {
         const row = rows[item.index] ?? [];
         return (
           <div
-            key={item.key}
+            key={item.index}
             role="row"
             className={`hover:bg-base-200/60 absolute flex w-full items-center ${
               editing?.rowClass?.(item.index) ?? ""
             }`}
-            style={{ height: item.size, transform: `translateY(${item.start}px)` }}
+            style={{ height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
           >
             {row.map((cell, column) => {
               const name = columns[column]?.name ?? "";

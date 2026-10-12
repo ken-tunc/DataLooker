@@ -1,7 +1,7 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, RotateCw } from "lucide-react";
 import { useState } from "react";
 import type { UserTypeKind } from "../../bindings/UserTypeKind";
+import { useFixedRows } from "../../lib/fixedRows";
 import { describeError } from "../../lib/invoke";
 import { formatBytes } from "../query-estimate/format";
 import { useColumnsOf, useIndexesOf, useRefreshSchemaTree, useSchemaTree } from "./hooks";
@@ -121,24 +121,27 @@ function Rows({
   scroller: HTMLDivElement | null;
   onToggle: (id: string) => void;
 } & Openers) {
-  // eslint-disable-next-line react/incompatible-library
-  const virtual = useVirtualizer({
+  // State, not a ref: React attaches a parent's ref after its children's
+  // effects have run.
+  const [list, setList] = useState<HTMLUListElement | null>(null);
+  const shown = useFixedRows({
+    scroller,
+    list,
     count: rows.length,
-    getScrollElement: () => scroller,
-    estimateSize: () => ROW_HEIGHT,
+    rowHeight: ROW_HEIGHT,
     overscan: 16,
   });
 
   return (
-    <ul className="relative m-0 list-none p-0" style={{ height: virtual.getTotalSize() }}>
-      {virtual.getVirtualItems().map((item) => {
+    <ul ref={setList} className="relative m-0 list-none p-0" style={{ height: shown.totalHeight }}>
+      {shown.rows.map((item) => {
         const row = rows[item.index];
         if (!row) return null;
         return (
           <li
             key={row.id}
             className="absolute flex w-full items-center"
-            style={{ height: item.size, transform: `translateY(${item.start}px)` }}
+            style={{ height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
           >
             <Row row={row} onToggle={onToggle} {...openers} />
           </li>

@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
-    "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/plugin-dialog": "^2.8.0",
     "@tauri-apps/plugin-fs": "^2.6.0",
     "lucide-react": "^1.48.0",
