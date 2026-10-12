@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /** What an analyzed run measured of a node. */
 export type Measured = {
   /** Per loop, as PostgreSQL gives them. */
@@ -53,22 +51,32 @@ type RawNode = {
   [key: string]: unknown;
 };
 
-// Only the keys every node has are checked; the rest are read where used.
-const rawNode: z.ZodType<RawNode> = z.lazy(() =>
-  z.looseObject({
-    "Node Type": z.string(),
-    "Plan Rows": z.number(),
-    "Total Cost": z.number(),
-    Plans: z.array(rawNode).optional(),
-  }),
-);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-const rawPlan = z.object({
-  Plan: rawNode,
-  "Planning Time": z.number().optional(),
-  "Execution Time": z.number().optional(),
-  Settings: z.record(z.string(), z.string()).optional(),
-});
+/** Only the keys every node has are checked; the rest are read where used. */
+function isRawNode(value: unknown): value is RawNode {
+  if (!isRecord(value)) return false;
+  const plans = value.Plans;
+  return (
+    typeof value["Node Type"] === "string" &&
+    typeof value["Plan Rows"] === "number" &&
+    typeof value["Total Cost"] === "number" &&
+    (plans === undefined || (Array.isArray(plans) && plans.every(isRawNode)))
+  );
+}
+
+function optionalNumber(value: unknown): value is number | undefined {
+  return value === undefined || typeof value === "number";
+}
+
+function isSettings(value: unknown): value is Record<string, string> | undefined {
+  return (
+    value === undefined ||
+    (isRecord(value) && Object.values(value).every((setting) => typeof setting === "string"))
+  );
+}
 
 function text(raw: RawNode, key: string): string | undefined {
   const value = raw[key];
@@ -82,16 +90,20 @@ function number(raw: RawNode, key: string): number | undefined {
 
 /** Null when the JSON is not a plan PostgreSQL would write. */
 export function readPlan(json: unknown): Plan | null {
-  const parsed = rawPlan.safeParse(json);
-  if (!parsed.success) return null;
-  const root = parsed.data.Plan;
+  if (!isRecord(json) || !isRawNode(json.Plan)) return null;
+  const planning = json["Planning Time"];
+  const execution = json["Execution Time"];
+  const settings = json.Settings;
+  if (!optionalNumber(planning) || !optionalNumber(execution) || !isSettings(settings)) {
+    return null;
+  }
   const ctes = new Map<string, number>();
-  collectCtes(root, null, ctes);
+  collectCtes(json.Plan, null, ctes);
   return {
-    root: node(root, null, ctes),
-    planningMs: parsed.data["Planning Time"] ?? null,
-    executionMs: parsed.data["Execution Time"] ?? null,
-    settings: parsed.data.Settings ?? {},
+    root: node(json.Plan, null, ctes),
+    planningMs: planning ?? null,
+    executionMs: execution ?? null,
+    settings: settings ?? {},
   };
 }
 
@@ -362,6 +374,13 @@ if (import.meta.vitest) {
     it("refuses what is not a plan", () => {
       expect(readPlan([{ Plan: scan }])).toBeNull();
       expect(readPlan({ Plan: { "Node Type": "Seq Scan" } })).toBeNull();
+    });
+
+    it("refuses a plan with a child, a time or a setting of the wrong kind", () => {
+      expect(readPlan({ Plan: { ...scan, Plans: [{ "Node Type": "Hash" }] } })).toBeNull();
+      expect(readPlan({ Plan: scan, "Execution Time": "1.2" })).toBeNull();
+      expect(readPlan({ Plan: scan, Settings: { work_mem: 64 } })).toBeNull();
+      expect(readPlan({ Plan: { ...scan, Plans: [scan] }, "Planning Time": 0.1 })).not.toBeNull();
     });
   });
 

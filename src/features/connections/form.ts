@@ -1,48 +1,10 @@
-import { z } from "zod";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SaveConnectionInput } from "../../bindings/SaveConnectionInput";
 import type { DriverKind } from "./driver";
 
 export type FormMode = "new" | "edit" | "duplicate";
 
-const required = (field: string) => z.string().trim().min(1, `${field} is required`);
-
-const PORT_RANGE = "Port must be between 1 and 65535";
-
-// Every driver's fields at once, so switching drivers and back keeps what was
-// typed.
-const shared = {
-  label: required("Label"),
-  secret: z.string(),
-  // Unchecked: the shell is what reads it.
-  command: z.string().trim(),
-  commandWhileSelected: z.boolean(),
-  // Picked from the zones the webview knows, or blank for UTC.
-  timeZone: z.string(),
-  production: z.boolean(),
-};
-
-const postgres = z.object({
-  ...shared,
-  kind: z.literal("postgres"),
-  host: required("Host"),
-  port: z
-    .string()
-    .trim()
-    .regex(/^\d+$/, "Port must be a whole number")
-    .transform(Number)
-    .refine((port) => port >= 1 && port <= 65535, PORT_RANGE),
-  database: required("Database"),
-  username: required("Username"),
-});
-
-const bigquery = z.object({
-  ...shared,
-  kind: z.literal("bigquery"),
-  project: required("Project"),
-  location: required("Location"),
-});
-
+/** Every driver's fields at once, so switching drivers and back keeps what was typed. */
 export type ConnectionFormValues = {
   label: string;
   kind: DriverKind;
@@ -60,6 +22,9 @@ export type ConnectionFormValues = {
 };
 
 export type FieldErrors = Partial<Record<keyof ConnectionFormValues, string>>;
+
+/** The fields that must hold something besides spaces. */
+type RequiredField = "label" | "host" | "database" | "username" | "project" | "location";
 
 export const EMPTY_FORM: ConnectionFormValues = {
   label: "",
@@ -97,47 +62,62 @@ export function parseConnectionForm(
   mode: FormMode,
   source: ConnectionRecord | null,
 ): ParseResult {
-  const parsed =
-    values.kind === "postgres" ? postgres.safeParse(values) : bigquery.safeParse(values);
   const errors: FieldErrors = {};
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const field = issue.path[0] as keyof ConnectionFormValues | undefined;
-      if (field && !errors[field]) errors[field] = issue.message;
-    }
+  function required(field: RequiredField, name: string): string {
+    const value = values[field].trim();
+    if (value === "") errors[field] = `${name} is required`;
+    return value;
+  }
+
+  const label = required("label", "Label");
+  let config: SaveConnectionInput["config"];
+  if (values.kind === "postgres") {
+    const port = readPort(values.port);
+    if (typeof port === "string") errors.port = port;
+    config = {
+      kind: "postgres",
+      host: required("host", "Host"),
+      port: typeof port === "number" ? port : 0,
+      database: required("database", "Database"),
+      username: required("username", "Username"),
+    };
+  } else {
+    config = {
+      kind: "bigquery",
+      project_id: required("project", "Project"),
+      location: required("location", "Location"),
+    };
   }
   const stored = mode === "edit" && values.kind === source?.config.kind;
   if (!stored && values.secret === "") {
     errors.secret = `${SECRET_LABELS[values.kind]} is required`;
   }
-  if (Object.keys(errors).length > 0 || !parsed.success) return { ok: false, errors };
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
 
+  // Unchecked: the shell is what reads it.
+  const command = values.command.trim();
   return {
     ok: true,
     input: {
       id: mode === "edit" ? (source?.id ?? null) : null,
-      label: parsed.data.label,
-      config:
-        parsed.data.kind === "postgres"
-          ? {
-              kind: "postgres",
-              host: parsed.data.host,
-              port: parsed.data.port,
-              database: parsed.data.database,
-              username: parsed.data.username,
-            }
-          : {
-              kind: "bigquery",
-              project_id: parsed.data.project,
-              location: parsed.data.location,
-            },
+      label,
+      config,
       secret: values.secret === "" ? null : values.secret,
-      command: parsed.data.command === "" ? null : parsed.data.command,
-      command_while_selected: parsed.data.commandWhileSelected,
-      time_zone: parsed.data.timeZone === "" ? null : parsed.data.timeZone,
-      production: parsed.data.production,
+      command: command === "" ? null : command,
+      command_while_selected: values.commandWhileSelected,
+      // Picked from the zones the webview knows, or blank for UTC.
+      time_zone: values.timeZone === "" ? null : values.timeZone,
+      production: values.production,
     },
   };
+}
+
+/** The port, or what is wrong with it. */
+function readPort(text: string): number | string {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return "Port must be a whole number";
+  const port = Number(trimmed);
+  return port >= 1 && port <= 65535 ? port : "Port must be between 1 and 65535";
 }
 
 export function formValuesFrom(record: ConnectionRecord, mode: FormMode): ConnectionFormValues {
