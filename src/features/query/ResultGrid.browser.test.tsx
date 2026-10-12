@@ -117,6 +117,41 @@ describe("ResultGrid", () => {
     expect(selected()).toBe("1");
   });
 
+  it("draws the rows scrolled to, and keeps the row the arrows reach clear of the header", async () => {
+    const screen = await renderApp(
+      <div style={{ height: 200, width: 400 }}>
+        <ResultGrid
+          result={{
+            ...result,
+            rows: Array.from({ length: 500 }, (_, index) => [index + 1, `row ${index + 1}`]),
+          }}
+          connectionId="c1"
+        />
+      </div>,
+    );
+    const scroller = screen.getByRole("grid").element();
+    const header = scroller.querySelector('[role="columnheader"]') as HTMLElement;
+    /** Whether the cell sits wholly in the part of the grid the header leaves visible. */
+    const inView = (text: string) => {
+      const cell = screen.getByText(text, { exact: true }).element().getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      return (
+        cell.top >= header.getBoundingClientRect().bottom - 1 && cell.bottom <= view.bottom + 1
+      );
+    };
+
+    expect(screen.getByText("row 400", { exact: true }).elements()).toEqual([]);
+    scroller.scrollTop = 400 * 28;
+    await expect.element(screen.getByText("row 400", { exact: true })).toBeInTheDocument();
+
+    scroller.scrollTop = 0;
+    await screen.getByText("row 1", { exact: true }).click();
+    await userEvent.keyboard("{Meta>}{ArrowDown}{/Meta}");
+    await expect.poll(() => inView("row 500")).toBe(true);
+    await userEvent.keyboard("{Meta>}{ArrowUp}{/Meta}");
+    await expect.poll(() => inView("row 1")).toBe(true);
+  });
+
   it("copies the selected cell as the grid writes it", async () => {
     const written = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     try {
