@@ -18,10 +18,8 @@ use secrets::KeyringStore;
 
 pub fn run() {
     tauri::Builder::default()
-        // Saving a result: the path the reader picks is the only one the
-        // window may then write, since the dialog adds it to the fs scope.
+        // Asks where to save a result; see `commands::files`.
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         // Where the window was and how large, not what it looks like: its
         // decorations and visibility are the config's.
         .plugin(

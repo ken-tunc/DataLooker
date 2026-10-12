@@ -700,7 +700,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
- "tauri-plugin-fs",
  "tauri-plugin-window-state",
  "thiserror 2.0.21",
  "time",

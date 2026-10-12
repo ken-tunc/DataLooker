@@ -2,7 +2,7 @@ import { type KeyboardEvent, useState } from "react";
 import type { QueryResult } from "../../bindings/QueryResult";
 import type { Sort } from "../../bindings/Sort";
 import { useToast } from "../../components/useToast";
-import { saveTextFile } from "../../lib/files";
+import { saveTextFile } from "../../lib/commands";
 import { describeError } from "../../lib/invoke";
 import { useDriver, useTimeZone } from "../connections/hooks";
 import { CellPeek } from "./CellPeek";

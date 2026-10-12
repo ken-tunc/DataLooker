@@ -6,6 +6,7 @@ pub mod agents;
 pub mod completion;
 pub mod connection;
 pub mod edit;
+pub mod files;
 pub mod lsp;
 pub mod preview;
 pub mod query;
@@ -18,7 +19,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 use ts_rs::TS;
 
 use crate::app::agents::AgentAccess;
@@ -31,6 +32,7 @@ use crate::app::syntax::SyntaxError;
 use crate::app::tabs::SaveTabsInput;
 use crate::app::templates::SaveTemplateInput;
 use crate::app::App;
+use crate::commands::files::SaveTextFileArgs;
 use crate::db::connection::ConnectionRecord;
 use crate::db::history::HistoryEntry;
 use crate::db::tabs::SavedTabs;
@@ -62,6 +64,14 @@ where
 {
 }
 
+/// A command of the window's own, which needs the window rather than `App`.
+fn takes_window<A, R, F, Fut>(_: F)
+where
+    F: Fn(A, WebviewWindow) -> Fut,
+    Fut: Future<Output = Result<R, AppError>>,
+{
+}
+
 fn takes_nothing<R, F, Fut>(_: F)
 where
     F: Fn(State<'static, Arc<App>>) -> Fut,
@@ -70,7 +80,7 @@ where
 }
 
 macro_rules! commands {
-    ($($module:ident::$name:ident($($args:ty)?) -> $returns:ty;)*) => {
+    ($($([$window:ident])? $module:ident::$name:ident($($args:ty)?) -> $returns:ty;)*) => {
         pub fn handler<R: tauri::Runtime>(
         ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
             tauri::generate_handler![$($module::$name),*]
@@ -86,7 +96,7 @@ macro_rules! commands {
 
         #[allow(dead_code)]
         fn signatures() {
-            $(commands!(@check $module::$name, $returns $(, $args)?);)*
+            $(commands!(@check $([$window])? $module::$name, $returns $(, $args)?);)*
         }
     };
     (@args) => { () };
@@ -96,6 +106,9 @@ macro_rules! commands {
     };
     (@check $module:ident::$name:ident, $returns:ty, $args:ty) => {
         takes::<$args, $returns, _, _>($module::$name)
+    };
+    (@check [window] $module:ident::$name:ident, $returns:ty, $args:ty) => {
+        takes_window::<$args, $returns, _, _>($module::$name)
     };
 }
 
@@ -138,6 +151,7 @@ commands! {
     lsp::install_language_server(ConnectionArgs) -> ();
     agents::agent_access() -> AgentAccess;
     agents::set_agent_access(AgentAccessArgs) -> AgentAccess;
+    [window] files::save_text_file(SaveTextFileArgs) -> Option<String>;
 }
 
 /// A command that is about one connection and nothing more.
