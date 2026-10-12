@@ -188,6 +188,19 @@ describe("TablePreviewPane", () => {
     await expect.poll(saved).toMatchObject({ inserts: [{ values: {} }] });
   });
 
+  it("edits the stored row the reader chose while a new row sits above it", async () => {
+    const { screen, type, saved } = await preview();
+
+    await screen.getByRole("button", { name: "New row" }).click();
+    await type("Grace", "name", "Hopper");
+    await expect.element(screen.getByText("2 unsaved changes")).toBeVisible();
+    await screen.getByRole("button", { name: "Save" }).click();
+
+    await expect.poll(saved).toMatchObject({
+      updates: [{ key: { id: "2" }, set: { name: "Hopper" }, version: "901" }],
+    });
+  });
+
   it("keeps a removed row on screen until it is saved", async () => {
     const { screen, saved } = await preview();
 
