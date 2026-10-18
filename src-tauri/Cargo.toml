@@ -62,10 +62,7 @@ tower-service = "0.3.3"
 ts-rs = "12"
 uuid = { version = "1.26.1", features = ["v4"] }
 # Trades the Application Default Credentials BigQuery is reached with for a token.
-yup-oauth2 = { version = "12", default-features = false, features = [
-  "hyper-rustls",
-  "ring",
-] }
+yup-oauth2 = { version = "12", default-features = false, features = ["hyper-rustls", "ring"] }
 
 # Line tables keep file and line in a backtrace. Full debug info, for reading
 # variables in a debugger, costs a sixth of a clean dev build and much of its disk.
