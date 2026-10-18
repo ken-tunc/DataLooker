@@ -324,7 +324,9 @@ impl Client {
     async fn token(&self) -> Result<String, Failure> {
         let refused = match self.auth.read().await.token(&SCOPES).await {
             Ok(token) => return issued(&token),
-            Err(refused) => refused,
+            Err(refused @ yup_oauth2::Error::AuthError(_)) => refused,
+            // A network that failed would fail the second asking too.
+            Err(failed) => return Err(Failure::unanswered(failed)),
         };
         let Ok(fresh) = credentials::authenticator().await else {
             return Err(Failure::unanswered(refused));

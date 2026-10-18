@@ -64,7 +64,6 @@ uuid = { version = "1.26.1", features = ["v4"] }
 # Trades the Application Default Credentials BigQuery is reached with for a token.
 yup-oauth2 = { version = "12", default-features = false, features = [
   "hyper-rustls",
-  "service-account",
   "ring",
 ] }
 

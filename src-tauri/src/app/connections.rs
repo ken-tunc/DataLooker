@@ -113,6 +113,17 @@ async fn save(
         time_zone: given(input.time_zone.as_deref()),
         production: input.production,
     };
+    // Asked of the row rather than the keychain, which may ask the reader
+    // whether the app may read it.
+    if let (DriverConfig::Postgres { .. }, None, Some(id)) =
+        (&input.config, &input.secret, &input.id)
+    {
+        let was = connection::find_by_id(pool, id).await?;
+        if was.is_some_and(|was| matches!(was.config, DriverConfig::BigQuery { .. })) {
+            // A BigQuery connection has no password to keep.
+            return Err(AppError::Validation("password is required".into()));
+        }
+    }
     let mut tx = pool.begin().await?;
 
     let id = match &input.id {
@@ -131,14 +142,10 @@ async fn save(
     };
 
     match (&input.config, &input.secret) {
-        // What was stored for it opens nothing now: a service account key, or
-        // a password from before its driver changed.
+        // What was stored for it opens nothing now: a key it once took, or a
+        // password from before its driver changed.
         (DriverConfig::BigQuery { .. }, _) if input.id.is_some() => secrets.delete(&id)?,
         (_, Some(secret)) => secrets.set(&id, secret)?,
-        // A connection that was BigQuery has no password to keep.
-        (DriverConfig::Postgres { .. }, None) if secrets.get(&id)?.is_none() => {
-            return Err(AppError::Validation("password is required".into()));
-        }
         _ => {}
     }
     tx.commit().await?;
@@ -525,6 +532,37 @@ mod tests {
         assert!(matches!(err, AppError::Validation(_)));
         let stored = connection::find_by_id(&pool, &id).await.unwrap().unwrap();
         assert!(matches!(stored.config, DriverConfig::BigQuery { .. }));
+    }
+
+    /// A keychain that must not be asked.
+    struct Unasked;
+
+    impl SecretStore for Unasked {
+        fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn set(&self, id: &str, _: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn delete(&self, id: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+    }
+
+    #[tokio::test]
+    async fn renaming_a_postgres_connection_leaves_the_keychain_alone() {
+        let pool = open_in_memory().await.unwrap();
+        let id = save(
+            input(None, "Local", Some("hunter2")),
+            &pool,
+            &InMemorySecretStore::default(),
+        )
+        .await
+        .unwrap();
+
+        save(input(Some(&id), "Renamed", None), &pool, &Unasked)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

@@ -114,11 +114,10 @@ A query is billed for every column it scans whatever its `LIMIT`, so an unfilter
 unsorted page of a table is listed rather than queried, and completion — asked on
 keystrokes — reads a table's columns with `tables.get` rather than `INFORMATION_SCHEMA`.
 
-It signs in with Application Default Credentials, where Google's own libraries look, so a
-connection stores no secret: the reader signs in with `gcloud auth application-default
-login`, and a service account is reached by impersonating it there or by
-`GOOGLE_APPLICATION_CREDENTIALS`. The credentials are read again when Google refuses
-them, so signing in again after they lapse needs no restart.
+It signs in as the reader, with the Application Default Credentials `gcloud auth
+application-default login` writes, so a connection stores no secret and a service account
+is not signed in as. The credentials are read again when Google refuses them, so signing in
+again after they lapse needs no restart.
 
 The OAuth scope is not read-only: what the reader may do is their account's to decide, as
 it is the role's on PostgreSQL.
