@@ -17,6 +17,10 @@ use crate::secrets::SecretStore;
 
 /// An enum rather than a trait: the set of drivers is closed, and the compiler
 /// says when one was left out of an operation.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a session is made once per connection and held behind an Arc"
+)]
 pub enum Session {
     Postgres(PostgresSession),
     BigQuery(BigQuerySession),
@@ -309,9 +313,6 @@ impl SessionRegistry {
         let record = connection::find_by_id(pool, id)
             .await?
             .ok_or_else(|| AppError::NotFound(id.to_string()))?;
-        let secret = secrets
-            .get(id)?
-            .ok_or_else(|| AppError::Secret(format!("no password stored for {id}")))?;
         match record.config {
             DriverConfig::Postgres {
                 host,
@@ -319,6 +320,9 @@ impl SessionRegistry {
                 database,
                 username,
             } => {
+                let secret = secrets
+                    .get(id)?
+                    .ok_or_else(|| AppError::Secret(format!("no password stored for {id}")))?;
                 let session = PostgresSession::new(&host, port, &database, &username, &secret);
                 // A default only; `execute_reading` is what enforces it.
                 Ok(Session::Postgres(match whose {
@@ -332,8 +336,7 @@ impl SessionRegistry {
             } => Ok(Session::BigQuery(BigQuerySession::new(
                 &project_id,
                 &location,
-                &secret,
-            )?)),
+            ))),
         }
     }
 

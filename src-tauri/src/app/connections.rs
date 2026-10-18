@@ -113,6 +113,17 @@ async fn save(
         time_zone: given(input.time_zone.as_deref()),
         production: input.production,
     };
+    // Asked of the row rather than the keychain, which may ask the reader
+    // whether the app may read it.
+    if let (DriverConfig::Postgres { .. }, None, Some(id)) =
+        (&input.config, &input.secret, &input.id)
+    {
+        let was = connection::find_by_id(pool, id).await?;
+        if was.is_some_and(|was| matches!(was.config, DriverConfig::BigQuery { .. })) {
+            // A BigQuery connection has no password to keep.
+            return Err(AppError::Validation("password is required".into()));
+        }
+    }
     let mut tx = pool.begin().await?;
 
     let id = match &input.id {
@@ -130,8 +141,12 @@ async fn save(
         }
     };
 
-    if let Some(secret) = &input.secret {
-        secrets.set(&id, secret)?;
+    match (&input.config, &input.secret) {
+        // What was stored for it opens nothing now: a key it once took, or a
+        // password from before its driver changed.
+        (DriverConfig::BigQuery { .. }, _) if input.id.is_some() => secrets.delete(&id)?,
+        (_, Some(secret)) => secrets.set(&id, secret)?,
+        _ => {}
     }
     tx.commit().await?;
     Ok(id)
@@ -146,15 +161,6 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
     if input.label.trim().is_empty() {
         return Err(AppError::Validation("label is required".into()));
     }
-    match &input.secret {
-        Some(secret) if secret.is_empty() => {
-            return Err(AppError::Validation("password must not be empty".into()));
-        }
-        None if input.id.is_none() => {
-            return Err(AppError::Validation("password is required".into()));
-        }
-        _ => {}
-    }
     match &input.config {
         DriverConfig::Postgres {
             host,
@@ -162,6 +168,15 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
             database,
             username,
         } => {
+            match &input.secret {
+                Some(secret) if secret.is_empty() => {
+                    return Err(AppError::Validation("password must not be empty".into()));
+                }
+                None if input.id.is_none() => {
+                    return Err(AppError::Validation("password is required".into()));
+                }
+                _ => {}
+            }
             filled([
                 ("host", host),
                 ("database", database),
@@ -174,7 +189,15 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
         DriverConfig::BigQuery {
             project_id,
             location,
-        } => filled([("project", project_id), ("location", location)])?,
+        } => {
+            // It signs in with the reader's own credentials.
+            if input.secret.is_some() {
+                return Err(AppError::Validation(
+                    "a BigQuery connection takes no secret".into(),
+                ));
+            }
+            filled([("project", project_id), ("location", location)])?;
+        }
     }
     Ok(())
 }
@@ -315,7 +338,7 @@ mod tests {
                 project_id: project.into(),
                 location: location.into(),
             },
-            ..input(None, "Warehouse", Some(r#"{"type":"service_account"}"#))
+            ..input(None, "Warehouse", None)
         };
 
         let id = save(warehouse("looking", "US"), &pool, &secrets)
@@ -455,6 +478,91 @@ mod tests {
 
         assert!(matches!(err, AppError::Validation(_)));
         assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("hunter2"));
+    }
+
+    fn warehouse(id: Option<&str>, secret: Option<&str>) -> SaveConnectionInput {
+        SaveConnectionInput {
+            config: DriverConfig::BigQuery {
+                project_id: "looking".into(),
+                location: "US".into(),
+            },
+            ..input(id, "Warehouse", secret)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bigquery_connection_stores_no_secret() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+
+        let id = save(warehouse(None, None), &pool, &secrets).await.unwrap();
+        assert_eq!(secrets.get(&id).unwrap(), None);
+
+        let err = save(warehouse(None, Some("{}")), &pool, &secrets)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Validation(_)));
+    }
+
+    #[tokio::test]
+    async fn an_edit_to_bigquery_forgets_what_was_stored() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let id = save(input(None, "Local", Some("hunter2")), &pool, &secrets)
+            .await
+            .unwrap();
+
+        save(warehouse(Some(&id), None), &pool, &secrets)
+            .await
+            .unwrap();
+
+        assert_eq!(secrets.get(&id).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn an_edit_from_bigquery_to_postgres_needs_a_password() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let id = save(warehouse(None, None), &pool, &secrets).await.unwrap();
+
+        let err = save(input(Some(&id), "Local", None), &pool, &secrets)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Validation(_)));
+        let stored = connection::find_by_id(&pool, &id).await.unwrap().unwrap();
+        assert!(matches!(stored.config, DriverConfig::BigQuery { .. }));
+    }
+
+    /// A keychain that must not be asked.
+    struct Unasked;
+
+    impl SecretStore for Unasked {
+        fn get(&self, id: &str) -> Result<Option<String>, AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn set(&self, id: &str, _: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+        fn delete(&self, id: &str) -> Result<(), AppError> {
+            panic!("the keychain was asked for {id}")
+        }
+    }
+
+    #[tokio::test]
+    async fn renaming_a_postgres_connection_leaves_the_keychain_alone() {
+        let pool = open_in_memory().await.unwrap();
+        let id = save(
+            input(None, "Local", Some("hunter2")),
+            &pool,
+            &InMemorySecretStore::default(),
+        )
+        .await
+        .unwrap();
+
+        save(input(Some(&id), "Renamed", None), &pool, &Unasked)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

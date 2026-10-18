@@ -1,8 +1,8 @@
 //! What the tests that reach BigQuery share. There is no BigQuery to run in a
-//! container, so they reach a real project and skip when no key is named.
+//! container, so they reach a real project, with the Application Default
+//! Credentials the app itself would use, and skip when no project is named.
 //!
 //! ```sh
-//! DATALOOKER_TEST_BQ_KEY=~/keys/project.json \
 //! DATALOOKER_TEST_BQ_PROJECT=my-project cargo test
 //! ```
 //! The location defaults to `US`; set `DATALOOKER_TEST_BQ_LOCATION` for a
@@ -17,17 +17,13 @@ use crate::drivers::bigquery::BigQuerySession;
 
 pub(crate) const ROW_LIMIT: usize = 100;
 
-/// Only an absent key is a skip; a refused one fails.
+/// Only an absent project is a skip; credentials that are refused fail.
 pub(crate) fn session_or_skip() -> Option<BigQuerySession> {
-    let (Ok(path), Ok(project)) = (
-        env::var("DATALOOKER_TEST_BQ_KEY"),
-        env::var("DATALOOKER_TEST_BQ_PROJECT"),
-    ) else {
-        eprintln!("skipping: DATALOOKER_TEST_BQ_KEY and _PROJECT name no project");
+    let Ok(project) = env::var("DATALOOKER_TEST_BQ_PROJECT") else {
+        eprintln!("skipping: DATALOOKER_TEST_BQ_PROJECT names no project");
         return None;
     };
-    let key = std::fs::read_to_string(&path).expect("the key named by DATALOOKER_TEST_BQ_KEY");
-    Some(BigQuerySession::new(&project, &location(), &key).expect("a key that parses"))
+    Some(BigQuerySession::new(&project, &location()))
 }
 
 /// A dataset made here has to be where the jobs run.

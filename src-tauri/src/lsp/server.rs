@@ -15,8 +15,12 @@ pub enum Server {
 }
 
 /// What goes in the server's `initializationOptions`, so the password never
-/// reaches a file that would outlive the process.
-pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Value), AppError> {
+/// reaches a file that would outlive the process. The password is read only
+/// for a driver that has one.
+pub fn for_connection(
+    config: &DriverConfig,
+    secret: impl FnOnce() -> Result<String, AppError>,
+) -> Result<(Server, Value), AppError> {
     match config {
         DriverConfig::Postgres {
             host,
@@ -33,7 +37,7 @@ pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Va
                     "host": host,
                     "port": port,
                     "user": username,
-                    "passwd": secret,
+                    "passwd": secret()?,
                     "dbName": database,
                 }
             }),
@@ -42,7 +46,7 @@ pub fn for_connection(config: &DriverConfig, secret: &str) -> Result<(Server, Va
     }
 }
 
-/// BigQuery is completed by `crate::analyzer`, so the key never leaves the app.
+/// BigQuery is completed by `crate::analyzer`.
 fn no_server() -> AppError {
     AppError::Unsupported("A BigQuery connection is completed without a language server.".into())
 }
@@ -141,7 +145,7 @@ mod tests {
                 database: "shop".into(),
                 username: "reader".into(),
             },
-            "opensesame",
+            || Ok("opensesame".into()),
         )
         .unwrap();
 
@@ -162,7 +166,7 @@ mod tests {
         };
         assert_eq!(Server::of(&bigquery), None);
         assert!(matches!(
-            for_connection(&bigquery, r#"{"type":"service_account"}"#),
+            for_connection(&bigquery, || panic!("BigQuery has no secret to read")),
             Err(AppError::Unsupported(_))
         ));
     }

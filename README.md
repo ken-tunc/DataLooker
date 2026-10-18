@@ -5,9 +5,10 @@ PostgreSQL and BigQuery.
 
 ## Features
 
-- **Connections** — PostgreSQL and BigQuery (service account key). Secrets stay in the
-  macOS keychain. A connection can carry a shell command, such as an SSH tunnel, started
-  and stopped from its header, or run only while the connection is selected.
+- **Connections** — PostgreSQL and BigQuery (Application Default Credentials, from
+  `gcloud auth application-default login`). Passwords stay in the macOS keychain. A
+  connection can carry a shell command, such as an SSH tunnel, started and stopped from
+  its header, or run only while the connection is selected.
 - **SQL editor** — Monaco with tabs, which each connection reopens after a restart with
   what was written in them, completion from the database (`sqls` for PostgreSQL,
   a GoogleSQL helper for BigQuery), PostgreSQL syntax errors marked as you type,
@@ -136,10 +137,11 @@ cd src-tauri && cargo test            # backend
 ```
 
 Tests that need a PostgreSQL skip themselves when none is listening. The BigQuery ones
-need a real project and skip unless one is named:
+need a real project, reached with your Application Default Credentials, and skip unless
+one is named:
 
 ```sh
-DATALOOKER_TEST_BQ_KEY=~/keys/project.json DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
+DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
 ```
 
 `--coverage` (frontend) and `cargo llvm-cov` (backend) report coverage.
