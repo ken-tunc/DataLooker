@@ -38,6 +38,7 @@ export function Palette<T>({
 }: Props<T>) {
   const dialog = useRef<HTMLDialogElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(initial ?? "");
   const [active, setActive] = useState(0);
   const base = useId();
@@ -46,6 +47,8 @@ export function Palette<T>({
 
   useEffect(() => {
     dialog.current?.showModal();
+    // `showModal` alone does not leave the focus in the field in the app's WebView.
+    input.current?.focus();
   }, []);
 
   const items = search(query);
@@ -89,7 +92,8 @@ export function Palette<T>({
     >
       <div className="modal-box mt-24 flex max-h-96 w-full max-w-xl flex-col gap-2 p-2">
         <input
-          // Always focused (`showModal` puts it there), so the ring is faint.
+          ref={input}
+          // Always focused, so the ring is faint.
           className="input input-ghost focus-within:outline-base-content/20 w-full text-base"
           role="combobox"
           aria-expanded
