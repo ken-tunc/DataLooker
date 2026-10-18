@@ -24,11 +24,11 @@ impl App {
         let record = connection::find_by_id(&self.pool, connection_id)
             .await?
             .ok_or_else(|| AppError::NotFound(connection_id.to_string()))?;
-        let secret = self
-            .secrets
-            .get(connection_id)?
-            .ok_or_else(|| AppError::Secret(format!("no secret stored for {connection_id}")))?;
-        let (server, options) = server::for_connection(&record.config, &secret)?;
+        let (server, options) = server::for_connection(&record.config, || {
+            self.secrets
+                .get(connection_id)?
+                .ok_or_else(|| AppError::Secret(format!("no secret stored for {connection_id}")))
+        })?;
         let binary = server::find(server, &self.servers()).await?;
 
         let session = LspSession::start(connection_id, &binary, options).await?;

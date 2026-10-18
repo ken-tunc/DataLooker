@@ -66,7 +66,8 @@ pub(crate) async fn started_or_skip(connection_id: &str) -> Option<Arc<LspSessio
         }
     };
     let (config, password) = config();
-    let (_, options) = server::for_connection(&config, &password).expect("options for PostgreSQL");
+    let (_, options) =
+        server::for_connection(&config, || Ok(password)).expect("options for PostgreSQL");
     Some(
         LspSession::start(connection_id, &binary, options)
             .await

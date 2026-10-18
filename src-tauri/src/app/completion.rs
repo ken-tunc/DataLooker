@@ -438,8 +438,7 @@ mod tests {
     async fn app_reaching_bigquery() -> Option<(App, String)> {
         use crate::app::connections::SaveConnectionInput;
 
-        let (Ok(key), Ok(project), Some(_)) = (
-            std::env::var("DATALOOKER_TEST_BQ_KEY"),
+        let (Ok(project), Some(_)) = (
             std::env::var("DATALOOKER_TEST_BQ_PROJECT"),
             std::env::var_os("DATALOOKER_BQ_ANALYZER_BIN"),
         ) else {
@@ -456,7 +455,7 @@ mod tests {
                     location: std::env::var("DATALOOKER_TEST_BQ_LOCATION")
                         .unwrap_or_else(|_| "US".into()),
                 },
-                secret: Some(std::fs::read_to_string(key).expect("the key")),
+                secret: None,
                 command: None,
                 command_while_selected: false,
                 production: false,

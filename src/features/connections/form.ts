@@ -43,19 +43,15 @@ export const EMPTY_FORM: ConnectionFormValues = {
   production: false,
 };
 
-export const SECRET_LABELS: Record<DriverKind, string> = {
-  postgres: "Password",
-  bigquery: "Service account key",
-};
-
 export type ParseResult =
   | { ok: true; input: SaveConnectionInput }
   | { ok: false; errors: FieldErrors };
 
 /**
- * An edit may leave the secret blank to keep the stored one, unless it changes
- * the driver: a password is not a service account key. A new or duplicated
- * connection must carry one. Only the picked driver's fields are read.
+ * A PostgreSQL edit may leave the password blank to keep the stored one,
+ * unless it changes the driver, since a BigQuery connection stores none. A new
+ * or duplicated one must carry one. BigQuery signs in with the reader's own
+ * credentials and sends no secret. Only the picked driver's fields are read.
  */
 export function parseConnectionForm(
   values: ConnectionFormValues,
@@ -71,9 +67,13 @@ export function parseConnectionForm(
 
   const label = required("label", "Label");
   let config: SaveConnectionInput["config"];
+  let secret: string | null = null;
   if (values.kind === "postgres") {
     const port = readPort(values.port);
     if (typeof port === "string") errors.port = port;
+    const stored = mode === "edit" && source?.config.kind === "postgres";
+    if (values.secret !== "") secret = values.secret;
+    else if (!stored) errors.secret = "Password is required";
     config = {
       kind: "postgres",
       host: required("host", "Host"),
@@ -88,10 +88,6 @@ export function parseConnectionForm(
       location: required("location", "Location"),
     };
   }
-  const stored = mode === "edit" && values.kind === source?.config.kind;
-  if (!stored && values.secret === "") {
-    errors.secret = `${SECRET_LABELS[values.kind]} is required`;
-  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   // Unchecked: the shell is what reads it.
@@ -102,7 +98,7 @@ export function parseConnectionForm(
       id: mode === "edit" ? (source?.id ?? null) : null,
       label,
       config,
-      secret: values.secret === "" ? null : values.secret,
+      secret,
       command: command === "" ? null : command,
       command_while_selected: values.commandWhileSelected,
       // Picked from the zones the webview knows, or blank for UTC.
@@ -177,7 +173,6 @@ if (import.meta.vitest) {
     label: "Warehouse",
     project: "looking",
     location: "asia-northeast1",
-    secret: '{"type":"service_account"}',
   };
 
   describe("parseConnectionForm", () => {
@@ -213,6 +208,11 @@ if (import.meta.vitest) {
       });
     });
 
+    it("sends no secret for BigQuery, even one typed before switching to it", () => {
+      const result = parseConnectionForm({ ...bq, secret: "hunter2" }, "new", null);
+      expect(result.ok && result.input.secret).toBeNull();
+    });
+
     it("reads only the driver that was picked", () => {
       // The PostgreSQL fields are empty here, and say nothing about a
       // connection that is not one.
@@ -223,10 +223,7 @@ if (import.meta.vitest) {
       expect(other.ok).toBe(true);
     });
 
-    it("names the secret the way its driver does", () => {
-      const missing = parseConnectionForm({ ...bq, secret: "" }, "new", null);
-      expect(!missing.ok && missing.errors.secret).toBe("Service account key is required");
-
+    it("asks a new PostgreSQL connection for its password", () => {
       const password = parseConnectionForm({ ...valid, secret: "" }, "new", null);
       expect(!password.ok && password.errors.secret).toBe("Password is required");
     });
@@ -243,10 +240,14 @@ if (import.meta.vitest) {
       expect(result.ok && result.input.secret).toBeNull();
     });
 
-    it("asks for a new secret when an edit changes the driver", () => {
-      // What is stored is a password, and this connection now wants a key.
-      const result = parseConnectionForm({ ...bq, secret: "" }, "edit", record);
-      expect(!result.ok && result.errors.secret).toBe("Service account key is required");
+    it("asks for a password when an edit makes a BigQuery connection PostgreSQL", () => {
+      // A BigQuery connection has no password stored to keep.
+      const warehouse: ConnectionRecord = {
+        ...record,
+        config: { kind: "bigquery", project_id: "looking", location: "US" },
+      };
+      const result = parseConnectionForm({ ...valid, secret: "" }, "edit", warehouse);
+      expect(!result.ok && result.errors.secret).toBe("Password is required");
     });
 
     it("reports one message per blank field", () => {

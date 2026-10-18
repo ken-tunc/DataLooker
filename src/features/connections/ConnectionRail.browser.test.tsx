@@ -327,7 +327,8 @@ describe("a connection of another kind", () => {
     await screen.getByLabelText("Label").fill("Warehouse");
     await screen.getByLabelText("Project").fill("looking");
     await screen.getByLabelText("Location").fill("asia-northeast1");
-    await screen.getByLabelText("Service account key").fill('{"type":"service_account"}');
+    // It signs in with the reader's own credentials, so it asks for none.
+    expect(screen.getByLabelText("Password").elements()).toEqual([]);
     await screen.getByRole("button", { name: "Save" }).click();
 
     await expect
@@ -336,7 +337,7 @@ describe("a connection of another kind", () => {
         id: null,
         label: "Warehouse",
         config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
-        secret: '{"type":"service_account"}',
+        secret: null,
         command: null,
         command_while_selected: false,
         time_zone: null,

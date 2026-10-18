@@ -61,7 +61,7 @@ tokio-util = "0.7"
 tower-service = "0.3.3"
 ts-rs = "12"
 uuid = { version = "1.26.1", features = ["v4"] }
-# Trades the service account key BigQuery is reached with for a token.
+# Trades the Application Default Credentials BigQuery is reached with for a token.
 yup-oauth2 = { version = "12", default-features = false, features = [
   "hyper-rustls",
   "service-account",

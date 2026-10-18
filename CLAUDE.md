@@ -114,8 +114,14 @@ A query is billed for every column it scans whatever its `LIMIT`, so an unfilter
 unsorted page of a table is listed rather than queried, and completion — asked on
 keystrokes — reads a table's columns with `tables.get` rather than `INFORMATION_SCHEMA`.
 
-The OAuth scope is not read-only: what the reader may do is the service account's to
-decide, as it is the role's on PostgreSQL.
+It signs in with Application Default Credentials, where Google's own libraries look, so a
+connection stores no secret: the reader signs in with `gcloud auth application-default
+login`, and a service account is reached by impersonating it there or by
+`GOOGLE_APPLICATION_CREDENTIALS`. The credentials are read again when Google refuses
+them, so signing in again after they lapse needs no restart.
+
+The OAuth scope is not read-only: what the reader may do is their account's to decide, as
+it is the role's on PostgreSQL.
 
 ## Completion
 
@@ -125,8 +131,8 @@ because a file with a password outlives the process that wrote it. Rust composes
 `initialize` and otherwise forwards bytes; the client is `src/lib/lsp/client.ts`.
 
 BigQuery is completed by `bigquery-analyzer/`, a GoogleSQL helper. A language server would
-have to read the service account key from a file, so the app asks BigQuery itself and the
-helper only reads the statement.
+need credentials of its own, so the app asks BigQuery itself and the helper only reads the
+statement.
 
 The helper is downloaded, not built (it takes hours): `analyzer/fetch.rs` pins one Release
 by address and hash. `.github/workflows/analyzer.yml` publishes a Release when the helper

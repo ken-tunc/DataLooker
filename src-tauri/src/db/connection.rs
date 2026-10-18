@@ -14,7 +14,7 @@ pub enum DriverConfig {
         database: String,
         username: String,
     },
-    /// The service account is named in the key, which is the secret.
+    /// Signed in with Application Default Credentials, so there is no secret.
     BigQuery {
         project_id: String,
         /// Where the jobs run, and where the catalog that describes the

@@ -8,9 +8,10 @@ use reqwest::{RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
 use yup_oauth2::authenticator::DefaultAuthenticator;
-use yup_oauth2::{ServiceAccountAuthenticator, ServiceAccountKey};
 
+use super::credentials;
 use crate::error::AppError;
 
 const API: &str = "https://bigquery.googleapis.com/bigquery/v2";
@@ -20,7 +21,7 @@ const CONNECTING: Duration = Duration::from_secs(10);
 /// Well past the ten seconds a request is held open while its job runs.
 const SILENCE: Duration = Duration::from_secs(60);
 
-/// Not read-only: what the reader may do is the service account's to decide.
+/// Not read-only: what the reader may do is their account's to decide.
 const SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/bigquery"];
 
 /// A failed call, in BigQuery's own words where it gave some.
@@ -206,16 +207,14 @@ impl<'a> Query<'a> {
 
 pub struct Client {
     http: reqwest::Client,
-    auth: DefaultAuthenticator,
+    auth: RwLock<DefaultAuthenticator>,
 }
 
 impl Client {
-    /// Reads the key; Google is not asked for a token until the first call.
-    pub async fn new(key: ServiceAccountKey) -> Result<Self, Failure> {
-        let auth = ServiceAccountAuthenticator::builder(key)
-            .build()
-            .await
-            .map_err(|e| Failure::unanswered(format!("BigQuery refused the key: {e}")))?;
+    /// Reads the credentials; Google is not asked for a token until the first
+    /// call.
+    pub async fn new() -> Result<Self, AppError> {
+        let auth = RwLock::new(credentials::authenticator().await?);
         // No deadline on a whole call: a page of rows may be large, and a job
         // is waited on for as long as it runs. What these bound is a network
         // that went quiet, which nothing else would notice while the catalog is
@@ -320,15 +319,23 @@ impl Client {
         self.send(request).await
     }
 
+    /// The reader may have signed in again since the credentials were read,
+    /// after Google refused them, so a refusal reads them anew once.
+    async fn token(&self) -> Result<String, Failure> {
+        let refused = match self.auth.read().await.token(&SCOPES).await {
+            Ok(token) => return issued(&token),
+            Err(refused) => refused,
+        };
+        let Ok(fresh) = credentials::authenticator().await else {
+            return Err(Failure::unanswered(refused));
+        };
+        let token = fresh.token(&SCOPES).await.map_err(Failure::unanswered)?;
+        *self.auth.write().await = fresh;
+        issued(&token)
+    }
+
     async fn send<T: DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, Failure> {
-        let token = self
-            .auth
-            .token(&SCOPES)
-            .await
-            .map_err(Failure::unanswered)?;
-        let token = token
-            .token()
-            .ok_or_else(|| Failure::unanswered("Google answered without an access token"))?;
+        let token = self.token().await?;
         let response = request
             .bearer_auth(token)
             .send()
@@ -341,6 +348,13 @@ impl Client {
         }
         serde_json::from_str(&body).map_err(Failure::unanswered)
     }
+}
+
+fn issued(token: &yup_oauth2::AccessToken) -> Result<String, Failure> {
+    token
+        .token()
+        .map(str::to_string)
+        .ok_or_else(|| Failure::unanswered("Google answered without an access token"))
 }
 
 /// Each segment is escaped: a table's name may hold what a path cannot.

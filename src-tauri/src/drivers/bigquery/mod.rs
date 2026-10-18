@@ -1,4 +1,5 @@
 mod api;
+mod credentials;
 mod estimate;
 mod preview;
 mod query;
@@ -15,7 +16,6 @@ use std::time::{Duration, Instant};
 use futures_util::future::try_join_all;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use yup_oauth2::ServiceAccountKey;
 
 use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
@@ -49,7 +49,6 @@ pub struct Planned {
 pub struct BigQuerySession {
     project_id: String,
     location: String,
-    key: ServiceAccountKey,
     client: OnceCell<Client>,
     /// Each table's partition columns and when they were asked: an estimate is
     /// asked for on keystrokes.
@@ -57,25 +56,19 @@ pub struct BigQuerySession {
 }
 
 impl BigQuerySession {
-    /// The key is parsed here rather than on save: a bad key is a failure to
-    /// connect, which is where the reader looks.
-    pub fn new(project_id: &str, location: &str, key_json: &str) -> Result<Self, AppError> {
-        let key = serde_json::from_str(key_json)
-            .map_err(|e| AppError::Secret(format!("the service account key is not JSON: {e}")))?;
-        Ok(Self {
+    pub fn new(project_id: &str, location: &str) -> Self {
+        Self {
             project_id: project_id.to_string(),
             location: location.to_string(),
-            key,
             client: OnceCell::new(),
             partitions: Mutex::default(),
-        })
+        }
     }
 
-    /// Built on first use.
+    /// Built on first use, so credentials that cannot be used are a failure
+    /// to connect, which is where the reader looks.
     async fn client(&self) -> Result<&Client, AppError> {
-        self.client
-            .get_or_try_init(|| async { Ok(Client::new(self.key.clone()).await?) })
-            .await
+        self.client.get_or_try_init(Client::new).await
     }
 
     /// What BigQuery says `sql` is, asked of a dry run: this app has no parser
@@ -292,43 +285,9 @@ impl BigQuerySession {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Enough of a service account key to parse. Reaching Google with it is
-    /// another matter, and not one a test asks for.
-    const KEY: &str = r#"{
-        "type": "service_account",
-        "project_id": "looking",
-        "private_key_id": "0",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nnot a key\n-----END PRIVATE KEY-----\n",
-        "client_email": "reader@looking.iam.gserviceaccount.com",
-        "client_id": "1",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token"
-    }"#;
-
-    #[test]
-    fn a_key_that_parses_opens_a_session() {
-        assert!(BigQuerySession::new("looking", "US", KEY).is_ok());
-    }
-
-    #[test]
-    fn a_key_that_is_not_json_is_a_secret_that_cannot_be_used() {
-        // The client has no `Debug`, so no `unwrap_err`.
-        let Err(err) = BigQuerySession::new("looking", "US", "hunter2") else {
-            panic!("a key that is not JSON opened a session");
-        };
-        assert!(matches!(err, AppError::Secret(_)));
-    }
-}
-
 /// What only a real BigQuery project can say; see `testing` for which one, and when it is skipped.
 #[cfg(test)]
 mod live {
-    use std::env;
-
     use tokio_util::sync::CancellationToken;
 
     use crate::drivers::bigquery::estimate::Unpruned;
@@ -350,10 +309,9 @@ mod live {
         let Some(_) = session_or_skip() else {
             return;
         };
-        let key = std::fs::read_to_string(env::var("DATALOOKER_TEST_BQ_KEY").unwrap()).unwrap();
-        // The key is good; the project is not one it can read, which is a failure
-        // Google reports rather than one the key does.
-        let elsewhere = BigQuerySession::new("datalooker-no-such-project", "US", &key).unwrap();
+        // The credentials are good; the project is not one they can read, which
+        // is a failure Google reports rather than one the credentials do.
+        let elsewhere = BigQuerySession::new("datalooker-no-such-project", "US");
 
         let err = elsewhere
             .test()

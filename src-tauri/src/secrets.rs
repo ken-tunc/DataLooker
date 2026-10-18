@@ -1,7 +1,7 @@
 use crate::error::AppError;
 
-/// Where a connection's password or service-account JSON lives. Tests use an
-/// in-memory store so they never touch the real keychain.
+/// Where a connection's password lives. Tests use an in-memory store so they
+/// never touch the real keychain.
 pub trait SecretStore: Send + Sync {
     fn get(&self, id: &str) -> Result<Option<String>, AppError>;
     fn set(&self, id: &str, secret: &str) -> Result<(), AppError>;

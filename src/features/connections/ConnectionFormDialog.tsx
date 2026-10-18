@@ -11,7 +11,6 @@ import {
   type FormMode,
   formValuesFrom,
   parseConnectionForm,
-  SECRET_LABELS,
 } from "./form";
 import { useSaveConnection } from "./hooks";
 
@@ -164,10 +163,36 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                     onChange={(event) => update("username", event.target.value)}
                   />
                 </Field>
+
+                <Field
+                  id={`${fieldId}-secret`}
+                  label="Password"
+                  error={errors.secret}
+                  // A BigQuery connection stores none, so making one PostgreSQL
+                  // asks for it.
+                  hint={
+                    mode === "edit" && source?.config.kind === "postgres"
+                      ? "Leave blank to keep the stored password."
+                      : undefined
+                  }
+                >
+                  <input
+                    id={`${fieldId}-secret`}
+                    className={inputClass(errors.secret)}
+                    type="password"
+                    value={values.secret}
+                    onChange={(event) => update("secret", event.target.value)}
+                  />
+                </Field>
               </>
             ) : (
               <>
-                <Field id={`${fieldId}-project`} label="Project" error={errors.project}>
+                <Field
+                  id={`${fieldId}-project`}
+                  label="Project"
+                  error={errors.project}
+                  hint="Signed in with Application Default Credentials: gcloud auth application-default login."
+                >
                   <input
                     id={`${fieldId}-project`}
                     className={inputClass(errors.project)}
@@ -191,38 +216,6 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                 </Field>
               </>
             )}
-
-            <Field
-              id={`${fieldId}-secret`}
-              label={SECRET_LABELS[values.kind]}
-              error={errors.secret}
-              // What is stored belongs to the driver it was stored for, so
-              // changing the driver asks for the new one's secret.
-              hint={
-                mode === "edit" && values.kind === source?.config.kind
-                  ? `Leave blank to keep the stored ${SECRET_LABELS[values.kind].toLowerCase()}.`
-                  : undefined
-              }
-            >
-              {values.kind === "postgres" ? (
-                <input
-                  id={`${fieldId}-secret`}
-                  className={inputClass(errors.secret)}
-                  type="password"
-                  value={values.secret}
-                  onChange={(event) => update("secret", event.target.value)}
-                />
-              ) : (
-                <textarea
-                  id={`${fieldId}-secret`}
-                  className={`${errors.secret ? "textarea textarea-error" : "textarea"} h-28 w-full font-mono text-sm`}
-                  spellCheck={false}
-                  placeholder="The service account key, as the JSON file holds it"
-                  value={values.secret}
-                  onChange={(event) => update("secret", event.target.value)}
-                />
-              )}
-            </Field>
 
             <Field
               id={`${fieldId}-command`}
