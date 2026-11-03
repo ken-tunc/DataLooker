@@ -6,9 +6,9 @@ bazel_dep(name = "googlesql")
 # Bazel Central Registry, so the archive is named here rather than a version.
 archive_override(
     module_name = "googlesql",
-    integrity = "sha256-Bi6Z2jQDKs31HB2VR5ds72HKT4PaQqSHYDqi4/JJJX4=",
-    strip_prefix = "googlesql-2026.9.2",
-    urls = ["https://github.com/google/googlesql/archive/refs/tags/2026.9.2.tar.gz"],
+    integrity = "sha256-qOO8F7oWOnoGNkRbTCjZm7A/6oIidH7vOMknnofjkfo=",
+    strip_prefix = "googlesql-2026.10.3",
+    urls = ["https://github.com/google/googlesql/archive/refs/tags/2026.10.3.tar.gz"],
 )
 
 bazel_dep(name = "abseil-cpp", version = "20260107.0", repo_name = "absl")

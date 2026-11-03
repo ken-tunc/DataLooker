@@ -3,7 +3,7 @@ name = "datalooker"
 version = "0.0.0"
 description = "DataLooker — a GUI database client"
 edition = "2021"
-rust-version = "1.98"
+rust-version = "1.99"
 
 [lib]
 # The `_lib` suffix keeps the library name from colliding with the binary on
@@ -22,17 +22,17 @@ flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 http = "1.5.0"
 http-body-util = "0.1.5"
-hyper = { version = "1.11.1", features = ["server", "http1"] }
+hyper = { version = "1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "server-auto"] }
-keyring-core = "1.0.0"
-pg_query = "6.2.0"
+keyring-core = "1.0.1"
+pg_query = "18.1.0"
 # Reaches BigQuery's REST API, and fetches the BigQuery analyzer.
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "query",
   "rustls-no-provider",
 ] }
-rmcp = { version = "3.5.0", features = ["server", "transport-streamable-http-server", "macros"] }
+rmcp = { version = "3.8.0", features = ["server", "transport-streamable-http-server", "macros"] }
 # Named so that ring is the one TLS crypto provider; see `http.rs`.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
@@ -60,7 +60,7 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "sync
 tokio-util = "0.7"
 tower-service = "0.3.3"
 ts-rs = "12"
-uuid = { version = "1.26.1", features = ["v4"] }
+uuid = { version = "1.29.0", features = ["v4"] }
 # Trades the Application Default Credentials BigQuery is reached with for a token.
 yup-oauth2 = { version = "12", default-features = false, features = ["hyper-rustls", "ring"] }
 
@@ -85,6 +85,6 @@ nix = { version = "0.31", default-features = false, features = ["signal"] }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
 # The mock runtime, so that a test can send a command the way the window does.
 tauri = { version = "2", features = ["macos-private-api", "test"] }
