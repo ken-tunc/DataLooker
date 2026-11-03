@@ -13,28 +13,28 @@
     "fmt": "vp fmt"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.104.0",
-    "lucide-react": "^1.48.0",
+    "@tanstack/react-query": "^5.105.1",
+    "lucide-react": "^1.66.0",
     "monaco-editor": "^0.57.0",
     "monaco-vim": "^0.4.4",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "sql-formatter": "^15.9.0"
   },
   "devDependencies": {
-    "@rolldown/plugin-babel": "^0.2.4",
+    "@rolldown/plugin-babel": "^0.3.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/api": "^2.12.0",
-    "@tauri-apps/cli": "^2.12.0",
-    "@types/node": "^26.6.3",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/browser-playwright": "5.0.1",
-    "@vitest/coverage-v8": "5.0.1",
+    "@vitejs/plugin-react": "^6.2.1",
+    "@vitest/browser-playwright": "5.0.5",
+    "@vitest/coverage-v8": "5.0.5",
     "babel-plugin-react-compiler": "^1.0.0",
-    "daisyui": "^5.7.46",
-    "playwright": "^1.63.0",
+    "daisyui": "^5.7.50",
+    "playwright": "^1.64.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
     "vite": "catalog:",
@@ -44,13 +44,13 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "26.10.0",
+      "version": "26.13.0",
       "onFail": "download"
     }
   },
   "engines": {
-    "node": ">=26.10.0",
+    "node": ">=26.13.0",
     "pnpm": ">=12"
   },
-  "packageManager": "pnpm@12.8.1"
+  "packageManager": "pnpm@12.16.1"
 }
