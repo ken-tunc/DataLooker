@@ -15,7 +15,7 @@ use crate::drivers::{Hazard, Risk};
 /// Text that does not parse has nothing to ask about: PostgreSQL parses the
 /// whole of it before running any, and refuses it too.
 pub fn risks(sql: &str, production: bool) -> Vec<Risk> {
-    let Ok(parsed) = pg_query::parse(sql) else {
+    let Ok(parsed) = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT) else {
         return Vec::new();
     };
     parsed

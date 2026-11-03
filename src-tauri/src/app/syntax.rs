@@ -65,7 +65,7 @@ fn is_blank(text: &str) -> bool {
 }
 
 fn fault(sql: &str, tokens: &[ScanToken], (start, end): (usize, usize)) -> Option<SyntaxError> {
-    let Err(error) = pg_query::parse(&sql[start..end]) else {
+    let Err(error) = pg_query::parse(&sql[start..end], pg_query::ParserOptions::DEFAULT) else {
         return None;
     };
     let message = strip(error);

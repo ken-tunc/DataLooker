@@ -63,7 +63,7 @@ jobs:
       # Bazelisk, which reads `.bazelversion`, and what was compiled before.
       # Caches are kept per branch and a pull request can read `main`'s, so it
       # is the runs on `main` that make a pull request's build a short one.
-      - uses: bazel-contrib/setup-bazel@0.19.0
+      - uses: bazel-contrib/setup-bazel@0.19.1
         with:
           bazelisk-cache: true
           disk-cache: analyzer-linux
@@ -142,7 +142,7 @@ jobs:
 
       # Kept on `main` by the build before this one, which is the one a
       # release can read.
-      - uses: bazel-contrib/setup-bazel@0.19.0
+      - uses: bazel-contrib/setup-bazel@0.19.1
         with:
           bazelisk-cache: true
           disk-cache: analyzer-macos
@@ -163,7 +163,7 @@ jobs:
             "$built" | grep -q "\"version\":\"${{ needs.decide.outputs.version }}\""
           gzip -9 -c "$built" > "$RUNNER_TEMP/datalooker-bigquery-analyzer-darwin-arm64.gz"
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: analyzer
           path: ${{ runner.temp }}/datalooker-bigquery-analyzer-darwin-arm64.gz
@@ -178,7 +178,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: analyzer-v${{ needs.decide.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: analyzer
 

@@ -93,7 +93,7 @@ jobs:
 
       # Before the bump: vp runs pnpm under the Node that `devEngines` names,
       # which the runner does not have.
-      - uses: voidzero-dev/setup-vp@v1.21.1
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
           cache: true
 
@@ -142,7 +142,7 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           workspaces: src-tauri
           # The release profile shares nothing with the test builds.
@@ -162,7 +162,7 @@ jobs:
       - name: Package the bundle
         run: tar -czf DataLooker.app.tar.gz -C src-tauri/target/release/bundle/macos DataLooker.app
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: app
           # package.json carries the bump to the publish job, which then
@@ -185,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: app
           path: ${{ runner.temp }}/app
