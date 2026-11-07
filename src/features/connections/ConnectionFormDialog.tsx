@@ -187,12 +187,7 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
               </>
             ) : (
               <>
-                <Field
-                  id={`${fieldId}-project`}
-                  label="Project"
-                  error={errors.project}
-                  hint="Signed in with Application Default Credentials: gcloud auth application-default login."
-                >
+                <Field id={`${fieldId}-project`} label="Project" error={errors.project}>
                   <input
                     id={`${fieldId}-project`}
                     className={inputClass(errors.project)}
@@ -214,6 +209,48 @@ export function ConnectionFormDialog({ mode, source, onClose }: Props) {
                     onChange={(event) => update("location", event.target.value)}
                   />
                 </Field>
+
+                <Field
+                  id={`${fieldId}-credentials`}
+                  label="Sign in with"
+                  hint={
+                    values.credentials === "gcloud"
+                      ? "The account bq and gcloud use: gcloud auth login."
+                      : "Application Default Credentials: gcloud auth application-default login."
+                  }
+                >
+                  <select
+                    id={`${fieldId}-credentials`}
+                    className="select select-sm w-full"
+                    value={values.credentials}
+                    onChange={(event) =>
+                      update(
+                        "credentials",
+                        event.target.value as ConnectionFormValues["credentials"],
+                      )
+                    }
+                  >
+                    <option value="gcloud">gcloud account</option>
+                    <option value="adc">Application Default Credentials</option>
+                  </select>
+                </Field>
+
+                {values.credentials === "gcloud" && (
+                  <Field
+                    id={`${fieldId}-account`}
+                    label="Account"
+                    hint="One gcloud auth list shows. Leave blank for gcloud's active account."
+                  >
+                    <input
+                      id={`${fieldId}-account`}
+                      className={inputClass()}
+                      spellCheck={false}
+                      placeholder="you@example.com"
+                      value={values.account}
+                      onChange={(event) => update("account", event.target.value)}
+                    />
+                  </Field>
+                )}
               </>
             )}
 

@@ -8,10 +8,9 @@ use reqwest::{RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
-use yup_oauth2::authenticator::DefaultAuthenticator;
 
-use super::credentials;
+use super::credentials::Tokens;
+use crate::db::connection::BigQueryCredentials;
 use crate::error::AppError;
 
 const API: &str = "https://bigquery.googleapis.com/bigquery/v2";
@@ -20,9 +19,6 @@ const CONNECTING: Duration = Duration::from_secs(10);
 
 /// Well past the ten seconds a request is held open while its job runs.
 const SILENCE: Duration = Duration::from_secs(60);
-
-/// Not read-only: what the reader may do is their account's to decide.
-const SCOPES: [&str; 1] = ["https://www.googleapis.com/auth/bigquery"];
 
 /// A failed call, in BigQuery's own words where it gave some.
 #[derive(Debug)]
@@ -44,7 +40,7 @@ impl Failure {
         matches!(self.code, Some(403 | 404))
     }
 
-    fn unanswered(error: impl std::fmt::Display) -> Self {
+    pub(super) fn unanswered(error: impl std::fmt::Display) -> Self {
         Self {
             code: None,
             message: error.to_string(),
@@ -207,14 +203,13 @@ impl<'a> Query<'a> {
 
 pub struct Client {
     http: reqwest::Client,
-    auth: RwLock<DefaultAuthenticator>,
+    tokens: Tokens,
 }
 
 impl Client {
-    /// Reads the credentials; Google is not asked for a token until the first
-    /// call.
-    pub async fn new() -> Result<Self, AppError> {
-        let auth = RwLock::new(credentials::authenticator().await?);
+    /// Google is not asked for a token until the first call.
+    pub async fn new(credentials: &BigQueryCredentials) -> Result<Self, AppError> {
+        let tokens = Tokens::new(credentials).await?;
         // No deadline on a whole call: a page of rows may be large, and a job
         // is waited on for as long as it runs. What these bound is a network
         // that went quiet, which nothing else would notice while the catalog is
@@ -224,7 +219,7 @@ impl Client {
             .read_timeout(SILENCE)
             .build()
             .map_err(Failure::unanswered)?;
-        Ok(Self { http, auth })
+        Ok(Self { http, tokens })
     }
 
     pub async fn query(&self, project_id: &str, query: &Query<'_>) -> Result<Answer, Failure> {
@@ -319,25 +314,8 @@ impl Client {
         self.send(request).await
     }
 
-    /// The reader may have signed in again since the credentials were read,
-    /// after Google refused them, so a refusal reads them anew once.
-    async fn token(&self) -> Result<String, Failure> {
-        let refused = match self.auth.read().await.token(&SCOPES).await {
-            Ok(token) => return issued(&token),
-            Err(refused @ yup_oauth2::Error::AuthError(_)) => refused,
-            // A network that failed would fail the second asking too.
-            Err(failed) => return Err(Failure::unanswered(failed)),
-        };
-        let Ok(fresh) = credentials::authenticator().await else {
-            return Err(Failure::unanswered(refused));
-        };
-        let token = fresh.token(&SCOPES).await.map_err(Failure::unanswered)?;
-        *self.auth.write().await = fresh;
-        issued(&token)
-    }
-
     async fn send<T: DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, Failure> {
-        let token = self.token().await?;
+        let token = self.tokens.token().await?;
         let response = request
             .bearer_auth(token)
             .send()
@@ -346,17 +324,13 @@ impl Client {
         let status = response.status();
         let body = response.text().await.map_err(Failure::unanswered)?;
         if !status.is_success() {
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                self.tokens.forget().await;
+            }
             return Err(Failure::refused(status.as_u16(), &body));
         }
         serde_json::from_str(&body).map_err(Failure::unanswered)
     }
-}
-
-fn issued(token: &yup_oauth2::AccessToken) -> Result<String, Failure> {
-    token
-        .token()
-        .map(str::to_string)
-        .ok_or_else(|| Failure::unanswered("Google answered without an access token"))
 }
 
 /// Each segment is escaped: a table's name may hold what a path cannot.

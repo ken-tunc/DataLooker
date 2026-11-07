@@ -417,6 +417,7 @@ impl From<crate::db::connection::ConnectionRecord> for Connection {
             DriverConfig::BigQuery {
                 project_id,
                 location,
+                ..
             } => ("bigquery", format!("{project_id} in {location}")),
         };
         Self {
@@ -475,6 +476,7 @@ mod tests {
         let bigquery = Connection::from(record(DriverConfig::BigQuery {
             project_id: "analytics".into(),
             location: "EU".into(),
+            credentials: Default::default(),
         }));
         assert_eq!(bigquery.driver, "bigquery");
         assert_eq!(bigquery.reaches, "analytics in EU");

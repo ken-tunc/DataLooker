@@ -7,6 +7,8 @@ mod risks;
 mod schema;
 #[cfg(test)]
 mod testing;
+#[cfg(test)]
+pub(crate) use testing::credentials_for_tests;
 mod value;
 
 use std::collections::HashMap;
@@ -17,6 +19,7 @@ use futures_util::future::try_join_all;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
+use crate::db::connection::BigQueryCredentials;
 use crate::drivers::{Column, Preview, QueryResult, Risk, SchemaTree, TablePage};
 use crate::error::AppError;
 use api::{Client, Plan, Query, TableReference};
@@ -49,6 +52,7 @@ pub struct Planned {
 pub struct BigQuerySession {
     project_id: String,
     location: String,
+    credentials: BigQueryCredentials,
     client: OnceCell<Client>,
     /// Each table's partition columns and when they were asked: an estimate is
     /// asked for on keystrokes.
@@ -56,10 +60,11 @@ pub struct BigQuerySession {
 }
 
 impl BigQuerySession {
-    pub fn new(project_id: &str, location: &str) -> Self {
+    pub fn new(project_id: &str, location: &str, credentials: BigQueryCredentials) -> Self {
         Self {
             project_id: project_id.to_string(),
             location: location.to_string(),
+            credentials,
             client: OnceCell::new(),
             partitions: Mutex::default(),
         }
@@ -68,7 +73,9 @@ impl BigQuerySession {
     /// Built on first use, so credentials that cannot be used are a failure
     /// to connect, which is where the reader looks.
     async fn client(&self) -> Result<&Client, AppError> {
-        self.client.get_or_try_init(Client::new).await
+        self.client
+            .get_or_try_init(|| Client::new(&self.credentials))
+            .await
     }
 
     /// What BigQuery says `sql` is, asked of a dry run: this app has no parser
@@ -311,7 +318,8 @@ mod live {
         };
         // The credentials are good; the project is not one they can read, which
         // is a failure Google reports rather than one the credentials do.
-        let elsewhere = BigQuerySession::new("datalooker-no-such-project", "US");
+        let elsewhere =
+            BigQuerySession::new("datalooker-no-such-project", "US", credentials_for_tests());
 
         let err = elsewhere
             .test()

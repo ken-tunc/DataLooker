@@ -301,7 +301,14 @@ describe("ResultGrid", () => {
       });
 
       stubIpc({
-        list_connections: [connection({ kind: "bigquery", project_id: "p", location: "US" })],
+        list_connections: [
+          connection({
+            kind: "bigquery",
+            project_id: "p",
+            location: "US",
+            credentials: { source: "adc" },
+          }),
+        ],
       });
       const bare = await peopleGrid({ table });
       await bare.getByText("Ada").click({ button: "right" });

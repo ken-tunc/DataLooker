@@ -1,3 +1,4 @@
+import type { BigQueryCredentials } from "../../bindings/BigQueryCredentials";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SaveConnectionInput } from "../../bindings/SaveConnectionInput";
 import type { DriverKind } from "./driver";
@@ -14,6 +15,9 @@ export type ConnectionFormValues = {
   username: string;
   project: string;
   location: string;
+  credentials: BigQueryCredentials["source"];
+  /** gcloud's account to sign in as; blank for its active one. */
+  account: string;
   secret: string;
   command: string;
   commandWhileSelected: boolean;
@@ -36,6 +40,9 @@ export const EMPTY_FORM: ConnectionFormValues = {
   project: "",
   // BigQuery's default.
   location: "US",
+  // What `bq` signs in with, so a project `bq` reads is one this reads.
+  credentials: "gcloud",
+  account: "",
   secret: "",
   command: "",
   commandWhileSelected: false,
@@ -82,10 +89,15 @@ export function parseConnectionForm(
       username: required("username", "Username"),
     };
   } else {
+    const account = values.account.trim();
     config = {
       kind: "bigquery",
       project_id: required("project", "Project"),
       location: required("location", "Location"),
+      credentials:
+        values.credentials === "adc"
+          ? { source: "adc" }
+          : { source: "gcloud", account: account === "" ? null : account },
     };
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -135,7 +147,12 @@ export function formValuesFrom(record: ConnectionRecord, mode: FormMode): Connec
           database: config.database,
           username: config.username,
         }
-      : { project: config.project_id, location: config.location }),
+      : {
+          project: config.project_id,
+          location: config.location,
+          credentials: config.credentials.source,
+          account: config.credentials.source === "gcloud" ? (config.credentials.account ?? "") : "",
+        }),
   };
 }
 
@@ -173,6 +190,7 @@ if (import.meta.vitest) {
     label: "Warehouse",
     project: "looking",
     location: "asia-northeast1",
+    credentials: "adc",
   };
 
   describe("parseConnectionForm", () => {
@@ -205,7 +223,32 @@ if (import.meta.vitest) {
         kind: "bigquery",
         project_id: "looking",
         location: "asia-northeast1",
+        credentials: { source: "adc" },
       });
+    });
+
+    it("signs in as the gcloud account named, or gcloud's active one when blank", () => {
+      const named = parseConnectionForm(
+        { ...bq, credentials: "gcloud", account: " reader@example.com " },
+        "new",
+        null,
+      );
+      const active = parseConnectionForm(
+        { ...bq, credentials: "gcloud", account: "  " },
+        "new",
+        null,
+      );
+      expect(named.ok && named.input.config).toMatchObject({
+        credentials: { source: "gcloud", account: "reader@example.com" },
+      });
+      expect(active.ok && active.input.config).toMatchObject({
+        credentials: { source: "gcloud", account: null },
+      });
+    });
+
+    it("drops an account typed before switching to Application Default Credentials", () => {
+      const result = parseConnectionForm({ ...bq, account: "reader@example.com" }, "new", null);
+      expect(result.ok && result.input.config).toMatchObject({ credentials: { source: "adc" } });
     });
 
     it("sends no secret for BigQuery, even one typed before switching to it", () => {
@@ -244,7 +287,12 @@ if (import.meta.vitest) {
       // A BigQuery connection has no password stored to keep.
       const warehouse: ConnectionRecord = {
         ...record,
-        config: { kind: "bigquery", project_id: "looking", location: "US" },
+        config: {
+          kind: "bigquery",
+          project_id: "looking",
+          location: "US",
+          credentials: { source: "adc" },
+        },
       };
       const result = parseConnectionForm({ ...valid, secret: "" }, "edit", warehouse);
       expect(!result.ok && result.errors.secret).toBe("Password is required");
@@ -303,14 +351,25 @@ if (import.meta.vitest) {
       const warehouse = formValuesFrom(
         {
           ...record,
-          config: { kind: "bigquery", project_id: "looking", location: "EU" },
+          config: {
+            kind: "bigquery",
+            project_id: "looking",
+            location: "EU",
+            credentials: { source: "gcloud", account: "reader@example.com" },
+          },
           command: null,
           time_zone: null,
           production: false,
         },
         "edit",
       );
-      expect(warehouse).toMatchObject({ kind: "bigquery", project: "looking", location: "EU" });
+      expect(warehouse).toMatchObject({
+        kind: "bigquery",
+        project: "looking",
+        location: "EU",
+        credentials: "gcloud",
+        account: "reader@example.com",
+      });
       // The other driver's fields are left where a new connection starts.
       expect(warehouse.host).toBe(EMPTY_FORM.host);
     });

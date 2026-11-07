@@ -336,7 +336,12 @@ describe("a connection of another kind", () => {
       .toEqual({
         id: null,
         label: "Warehouse",
-        config: { kind: "bigquery", project_id: "looking", location: "asia-northeast1" },
+        config: {
+          kind: "bigquery",
+          project_id: "looking",
+          location: "asia-northeast1",
+          credentials: { source: "gcloud", account: null },
+        },
         secret: null,
         command: null,
         command_while_selected: false,
@@ -351,7 +356,12 @@ describe("a connection of another kind", () => {
         {
           ...local,
           label: "Warehouse",
-          config: { kind: "bigquery", project_id: "looking", location: "EU" },
+          config: {
+            kind: "bigquery",
+            project_id: "looking",
+            location: "EU",
+            credentials: { source: "adc" },
+          },
         },
       ],
     });

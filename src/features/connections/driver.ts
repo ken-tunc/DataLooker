@@ -32,9 +32,14 @@ if (import.meta.vitest) {
     });
 
     it("says which project, and where it is read", () => {
-      expect(describeConnection({ kind: "bigquery", project_id: "looking", location: "US" })).toBe(
-        "looking · US",
-      );
+      expect(
+        describeConnection({
+          kind: "bigquery",
+          project_id: "looking",
+          location: "US",
+          credentials: { source: "adc" },
+        }),
+      ).toBe("looking · US");
     });
   });
 }
