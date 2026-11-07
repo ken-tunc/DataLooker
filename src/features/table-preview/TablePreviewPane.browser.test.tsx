@@ -387,7 +387,12 @@ describe("TablePreviewPane on BigQuery", () => {
       {
         id: "c1",
         label: "Warehouse",
-        config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
+        config: {
+          kind: "bigquery",
+          project_id: "shop",
+          location: "US",
+          credentials: { source: "adc" },
+        } as const,
         command: null,
         command_while_selected: false,
         time_zone: "Asia/Tokyo",

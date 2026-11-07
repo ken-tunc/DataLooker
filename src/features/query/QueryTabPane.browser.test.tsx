@@ -28,7 +28,7 @@ const bigquery: ConnectionRecord = {
   ...postgres,
   id: "c2",
   label: "Warehouse",
-  config: { kind: "bigquery", project_id: "p", location: "US" },
+  config: { kind: "bigquery", project_id: "p", location: "US", credentials: { source: "adc" } },
 };
 
 const analyzed: QueryPlan = {

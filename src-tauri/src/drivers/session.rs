@@ -17,10 +17,6 @@ use crate::secrets::SecretStore;
 
 /// An enum rather than a trait: the set of drivers is closed, and the compiler
 /// says when one was left out of an operation.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a session is made once per connection and held behind an Arc"
-)]
 pub enum Session {
     Postgres(PostgresSession),
     BigQuery(BigQuerySession),
@@ -333,9 +329,11 @@ impl SessionRegistry {
             DriverConfig::BigQuery {
                 project_id,
                 location,
+                credentials,
             } => Ok(Session::BigQuery(BigQuerySession::new(
                 &project_id,
                 &location,
+                credentials,
             ))),
         }
     }

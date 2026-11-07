@@ -29,7 +29,7 @@ in that module's doc comment, not here.
 - A test that needs a server sits in a `live` module beside the code it covers. It skips
   itself only when the server is absent; a server that answers has to work.
 - Validate with `vp check` and `vp test --run`, and in `src-tauri` with `cargo fmt
-  --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. CI runs exactly
+--check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. CI runs exactly
   these.
 - Update `README.md` and this file in the change that makes them stale.
 
@@ -114,10 +114,13 @@ A query is billed for every column it scans whatever its `LIMIT`, so an unfilter
 unsorted page of a table is listed rather than queried, and completion — asked on
 keystrokes — reads a table's columns with `tables.get` rather than `INFORMATION_SCHEMA`.
 
-It signs in as the reader, with the Application Default Credentials `gcloud auth
-application-default login` writes, so a connection stores no secret and a service account
-is not signed in as. The credentials are read again when Google refuses them, so signing in
-again after they lapse needs no restart.
+It signs in as the reader through gcloud, so a connection stores no secret. A connection
+picks one of gcloud's two sign-ins. Application Default Credentials (`gcloud auth
+application-default login`) are read from their file, and only a person's are accepted.
+gcloud's own account (`gcloud auth login`, the one `bq` uses) lives in gcloud's private
+storage, so gcloud is asked for a token with `config-helper` and decides whom it is for,
+service account included, as it does for `bq`. Either way the credentials are read again
+once the token is refused or spent, so signing in again needs no restart.
 
 The OAuth scope is not read-only: what the reader may do is their account's to decide, as
 it is the role's on PostgreSQL.

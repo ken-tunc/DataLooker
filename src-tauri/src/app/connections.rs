@@ -3,7 +3,9 @@ use sqlx::SqlitePool;
 use ts_rs::TS;
 
 use crate::app::App;
-use crate::db::connection::{self, ConnectionFields, ConnectionRecord, DriverConfig};
+use crate::db::connection::{
+    self, BigQueryCredentials, ConnectionFields, ConnectionRecord, DriverConfig,
+};
 use crate::error::AppError;
 use crate::secrets::SecretStore;
 
@@ -189,6 +191,7 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
         DriverConfig::BigQuery {
             project_id,
             location,
+            credentials,
         } => {
             // It signs in with the reader's own credentials.
             if input.secret.is_some() {
@@ -197,6 +200,14 @@ fn validate(input: &SaveConnectionInput) -> Result<(), AppError> {
                 ));
             }
             filled([("project", project_id), ("location", location)])?;
+            // No account is gcloud's active one; a blank one would be no
+            // account gcloud knows.
+            if let BigQueryCredentials::Gcloud {
+                account: Some(account),
+            } = credentials
+            {
+                filled([("account", account)])?;
+            }
         }
     }
     Ok(())
@@ -337,6 +348,7 @@ mod tests {
             config: DriverConfig::BigQuery {
                 project_id: project.into(),
                 location: location.into(),
+                credentials: Default::default(),
             },
             ..input(None, "Warehouse", None)
         };
@@ -349,7 +361,8 @@ mod tests {
             stored.config,
             DriverConfig::BigQuery {
                 project_id: "looking".into(),
-                location: "US".into()
+                location: "US".into(),
+                credentials: BigQueryCredentials::Adc,
             }
         );
 
@@ -359,6 +372,32 @@ mod tests {
                 AppError::Validation(_)
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn a_gcloud_account_named_has_to_be_one() {
+        let pool = open_in_memory().await.unwrap();
+        let secrets = InMemorySecretStore::default();
+        let signed_in_as = |account: Option<&str>| SaveConnectionInput {
+            config: DriverConfig::BigQuery {
+                project_id: "looking".into(),
+                location: "US".into(),
+                credentials: BigQueryCredentials::Gcloud {
+                    account: account.map(str::to_string),
+                },
+            },
+            ..input(None, "Warehouse", None)
+        };
+
+        for good in [None, Some("reader@example.com")] {
+            save(signed_in_as(good), &pool, &secrets).await.unwrap();
+        }
+        assert!(matches!(
+            save(signed_in_as(Some("  ")), &pool, &secrets)
+                .await
+                .unwrap_err(),
+            AppError::Validation(_)
+        ));
     }
 
     #[tokio::test]
@@ -485,6 +524,7 @@ mod tests {
             config: DriverConfig::BigQuery {
                 project_id: "looking".into(),
                 location: "US".into(),
+                credentials: Default::default(),
             },
             ..input(id, "Warehouse", secret)
         }
