@@ -29,7 +29,7 @@ in that module's doc comment, not here.
 - A test that needs a server sits in a `live` module beside the code it covers. It skips
   itself only when the server is absent; a server that answers has to work.
 - Validate with `vp check` and `vp test --run`, and in `src-tauri` with `cargo fmt
---check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. CI runs exactly
+  --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`. CI runs exactly
   these.
 - Update `README.md` and this file in the change that makes them stale.
 

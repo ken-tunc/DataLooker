@@ -7,7 +7,7 @@ PostgreSQL and BigQuery.
 
 - **Connections** — PostgreSQL and BigQuery, signed in as the account `bq` uses
   (`gcloud auth login`) or with Application Default Credentials (`gcloud auth
-application-default login`). Passwords stay in the macOS keychain. A
+  application-default login`). Passwords stay in the macOS keychain. A
   connection can carry a shell command, such as an SSH tunnel, started and stopped from
   its header, or run only while the connection is selected.
 - **SQL editor** — Monaco with tabs, which each connection reopens after a restart with
