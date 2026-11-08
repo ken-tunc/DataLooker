@@ -5,4 +5,10 @@ export type QueryResult = { columns: Array<QueryColumn>,
 /**
  * A cell is whatever JSON the driver made of the database value.
  */
-rows: Array<Array<unknown>>, truncated: boolean, elapsed_ms: number, };
+rows: Array<Array<unknown>>, truncated: boolean, elapsed_ms: number, 
+/**
+ * What the server counted for a statement that returns no rows: those an
+ * `UPDATE` changed, say. `None` where it said nothing, or for a table
+ * preview, which is not a statement the reader wrote.
+ */
+rows_affected?: number | null, };

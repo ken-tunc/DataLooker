@@ -1,8 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { initVimMode } from "monaco-vim";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import type { StatementSpan } from "../../bindings/StatementSpan";
 import type { SyntaxError } from "../../bindings/SyntaxError";
-import { checkSyntax } from "../../lib/commands";
+import { checkSyntax, splitStatements } from "../../lib/commands";
 import { InstallServer } from "../language-server/InstallServer";
 import { Estimate } from "../query-estimate/Estimate";
 import { languageClientFor } from "../../lib/lsp/client";
@@ -20,6 +21,7 @@ import { formatWith, registerFormatting } from "./formatting";
 import type { Dialect } from "./format";
 import { identifierAt, type QualifiedName } from "./jump";
 import { editor as monaco, KeyCode, KeyMod, MarkerSeverity, SQL_LANGUAGE, Uri } from "./monaco";
+import { statementAt, trimmed } from "./statements";
 import { useVimMode } from "./vim";
 
 /** Whoever owns a marker can replace it, so the name has to be ours alone. */
@@ -34,6 +36,9 @@ type Messages = monaco.IEditorContribution & {
 /** Long enough that a burst of typing is parsed once, short enough to feel live. */
 const SETTLE_MS = 400;
 
+/** Long enough to see what ran, short enough not to be mistaken for a selection. */
+const FLASH_MS = 600;
+
 const toMarker = (error: SyntaxError): monaco.IMarkerData => ({
   severity: MarkerSeverity.Error,
   message: error.message,
@@ -43,13 +48,28 @@ const toMarker = (error: SyntaxError): monaco.IMarkerData => ({
   endColumn: error.end_column,
 });
 
+/** ⌘Enter runs the selection or the statement under the cursor, ⇧⌘Enter all of it. */
+export type Scope = "statement" | "all";
+
+/** What a run covers, and the statements in it, in order. */
+export type Target = { text: string; statements: string[] };
+
+export type EditorHandle = {
+  /**
+   * Null when the scope holds nothing to run. What it covers is highlighted
+   * for a moment, so the reader sees what went to the server.
+   */
+  target(scope: Scope): Promise<Target | null>;
+};
+
 type Props = {
+  ref?: Ref<EditorHandle>;
   /** Whose language server answers for this tab, and which document it is. */
   connectionId: string;
   tabId: string;
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (scope: Scope) => void;
   /** ⌘E asks for the plan, ⇧⌘E for it measured. */
   onExplain: (analyze: boolean) => void;
   /** What ⇧⌘D and ⌘-click ask about: the name under the cursor. */
@@ -57,6 +77,7 @@ type Props = {
 };
 
 export default function SqlEditor({
+  ref,
   connectionId,
   tabId,
   value,
@@ -143,7 +164,12 @@ export default function SqlEditor({
       handlers.current.onChange(instance.getValue());
       client.wrote(uri.toString(), instance.getValue());
     });
-    instance.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, () => handlers.current.onSubmit());
+    instance.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, () =>
+      handlers.current.onSubmit("statement"),
+    );
+    instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter, () =>
+      handlers.current.onSubmit("all"),
+    );
     // Takes ⌘E from Monaco's "find with the selection", which ⌘F covers.
     instance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyE, () => handlers.current.onExplain(false));
     instance.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyE, () =>
@@ -198,10 +224,66 @@ export default function SqlEditor({
     if (instance && instance.getValue() !== value) instance.setValue(value);
   }, [value]);
 
+  // Only PostgreSQL's statements can be told apart: GoogleSQL has no splitter
+  // here, so a BigQuery run is the selection or the whole text, as one script.
+  const kind = config?.kind;
+  useImperativeHandle(ref, () => ({
+    async target(scope) {
+      const instance = editor.current;
+      const model = instance?.getModel();
+      if (!instance || !model) return null;
+      const text = model.getValue();
+      const whole = { start: 0, end: text.length };
+      const selection = instance.getSelection();
+      const splits = kind === "postgres";
+
+      let span: StatementSpan | null | undefined;
+      let alone = false;
+      if (scope === "all") span = trimmed(text, whole);
+      else if (selection && !selection.isEmpty()) {
+        span = trimmed(text, {
+          start: model.getOffsetAt(selection.getStartPosition()),
+          end: model.getOffsetAt(selection.getEndPosition()),
+        });
+      } else if (splits) {
+        const cursor = model.getOffsetAt(instance.getPosition() ?? { lineNumber: 1, column: 1 });
+        span = statementAt(text, await splitStatements(text), cursor);
+        alone = true;
+      } else span = trimmed(text, whole);
+      if (!span) return null;
+
+      const covered = text.slice(span.start, span.end);
+      const statements =
+        splits && !alone
+          ? (await splitStatements(covered)).map(({ start, end }) => covered.slice(start, end))
+          : [covered];
+      if (statements.length === 0) return null;
+
+      // Placed by the text it was read from, which a keystroke since may have
+      // moved; a moment's highlight a few characters off is harmless.
+      if (instance.getModel() === model && model.getValueLength() >= span.end) {
+        const from = model.getPositionAt(span.start);
+        const to = model.getPositionAt(span.end);
+        const flash = instance.createDecorationsCollection([
+          {
+            range: {
+              startLineNumber: from.lineNumber,
+              startColumn: from.column,
+              endLineNumber: to.lineNumber,
+              endColumn: to.column,
+            },
+            options: { className: "ran-flash" },
+          },
+        ]);
+        setTimeout(() => flash.clear(), FLASH_MS);
+      }
+      return { text: covered, statements };
+    },
+  }));
+
   // The check is PostgreSQL's grammar, which refuses GoogleSQL such as a
   // backquoted `project.dataset.table`. The kind is a dependency so that marks
   // made before the connections were read are cleared once it is known.
-  const kind = config?.kind;
   useEffect(() => {
     if (kind === "bigquery") {
       const model = editor.current?.getModel();

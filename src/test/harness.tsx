@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { render } from "vitest-browser-react";
 import type { Commands } from "../bindings/Commands";
 import type { Events } from "../bindings/Events";
+import type { StatementSpan } from "../bindings/StatementSpan";
 import { ToastProvider } from "../components/Toast";
 import type { Command } from "../lib/invoke";
 
@@ -88,6 +89,22 @@ export function stubIpc(replies: Replies): Ipc {
       }
     },
   };
+}
+
+/**
+ * A stand-in for `split_statements` that splits at every `;`, which is all a
+ * test's statements need: the grammar is the backend's, and tested there.
+ */
+export function splitAtSemicolons({ sql }: { sql: string }): StatementSpan[] {
+  const spans: StatementSpan[] = [];
+  let from = 0;
+  for (const piece of sql.split(";")) {
+    const start = from + (piece.length - piece.trimStart().length);
+    const end = from + piece.trimEnd().length;
+    if (start < end) spans.push({ start, end });
+    from += piece.length + 1;
+  }
+  return spans;
 }
 
 /**

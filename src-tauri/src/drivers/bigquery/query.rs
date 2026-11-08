@@ -26,6 +26,7 @@ struct Page {
     next: Option<String>,
     /// How many rows the whole result holds, once the job has finished.
     total: Option<u64>,
+    affected: Option<u64>,
 }
 
 impl Page {
@@ -39,6 +40,7 @@ impl Page {
             job,
             next: answer.page_token,
             total: count(answer.total_rows.as_deref()),
+            affected: count(answer.num_dml_affected_rows.as_deref()),
         }
     }
 }
@@ -60,6 +62,7 @@ pub async fn execute(
     let mut page = start(client, project_id, &query, cancel).await?;
     let fields = std::mem::take(&mut page.fields);
     let total = page.total;
+    let rows_affected = page.affected;
     // BigQuery ends a page at its own size cap too, so the rows asked for may
     // take several.
     let mut rows = std::mem::take(&mut page.rows);
@@ -93,6 +96,7 @@ pub async fn execute(
         rows,
         truncated,
         elapsed_ms: started.elapsed().as_millis() as u32,
+        rows_affected,
     })
 }
 

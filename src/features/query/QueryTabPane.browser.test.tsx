@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
+import type { ExecuteQueryArgs } from "../../bindings/ExecuteQueryArgs";
 import type { QueryPlan } from "../../bindings/QueryPlan";
+import type { QueryResult } from "../../bindings/QueryResult";
 import type { Risk } from "../../bindings/Risk";
-import { type Replies, renderApp, stubIpc } from "../../test/harness";
+import { type Replies, renderApp, splitAtSemicolons, stubIpc } from "../../test/harness";
 import { AppShell } from "../shell/AppShell";
 import { editor as monaco } from "../sql-editor/monaco";
 
@@ -71,6 +73,7 @@ const mod = navigator.userAgent.includes("Macintosh") ? "Meta" : "Control";
 
 async function shell(connection: ConnectionRecord, replies: Replies = {}) {
   const ipc = stubIpc({
+    split_statements: splitAtSemicolons,
     list_connections: [connection],
     running_connection_commands: [],
     language_server_state: { kind: "ready" },
@@ -435,7 +438,7 @@ describe("running a statement that is easy to regret", () => {
 
     await screen.getByRole("button", { name: "Run" }).click();
 
-    await expect.element(screen.getByText("The statement returned no rows.")).toBeVisible();
+    await expect.element(screen.getByText("Done.")).toBeVisible();
     expect(ipc.sent("statement_risks")).toEqual({
       connection_id: "c1",
       sql: "SELECT * FROM orders o",
@@ -463,7 +466,7 @@ describe("running a statement that is easy to regret", () => {
   it("runs it once the reader confirms", async () => {
     const { ipc, screen, editor } = await shell(postgres, {
       statement_risks: [deleting],
-      execute_query: nothing,
+      execute_query: { ...nothing, rows_affected: 4 },
     });
     editor.setValue(deleting.statement);
 
@@ -473,7 +476,7 @@ describe("running a statement that is easy to regret", () => {
       .getByRole("button", { name: "Run" })
       .click();
 
-    await expect.element(screen.getByText("The statement returned no rows.")).toBeVisible();
+    await expect.element(screen.getByText("4 rows affected.")).toBeVisible();
     expect(ipc.sent("execute_query")).toMatchObject({ sql: deleting.statement });
   });
 });
@@ -523,5 +526,205 @@ describe("a statement asked about from a tab behind", () => {
     await screen.getByRole("tab", { name: "Query 1" }).click();
 
     await expect.element(dialog).toBeVisible();
+  });
+});
+
+describe("choosing what to run", () => {
+  const script = "SELECT 1 AS a;\nSELECT 2 AS b;\nUPDATE t SET n = 1";
+
+  /** Each statement answers with its own text, so a test can tell which ran. */
+  function echo({ sql }: ExecuteQueryArgs): QueryResult {
+    if (sql.startsWith("UPDATE")) {
+      return { columns: [], rows: [], truncated: false, elapsed_ms: 1, rows_affected: 7 };
+    }
+    return {
+      columns: [{ name: "said", type_name: "TEXT", instant: false }],
+      rows: [[sql]],
+      truncated: false,
+      elapsed_ms: 1,
+    };
+  }
+
+  const ran = (ipc: { calls: { command: string; args: unknown }[] }) =>
+    ipc.calls
+      .filter((call) => call.command === "execute_query")
+      .map((call) => (call.args as ExecuteQueryArgs).sql);
+
+  it("runs the statement under the cursor, and shows for a moment what ran", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [],
+      execute_query: echo,
+    });
+    editor.setValue(script);
+    editor.setPosition({ lineNumber: 2, column: 4 });
+
+    editor.focus();
+    await userEvent.keyboard(`{${mod}>}{Enter}{/${mod}}`);
+
+    await expect.element(screen.getByRole("gridcell", { name: "SELECT 2 AS b" })).toBeVisible();
+    expect(ran(ipc)).toEqual(["SELECT 2 AS b"]);
+    expect(ipc.sent("statement_risks")?.sql).toBe("SELECT 2 AS b");
+    const flashed = editor
+      .getModel()!
+      .getAllDecorations()
+      .filter((decoration) => decoration.options.className === "ran-flash");
+    expect(flashed.map((decoration) => decoration.range.startLineNumber)).toEqual([2]);
+    await expect
+      .poll(() =>
+        editor
+          .getModel()!
+          .getAllDecorations()
+          .some((decoration) => decoration.options.className === "ran-flash"),
+      )
+      .toBe(false);
+  });
+
+  it("runs the selection instead, from the button too", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [],
+      execute_query: echo,
+    });
+    editor.setValue(script);
+    // `AS a` alone would not parse; the reader chose `1 AS a`.
+    editor.setSelection({ startLineNumber: 1, startColumn: 8, endLineNumber: 1, endColumn: 14 });
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    await expect.poll(() => ran(ipc)).toEqual(["1 AS a"]);
+  });
+
+  it("runs every statement in order on ⇧⌘Enter, with a tab for each that returned rows", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [],
+      execute_query: echo,
+    });
+    editor.setValue(script);
+    editor.setPosition({ lineNumber: 1, column: 1 });
+
+    editor.focus();
+    await userEvent.keyboard(`{${mod}>}{Shift>}{Enter}{/Shift}{/${mod}}`);
+
+    const results = screen.getByRole("tablist", { name: "Results" });
+    await expect.element(results).toBeVisible();
+    expect(ran(ipc)).toEqual(["SELECT 1 AS a", "SELECT 2 AS b", "UPDATE t SET n = 1"]);
+    // Asked about one by one, as they run.
+    expect(
+      ipc.calls
+        .filter((call) => call.command === "statement_risks")
+        .map((call) => (call.args as { sql: string }).sql),
+    ).toEqual(["SELECT 1 AS a", "SELECT 2 AS b", "UPDATE t SET n = 1"]);
+    await expect.element(screen.getByText("3 statements")).toBeVisible();
+    await expect
+      .element(results.getByRole("tab", { name: "Statement 1" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(screen.getByRole("gridcell", { name: "SELECT 1 AS a" })).toBeVisible();
+
+    await results.getByRole("tab", { name: "Statement 2" }).click();
+    await expect.element(screen.getByRole("gridcell", { name: "SELECT 2 AS b" })).toBeVisible();
+
+    await results.getByRole("tab", { name: "Summary" }).click();
+    await expect
+      .element(screen.getByRole("row", { name: /UPDATE t SET n = 1/ }))
+      .toMatchTextContent("7 rows affected");
+  });
+
+  it("asks about a risky statement even when a later one does not parse", async () => {
+    const deleting: Risk = {
+      statement: "DELETE FROM users",
+      hazard: "delete_without_where",
+      targets: ["users"],
+    };
+    const { ipc, screen, editor } = await shell(postgres, {
+      // As the backend answers: text that does not parse has nothing to ask about.
+      statement_risks: ({ sql }) => (sql === "DELETE FROM users" ? [deleting] : []),
+      execute_query: echo,
+    });
+    editor.setValue("DELETE FROM users;\nSELEC 1");
+
+    editor.focus();
+    await userEvent.keyboard(`{${mod}>}{Shift>}{Enter}{/Shift}{/${mod}}`);
+
+    await expect.element(screen.getByRole("dialog", { name: "Run this statement?" })).toBeVisible();
+    expect(ran(ipc)).toEqual([]);
+  });
+
+  it("stops at the first statement that fails and says which", async () => {
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [],
+      execute_query: (args) => {
+        if (args.sql.startsWith("SELECT 2")) {
+          throw { kind: "Database", message: 'relation "b" does not exist' };
+        }
+        return echo(args);
+      },
+    });
+    editor.setValue(script);
+
+    editor.focus();
+    await userEvent.keyboard(`{${mod}>}{Shift>}{Enter}{/Shift}{/${mod}}`);
+
+    await expect
+      .element(screen.getByText('Statement 2: relation "b" does not exist'))
+      .toBeVisible();
+    expect(ran(ipc)).toEqual(["SELECT 1 AS a", "SELECT 2 AS b"]);
+    await screen.getByRole("tab", { name: "Summary" }).click();
+    await expect
+      .element(screen.getByRole("row", { name: /UPDATE t SET n = 1/ }))
+      .toMatchTextContent("Not run");
+  });
+
+  it("skips the rest once the running statement is cancelled", async () => {
+    let refuse: (reason: unknown) => void = () => {};
+    const { ipc, screen, editor } = await shell(postgres, {
+      statement_risks: [],
+      execute_query: () => new Promise<QueryResult>((_, reject) => (refuse = reject)),
+      cancel_query: () => {
+        refuse({ kind: "Cancelled" });
+        return null;
+      },
+    });
+    editor.setValue(script);
+
+    editor.focus();
+    await userEvent.keyboard(`{${mod}>}{Shift>}{Enter}{/Shift}{/${mod}}`);
+    await screen.getByRole("button", { name: "Cancel" }).click();
+
+    await expect
+      .element(screen.getByRole("row", { name: /SELECT 1 AS a/ }))
+      .toMatchTextContent("Cancelled");
+    await expect
+      .element(screen.getByRole("row", { name: /SELECT 2 AS b/ }))
+      .toMatchTextContent("Not run");
+    expect(ran(ipc)).toEqual(["SELECT 1 AS a"]);
+  });
+
+  it("explains the statement under the cursor, and only one", async () => {
+    const { ipc, screen, editor } = await shell(postgres, { explain_query: analyzed });
+    editor.setValue(script);
+    editor.setPosition({ lineNumber: 2, column: 1 });
+
+    await screen.getByRole("button", { name: "Explain" }).click();
+    await expect.poll(() => ipc.sent("explain_query")?.sql).toBe("SELECT 2 AS b");
+
+    editor.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 14 });
+    await screen.getByRole("button", { name: "Analyze" }).click();
+    await expect.element(screen.getByText(/A plan is of one statement/)).toBeVisible();
+    expect(ipc.calls.filter((call) => call.command === "explain_query")).toHaveLength(1);
+  });
+
+  it("runs the whole text as one on BigQuery, which is not split", async () => {
+    const { ipc, screen, editor } = await shell(bigquery, {
+      statement_risks: [],
+      execute_query: echo,
+      estimate_query: { bytes: 0, at_least: false, unpruned: [] },
+    });
+    const twoSelects = "SELECT 1;\nSELECT 2";
+    editor.setValue(twoSelects);
+    editor.setPosition({ lineNumber: 2, column: 1 });
+
+    await screen.getByRole("button", { name: "Run" }).click();
+
+    await expect.poll(() => ran(ipc)).toEqual([twoSelects]);
+    expect(ipc.sent("split_statements")).toBeUndefined();
   });
 });

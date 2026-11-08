@@ -53,3 +53,10 @@ html {
 html[data-window="native"] {
   background: transparent;
 }
+
+/* What a run just sent, marked in the editor for a moment. A class of its own
+   because Monaco strips a `/` from a decoration's class, which a Tailwind
+   opacity needs. */
+.ran-flash {
+  background: color-mix(in oklab, var(--color-primary) 25%, transparent);
+}

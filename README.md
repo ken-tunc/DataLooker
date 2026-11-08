@@ -20,6 +20,10 @@ PostgreSQL and BigQuery.
   A PostgreSQL connection keeps one session, so `BEGIN`, `SET` and temporary tables last
   between statements; its header says when a transaction is open, or has failed, and
   commits or rolls it back.
+  ⌘Enter runs the selection, or on PostgreSQL the statement under the cursor, told
+  apart by PostgreSQL's own grammar; BigQuery runs the whole text as one script.
+  Several statements run in order and stop at the first that fails, each with its
+  result.
   A `DROP`, a `TRUNCATE`, an `ALTER TABLE ... DROP COLUMN` and, on PostgreSQL, an `UPDATE`
   or `DELETE` without a `WHERE` ask before they run: PostgreSQL's from its parse tree,
   BigQuery's from a dry run. On a connection marked production, drawn in red, every
@@ -74,7 +78,8 @@ Press ⌘? for this list in the app.
 | ⌘T                | New SQL tab                            |
 | ⌃Tab, ⌃⇧Tab       | Next / previous tab                    |
 | Delete, Backspace | Close the focused tab                  |
-| ⌘Enter            | Run the editor's query                 |
+| ⌘Enter            | Run the selection, or the statement    |
+| ⇧⌘Enter           | Run everything in the editor           |
 | ⌘E                | Show how PostgreSQL would run it       |
 | ⇧⌘E               | Run it read-only and time each step    |
 | ⇧⌘D, ⌘-click      | Open the table named under the cursor  |

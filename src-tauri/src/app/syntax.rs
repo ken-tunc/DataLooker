@@ -2,6 +2,7 @@ use pg_query::protobuf::ScanToken;
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::app::statements::by_semicolons;
 use crate::app::App;
 
 /// Lines and columns count from 1, and columns in UTF-16 units, as the editor
@@ -32,36 +33,11 @@ fn check(sql: &str) -> Vec<SyntaxError> {
         Err(error) => return vec![whole_text(sql, &strip(error))],
     };
 
-    statements(sql, &tokens)
-        .filter_map(|statement| fault(sql, &tokens, statement))
+    // Byte ranges rather than `split_with_scanner`'s substrings, because a
+    // mark has to land where the statement sits in the whole text.
+    by_semicolons(sql, &tokens)
+        .filter_map(|statement| fault(sql, &tokens, (statement.start, statement.end)))
         .collect()
-}
-
-/// Byte ranges rather than `split_with_scanner`'s substrings, because a mark
-/// has to land where the statement sits in the whole text.
-fn statements<'a>(
-    sql: &'a str,
-    tokens: &'a [ScanToken],
-) -> impl Iterator<Item = (usize, usize)> + 'a {
-    const SEMICOLON: i32 = ';' as i32;
-
-    let ends = tokens
-        .iter()
-        .filter(|token| token.token == SEMICOLON)
-        .map(|token| token.start as usize);
-
-    ends.chain(std::iter::once(sql.len()))
-        .scan(0, |from, end| {
-            let range = (*from, end);
-            *from = end + 1;
-            Some(range)
-        })
-        .filter(|(start, end)| sql.get(*start..*end).is_some_and(|text| !is_blank(text)))
-}
-
-/// The newline after the last semicolon is not an empty statement.
-fn is_blank(text: &str) -> bool {
-    text.trim().is_empty()
 }
 
 fn fault(sql: &str, tokens: &[ScanToken], (start, end): (usize, usize)) -> Option<SyntaxError> {

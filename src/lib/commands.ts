@@ -64,6 +64,11 @@ export function checkSyntax(sql: string) {
   return invoke("check_syntax", { sql });
 }
 
+/** PostgreSQL's statements in `sql`; needs no connection either. */
+export function splitStatements(sql: string) {
+  return invoke("split_statements", { sql });
+}
+
 /** What to ask the reader about before `sql` runs; empty when nothing is. */
 export function statementRisks(connectionId: string, sql: string) {
   return invoke("statement_risks", { connection_id: connectionId, sql });

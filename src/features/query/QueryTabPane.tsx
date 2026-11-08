@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import type { Risk } from "../../bindings/Risk";
 import { EmptyState } from "../../components/EmptyState";
 import { Keys } from "../../components/Keys";
@@ -12,8 +12,10 @@ import { useDriver } from "../connections/hooks";
 import { TemplateFormDialog } from "../query-templates/TemplateFormDialog";
 import { useSchemaTree } from "../schema-tree/hooks";
 import { type QualifiedName, tablesNamed, written } from "../sql-editor/jump";
+import type { EditorHandle, Scope, Target } from "../sql-editor/SqlEditor";
 import { PlanView, type Shape } from "../query-plan/PlanView";
-import { ResultGrid } from "./ResultGrid";
+import { Results } from "./Results";
+import { said } from "./said";
 import { RiskDialog } from "./RiskDialog";
 import { type Outcome, type Request, useQueryRunner } from "./hooks";
 
@@ -47,22 +49,38 @@ export function QueryTabPane({
   onFindTable,
 }: Props) {
   const { run, cancel } = useQueryRunner(connectionId);
+  const editor = useRef<EditorHandle>(null);
+  // Finding what to run asks the backend to split the text, and a second
+  // keystroke meanwhile would run it twice.
+  const resolving = useRef(false);
   const [editorHeight] = usePaneSize(EDITOR);
   const { show } = useToast();
   const tree = useSchemaTree(connectionId);
   const [saving, setSaving] = useState(false);
-  const cancelled = run.error instanceof IpcError && run.error.kind === "Cancelled";
   // Only PostgreSQL says how it would run a statement.
   const explains = useDriver(connectionId) === "postgres";
   const outcome = run.isSuccess ? run.data : null;
+  // A failed plan rejects; a failed statement stops a run that may have
+  // results from the ones before it.
+  const failure = run.isError ? run.error : outcome?.kind === "rows" ? outcome.error : null;
+  const cancelled = failure instanceof IpcError && failure.kind === "Cancelled";
+  // Of several, which one failed: it stopped where its results did.
+  const where =
+    outcome?.kind === "rows" && outcome.statements.length > 1
+      ? `Statement ${outcome.results.length + 1}: `
+      : "";
   const [planShape, setPlanShape] = useState<Shape>("table");
-  const [asking, setAsking] = useState<{ sql: string; risks: Risk[] } | null>(null);
+  const [asking, setAsking] = useState<{ statements: string[]; risks: Risk[] } | null>(null);
   // A plan needs no asking: it is made where nothing it does is kept.
   const check = useMutation({
-    mutationFn: (statement: string) => statementRisks(connectionId, statement),
-    onSuccess: (risks, statement) => {
-      if (risks.length > 0) setAsking({ sql: statement, risks });
-      else start({ sql: statement, explain: null });
+    // Statement by statement, since that is how they run: asked of the whole,
+    // a typo in a later one would leave the text unparsed and an earlier
+    // `DELETE` unasked about.
+    mutationFn: async ({ statements }: Target) =>
+      (await Promise.all(statements.map((one) => statementRisks(connectionId, one)))).flat(),
+    onSuccess: (risks, { statements }) => {
+      if (risks.length > 0) setAsking({ statements, risks });
+      else start({ kind: "rows", statements });
     },
     // Not run: what could not be asked about would go unasked. Text that does
     // not parse has nothing to ask about rather than failing.
@@ -75,13 +93,27 @@ export function QueryTabPane({
     onRun();
   }
 
-  function submit(explain: Request["explain"] = null) {
+  /** What runs, or is explained, is the selection, the statement under the cursor, or all of it. */
+  async function submit(scope: Scope, explain: "plan" | "analyze" | null = null) {
     if (explain !== null && !explains) return;
-    if (sql.trim() === "" || busy || asking) return;
-    if (explain === null) check.mutate(sql);
-    else {
+    if (busy || asking || resolving.current) return;
+    let target: Target | null | undefined;
+    resolving.current = true;
+    try {
+      target = await editor.current?.target(scope);
+    } catch (error) {
+      show(`${describeError(error)} — nothing was run.`, "error");
+      return;
+    } finally {
+      resolving.current = false;
+    }
+    if (!target) return;
+    if (explain === null) check.mutate(target);
+    else if (target.statements.length > 1) {
+      show("A plan is of one statement: select it, or put the cursor in it.", "info");
+    } else {
       check.reset();
-      start({ sql, explain });
+      start({ kind: "plan", sql: target.text, analyze: explain === "analyze" });
     }
   }
 
@@ -116,13 +148,17 @@ export function QueryTabPane({
             type="button"
             className="btn btn-sm btn-primary"
             disabled={sql.trim() === "" || check.isPending}
-            onClick={() => submit()}
+            title="Run the selection, or the statement under the cursor"
+            onClick={() => void submit("statement")}
           >
             Run
           </button>
         )}
-        <span className="text-faint text-xs">
+        <span className="text-faint flex items-center gap-1 text-xs">
           <Keys keys="⌘Enter" size="xs" />
+          <span>·</span>
+          <span>all</span>
+          <Keys keys="⇧⌘Enter" size="xs" />
         </span>
         {explains && (
           <div className="join">
@@ -131,7 +167,7 @@ export function QueryTabPane({
               className="btn btn-sm join-item"
               disabled={sql.trim() === "" || busy}
               title="How PostgreSQL would run it (⌘E)"
-              onClick={() => submit("plan")}
+              onClick={() => void submit("statement", "plan")}
             >
               Explain
             </button>
@@ -140,7 +176,7 @@ export function QueryTabPane({
               className="btn btn-sm join-item"
               disabled={sql.trim() === "" || busy}
               title="Run it read-only and time each step (⇧⌘E)"
-              onClick={() => submit("analyze")}
+              onClick={() => void submit("statement", "analyze")}
             >
               Analyze
             </button>
@@ -161,8 +197,8 @@ export function QueryTabPane({
           error={
             check.isError
               ? describeError(check.error)
-              : run.isError && !cancelled
-                ? describeError(run.error)
+              : failure !== null && !cancelled
+                ? `${where}${describeError(failure)}`
                 : null
           }
           outcome={outcome}
@@ -177,12 +213,13 @@ export function QueryTabPane({
       >
         <Suspense fallback={<div className="skeleton h-full w-full" />}>
           <SqlEditor
+            ref={editor}
             connectionId={connectionId}
             tabId={tabId}
             value={sql}
             onChange={onSqlChange}
-            onSubmit={() => submit()}
-            onExplain={(analyze) => submit(analyze ? "analyze" : "plan")}
+            onSubmit={(scope) => void submit(scope)}
+            onExplain={(analyze) => void submit("statement", analyze ? "analyze" : "plan")}
             onJump={jump}
           />
         </Suspense>
@@ -195,7 +232,7 @@ export function QueryTabPane({
       {asking && !hidden && (
         <RiskDialog
           risks={asking.risks}
-          onRun={() => start({ sql: asking.sql, explain: null })}
+          onRun={() => start({ kind: "rows", statements: asking.statements })}
           onClose={() => setAsking(null)}
         />
       )}
@@ -210,12 +247,10 @@ export function QueryTabPane({
             shape={planShape}
             onShapeChange={setPlanShape}
           />
-        ) : outcome && outcome.result.columns.length > 0 ? (
-          <ResultGrid result={outcome.result} connectionId={connectionId} />
+        ) : outcome ? (
+          <Results key={run.submittedAt} ran={outcome} connectionId={connectionId} />
         ) : (
-          <EmptyState>
-            {run.isSuccess ? "The statement returned no rows." : "Run a query to see its rows."}
-          </EmptyState>
+          <EmptyState>Run a query to see its rows.</EmptyState>
         )}
       </div>
     </div>
@@ -240,13 +275,15 @@ function Status({
   if (outcome.kind === "plan") {
     return <span className="text-muted text-sm">{outcome.plan.elapsed_ms} ms</span>;
   }
-  const { result } = outcome;
+  const { statements, results } = outcome;
+  const [only] = results;
+  const elapsed = results.reduce((sum, result) => sum + result.elapsed_ms, 0);
   return (
     <span className="text-muted flex gap-3 text-sm">
       <span>
-        {result.rows.length} {result.rows.length === 1 ? "row" : "rows"}
+        {statements.length === 1 && only ? said(only) : `${statements.length} statements`}
       </span>
-      <span>{result.elapsed_ms} ms</span>
+      <span>{elapsed} ms</span>
     </span>
   );
 }

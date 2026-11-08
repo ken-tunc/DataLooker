@@ -123,6 +123,7 @@ async fn list(
             .map(|row| cells(row, &fields))
             .collect(),
         elapsed_ms: started.elapsed().as_millis() as u32,
+        rows_affected: None,
     }))
 }
 

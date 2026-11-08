@@ -28,6 +28,7 @@ use crate::app::connections::SaveConnectionInput;
 use crate::app::edit::TableEdits;
 use crate::app::handoffs::Handoff;
 use crate::app::preview::{PreviewCost, PreviewRequest};
+use crate::app::statements::StatementSpan;
 use crate::app::syntax::SyntaxError;
 use crate::app::tabs::SaveTabsInput;
 use crate::app::templates::SaveTemplateInput;
@@ -124,6 +125,7 @@ commands! {
     query::transaction_state(ConnectionArgs) -> TransactionState;
     query::estimate_query(EstimateQueryArgs) -> Estimate;
     query::check_syntax(CheckSyntaxArgs) -> Vec<SyntaxError>;
+    query::split_statements(SplitStatementsArgs) -> Vec<StatementSpan>;
     query::statement_risks(StatementRisksArgs) -> Vec<Risk>;
     query::query_history(ConnectionArgs) -> Vec<HistoryEntry>;
     tabs::saved_tabs(ConnectionArgs) -> SavedTabs;
@@ -230,6 +232,12 @@ pub struct CancelQueryArgs {
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, export_to = "../../src/bindings/")]
 pub struct CheckSyntaxArgs {
+    pub sql: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, export_to = "../../src/bindings/")]
+pub struct SplitStatementsArgs {
     pub sql: String,
 }
 

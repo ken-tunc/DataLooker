@@ -29,6 +29,11 @@ pub struct QueryResult {
     pub rows: Vec<Vec<serde_json::Value>>,
     pub truncated: bool,
     pub elapsed_ms: u32,
+    /// What the server counted for a statement that returns no rows: those an
+    /// `UPDATE` changed, say. `None` where it said nothing, or for a table
+    /// preview, which is not a statement the reader wrote.
+    #[ts(type = "number | null", optional)]
+    pub rows_affected: Option<u64>,
 }
 
 /// Where the reader's session stands between statements. BigQuery keeps no
