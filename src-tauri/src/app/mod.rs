@@ -12,6 +12,7 @@ mod query;
 mod risks;
 mod schema;
 pub mod shell;
+pub mod statements;
 pub mod syntax;
 pub mod tabs;
 pub mod templates;

@@ -120,6 +120,8 @@ pub struct Answer {
     /// A string, and absent while the job runs.
     pub total_rows: Option<String>,
     pub job_complete: Option<bool>,
+    /// Of a DML statement, a string like `total_rows`.
+    pub num_dml_affected_rows: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import type { ConnectionRecord } from "../../bindings/ConnectionRecord";
 import type { SchemaTree } from "../../bindings/SchemaTree";
-import { renderApp, stubIpc } from "../../test/harness";
+import { renderApp, splitAtSemicolons, stubIpc } from "../../test/harness";
 import { AppShell } from "./AppShell";
 
 const local: ConnectionRecord = {
@@ -54,6 +54,7 @@ const page = {
 
 async function shell(replies: Parameters<typeof stubIpc>[0] = {}) {
   const ipc = stubIpc({
+    split_statements: splitAtSemicolons,
     list_connections: [local, staging],
     running_connection_commands: [],
     language_server_state: { kind: "ready" },

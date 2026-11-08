@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use crate::app::statements::StatementSpan;
 use crate::app::syntax::SyntaxError;
 use crate::app::App;
 use crate::commands::{
     CancelQueryArgs, CheckSyntaxArgs, ConnectionArgs, EstimateQueryArgs, ExecuteQueryArgs,
-    ExplainQueryArgs, StatementRisksArgs,
+    ExplainQueryArgs, SplitStatementsArgs, StatementRisksArgs,
 };
 use crate::db::history::HistoryEntry;
 use crate::drivers::bigquery::Estimate;
@@ -70,6 +71,15 @@ pub async fn check_syntax(
     app: State<'_, Arc<App>>,
 ) -> Result<Vec<SyntaxError>, AppError> {
     Ok(app.check_syntax(&args.sql))
+}
+
+/// Async for the same reason as `check_syntax`.
+#[tauri::command]
+pub async fn split_statements(
+    args: SplitStatementsArgs,
+    app: State<'_, Arc<App>>,
+) -> Result<Vec<StatementSpan>, AppError> {
+    Ok(app.split_statements(&args.sql))
 }
 
 #[tauri::command]

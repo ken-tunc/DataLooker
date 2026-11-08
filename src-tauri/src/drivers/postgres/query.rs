@@ -1,7 +1,9 @@
 use std::time::Instant;
 
 use futures_util::TryStreamExt;
-use sqlx::{AssertSqlSafe, Column, PgConnection, Row, TypeInfo};
+use sqlx::postgres::PgColumn;
+use sqlx::Either;
+use sqlx::{AssertSqlSafe, Column, Executor, PgConnection, Row, SqlSafeStr, Statement, TypeInfo};
 
 use crate::drivers::postgres::value::{holds_instants, row_to_json};
 use crate::drivers::{QueryColumn, QueryResult};
@@ -18,34 +20,59 @@ pub async fn execute(
     let mut columns: Option<Vec<QueryColumn>> = None;
     let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
     let mut truncated = false;
+    let mut rows_affected = None;
 
-    let mut stream = sqlx::query(AssertSqlSafe(sql)).fetch(conn);
-    while let Some(row) = stream.try_next().await? {
-        if columns.is_none() {
-            columns = Some(
-                row.columns()
-                    .iter()
-                    .map(|column| QueryColumn {
-                        name: column.name().to_string(),
-                        type_name: column.type_info().name().to_string(),
-                        instant: holds_instants(column.type_info()),
-                    })
-                    .collect(),
-            );
+    {
+        let mut stream = (&mut *conn).fetch_many(sqlx::query(AssertSqlSafe(sql)));
+        while let Some(item) = stream.try_next().await? {
+            let row = match item {
+                Either::Left(done) => {
+                    rows_affected = Some(done.rows_affected());
+                    continue;
+                }
+                Either::Right(row) => row,
+            };
+            if columns.is_none() {
+                columns = Some(described(row.columns()));
+            }
+            if rows.len() >= row_limit {
+                truncated = true;
+                break;
+            }
+            rows.push(row_to_json(&row));
         }
-        if rows.len() >= row_limit {
-            truncated = true;
-            break;
-        }
-        rows.push(row_to_json(&row));
     }
 
+    // A statement that returns rows says which even when there are none, and
+    // a statement only gets here having been prepared, so sqlx answers from
+    // its cache rather than asking the server again.
+    let columns = match columns {
+        Some(columns) => columns,
+        None => described(
+            conn.prepare(AssertSqlSafe(sql).into_sql_str())
+                .await?
+                .columns(),
+        ),
+    };
+
     Ok(QueryResult {
-        columns: columns.unwrap_or_default(),
+        columns,
         rows,
         truncated,
         elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u32::MAX),
+        rows_affected,
     })
+}
+
+fn described(columns: &[PgColumn]) -> Vec<QueryColumn> {
+    columns
+        .iter()
+        .map(|column| QueryColumn {
+            name: column.name().to_string(),
+            type_name: column.type_info().name().to_string(),
+            instant: holds_instants(column.type_info()),
+        })
+        .collect()
 }
 
 /// What only a PostgreSQL can say; see `testing` for which one, and when it is skipped.
@@ -139,16 +166,34 @@ mod live {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_zero_row_result_carries_no_columns() {
+    async fn a_zero_row_result_still_names_its_columns() {
         let Some(session) = session_or_skip().await else {
             return;
         };
 
         let result = run(&session, "SELECT 1 AS one WHERE FALSE").await.unwrap();
 
-        assert!(result.columns.is_empty());
+        let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["one"]);
         assert!(result.rows.is_empty());
         assert!(!result.truncated);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_statement_that_returns_nothing_says_how_many_rows_it_changed() {
+        let Some(session) = session_or_skip().await else {
+            return;
+        };
+        run(&session, "CREATE TEMPORARY TABLE counted (n int)")
+            .await
+            .unwrap();
+
+        let inserted = run(&session, "INSERT INTO counted SELECT generate_series(1, 3)")
+            .await
+            .unwrap();
+
+        assert!(inserted.columns.is_empty());
+        assert_eq!(inserted.rows_affected, Some(3));
     }
 
     #[tokio::test(flavor = "multi_thread")]
