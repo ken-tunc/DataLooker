@@ -1,18 +1,21 @@
 //! What the tests that reach BigQuery share. There is no BigQuery to run in a
-//! container, so they reach a real project, with the Application Default
-//! Credentials the app itself would use, and skip when no project is named.
+//! container, so they reach a real project, with the credentials the app itself
+//! would use, and skip when no project is named.
 //!
 //! ```sh
 //! DATALOOKER_TEST_BQ_PROJECT=my-project cargo test
 //! ```
 //! The location defaults to `US`; set `DATALOOKER_TEST_BQ_LOCATION` for a
-//! project read anywhere else.
+//! project read anywhere else. The credentials are Application Default
+//! Credentials unless `DATALOOKER_TEST_BQ_CREDENTIALS=gcloud`, which signs in
+//! as gcloud's active account, or `DATALOOKER_TEST_BQ_ACCOUNT` if set.
 
 use std::env;
 
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::db::connection::BigQueryCredentials;
 use crate::drivers::bigquery::BigQuerySession;
 
 pub(crate) const ROW_LIMIT: usize = 100;
@@ -23,7 +26,22 @@ pub(crate) fn session_or_skip() -> Option<BigQuerySession> {
         eprintln!("skipping: DATALOOKER_TEST_BQ_PROJECT names no project");
         return None;
     };
-    Some(BigQuerySession::new(&project, &location()))
+    Some(BigQuerySession::new(
+        &project,
+        &location(),
+        credentials_for_tests(),
+    ))
+}
+
+pub(crate) fn credentials_for_tests() -> BigQueryCredentials {
+    match env::var("DATALOOKER_TEST_BQ_CREDENTIALS").as_deref() {
+        Ok("gcloud") => BigQueryCredentials::Gcloud {
+            account: env::var("DATALOOKER_TEST_BQ_ACCOUNT")
+                .ok()
+                .filter(|account| !account.is_empty()),
+        },
+        _ => BigQueryCredentials::Adc,
+    }
 }
 
 /// A dataset made here has to be where the jobs run.

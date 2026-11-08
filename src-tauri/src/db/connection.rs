@@ -14,12 +14,33 @@ pub enum DriverConfig {
         database: String,
         username: String,
     },
-    /// Signed in with Application Default Credentials, so there is no secret.
+    /// Signed in as the reader through gcloud, so there is no secret.
     BigQuery {
         project_id: String,
         /// Where the jobs run, and where the catalog that describes the
         /// project lives: `US`, `EU`, `asia-northeast1`.
         location: String,
+        /// Absent from a connection stored before there was a choice.
+        #[serde(default)]
+        credentials: BigQueryCredentials,
+    },
+}
+
+/// Which of gcloud's two sign-ins a BigQuery connection uses. They are
+/// separate: `bq` and `gcloud` themselves use the second, client libraries
+/// the first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "source", rename_all = "lowercase")]
+#[ts(export, export_to = "../../src/bindings/")]
+pub enum BigQueryCredentials {
+    /// Application Default Credentials: `gcloud auth application-default login`.
+    #[default]
+    Adc,
+    /// gcloud's own account: `gcloud auth login`.
+    Gcloud {
+        /// One of the accounts gcloud is signed in to; gcloud's active one
+        /// when absent.
+        account: Option<String>,
     },
 }
 
@@ -395,5 +416,32 @@ mod tests {
     async fn deleting_a_missing_row_is_not_an_error() {
         let pool = open_in_memory().await.unwrap();
         delete(&pool, "nope").await.unwrap();
+    }
+
+    #[test]
+    fn a_bigquery_connection_stored_before_the_choice_uses_adc() {
+        let stored = r#"{"kind": "bigquery", "project_id": "looking", "location": "US"}"#;
+        let config: DriverConfig = serde_json::from_str(stored).unwrap();
+        assert_eq!(
+            config,
+            DriverConfig::BigQuery {
+                project_id: "looking".into(),
+                location: "US".into(),
+                credentials: BigQueryCredentials::Adc,
+            }
+        );
+    }
+
+    #[test]
+    fn the_credentials_a_bigquery_connection_uses_are_kept() {
+        let config = DriverConfig::BigQuery {
+            project_id: "looking".into(),
+            location: "US".into(),
+            credentials: BigQueryCredentials::Gcloud {
+                account: Some("reader@example.com".into()),
+            },
+        };
+        let text = encode(&config).unwrap();
+        assert_eq!(serde_json::from_str::<DriverConfig>(&text).unwrap(), config);
     }
 }

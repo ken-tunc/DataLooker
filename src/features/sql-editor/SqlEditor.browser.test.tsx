@@ -369,7 +369,12 @@ function bigquery(connectionId: string): ConnectionRecord[] {
     {
       id: connectionId,
       label: "BigQuery",
-      config: { kind: "bigquery", project_id: "shop", location: "US" } as const,
+      config: {
+        kind: "bigquery",
+        project_id: "shop",
+        location: "US",
+        credentials: { source: "adc" },
+      } as const,
       command: null,
       command_while_selected: false,
       time_zone: null,

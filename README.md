@@ -5,8 +5,9 @@ PostgreSQL and BigQuery.
 
 ## Features
 
-- **Connections** — PostgreSQL and BigQuery (Application Default Credentials, from
-  `gcloud auth application-default login`). Passwords stay in the macOS keychain. A
+- **Connections** — PostgreSQL and BigQuery, signed in as the account `bq` uses
+  (`gcloud auth login`) or with Application Default Credentials (`gcloud auth
+  application-default login`). Passwords stay in the macOS keychain. A
   connection can carry a shell command, such as an SSH tunnel, started and stopped from
   its header, or run only while the connection is selected.
 - **SQL editor** — Monaco with tabs, which each connection reopens after a restart with
@@ -143,6 +144,9 @@ one is named:
 ```sh
 DATALOOKER_TEST_BQ_PROJECT=my-project cargo test bigquery
 ```
+
+`DATALOOKER_TEST_BQ_CREDENTIALS=gcloud` reaches it as gcloud's active account instead, or
+as `DATALOOKER_TEST_BQ_ACCOUNT` when that is set.
 
 `--coverage` (frontend) and `cargo llvm-cov` (backend) report coverage.
 

@@ -454,6 +454,7 @@ mod tests {
                     project_id: project,
                     location: std::env::var("DATALOOKER_TEST_BQ_LOCATION")
                         .unwrap_or_else(|_| "US".into()),
+                    credentials: crate::drivers::bigquery::credentials_for_tests(),
                 },
                 secret: None,
                 command: None,

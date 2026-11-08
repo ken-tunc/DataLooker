@@ -163,6 +163,7 @@ mod tests {
         let bigquery = DriverConfig::BigQuery {
             project_id: "t-housework".into(),
             location: "asia-northeast1".into(),
+            credentials: Default::default(),
         };
         assert_eq!(Server::of(&bigquery), None);
         assert!(matches!(
